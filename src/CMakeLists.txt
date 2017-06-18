@@ -27,7 +27,7 @@ SET(ALL_SRC ${SRC} ${HDR})
 LIST(SORT ALL_SRC)
 
 if(APPLE)
-	add_library(bp ${ALL_SRC})
+	add_executable(bp ${ALL_SRC})
 elseif(UNIX)
 	add_library(bp SHARED ${ALL_SRC})
 elseif(WIN32)
@@ -121,4 +121,8 @@ elseif(WIN32)
 	set(OUTPUT_FILENAME "win.xpl")
 endif()
 
-set_target_properties(bp PROPERTIES OUTPUT_NAME "../bin/${OUTPUT_FILENAME}")
+set_target_properties(bp PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+    "${CMAKE_SOURCE_DIR}/bin" )
+set_target_properties(bp PROPERTIES LIBRARY_OUTPUT_DIRECTORY
+    "${CMAKE_SOURCE_DIR}/bin" )
+set_target_properties(bp PROPERTIES OUTPUT_NAME "${OUTPUT_FILENAME}")
