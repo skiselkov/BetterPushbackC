@@ -23,8 +23,8 @@
  * Copyright 2017 Saso Kiselkov. All rights reserved.
  */
 
-#ifndef	_XRAAS_ASSERT_H_
-#define	_XRAAS_ASSERT_H_
+#ifndef	_BP_ASSERT_H_
+#define	_BP_ASSERT_H_
 
 #include <assert.h>
 #include <stdlib.h>
@@ -51,9 +51,9 @@ extern "C" {
 #define	VERIFY_MSG(x, fmt, ...) \
 	do { \
 		if (!(x)) { \
-			xtcas_log_impl(xtcas_basename(__FILE__), __LINE__, \
+			bp_log_impl(bp_basename(__FILE__), __LINE__, \
 			    "assertion \"%s\" failed: " fmt, #x, __VA_ARGS__); \
-			xtcas_log_backtrace(); \
+			bp_log_backtrace(); \
 			abort(); \
 		} \
 	} while (0)
@@ -65,10 +65,10 @@ extern "C" {
 		type tmp_x = (type)(x); \
 		type tmp_y = (type)(y); \
 		if (!(tmp_x op tmp_y)) { \
-			xtcas_log_impl(xtcas_basename(__FILE__), __LINE__, \
+			bp_log_impl(bp_basename(__FILE__), __LINE__, \
 			    "assertion " #x " " #op " " #y " failed (" \
 			    fmt " " #op " " fmt ")", tmp_x, tmp_y); \
-			xtcas_log_backtrace(); \
+			bp_log_backtrace(); \
 			abort(); \
 		} \
 	} while (0)
@@ -105,4 +105,4 @@ extern "C" {
 }
 #endif
 
-#endif	/* _XRAAS_ASSERT_H_ */
+#endif	/* _BP_ASSERT_H_ */

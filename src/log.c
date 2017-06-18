@@ -44,22 +44,21 @@
 #define	PREFIX_FMT	"%s:%d: ", filename ? filename : "", line
 #endif	/* TEST_STANDALONE_BUILD */
 
-dbg_info_t xtcas_dbg = {
-	.all = 0, .snd = 0, .wav = 0, .tcas = 0, .xplane = 0, .test = 0,
-	.ra = 0, .cpa = 0, .contact = 0, .sl = 0, .threat = 0
+dbg_info_t bp_dbg = {
+	.all = 0, .wav = 0
 };
 
 void
-xtcas_log_impl(const char *filename, int line, const char *fmt, ...)
+bp_log_impl(const char *filename, int line, const char *fmt, ...)
 {
 	va_list ap;
 	va_start(ap, fmt);
-	xtcas_log_impl_v(filename, line, fmt, ap);
+	bp_log_impl_v(filename, line, fmt, ap);
 	va_end(ap);
 }
 
 void
-xtcas_log_impl_v(const char *filename, int line, const char *fmt, va_list ap)
+bp_log_impl_v(const char *filename, int line, const char *fmt, va_list ap)
 {
 	va_list ap_copy;
 	char timedate[32];
@@ -113,7 +112,7 @@ static char line_buf[sizeof (IMAGEHLP_LINE64)];
 #endif	/* IBM */
 
 void
-xtcas_log_backtrace(void)
+bp_log_backtrace(void)
 {
 #if	IBM
 

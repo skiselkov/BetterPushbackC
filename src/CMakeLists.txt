@@ -120,22 +120,18 @@ endif()
 SET_TARGET_PROPERTIES(betterpushback PROPERTIES PREFIX "")
 SET_TARGET_PROPERTIES(betterpushback PROPERTIES SUFFIX "")
 
-if("${TEST_STANDALONE_BUILD}" EQUAL "1")
-	set(OUTPUT_FILENAME "BetterPushback")
-else()
-	if(APPLE)
-		set(OUTPUT_FILENAME "mac.xpl")
-		SET_TARGET_PROPERTIES(betterpushback PROPERTIES LINK_FLAGS
-		    "${CMAKE_SHARED_LINKER_FLAGS} -fPIC -fvisibility=hidden \
-		    -bundle")
-	elseif(UNIX)
-		set(OUTPUT_FILENAME "lin.xpl")
-		SET_TARGET_PROPERTIES(betterpushback PROPERTIES LINK_FLAGS
-		    "${CMAKE_SHARED_LINKER_FLAGS} -rdynamic -nodefaultlibs \
-		    -undefined_warning -fPIC -fvisibility=hidden")
-	elseif(WIN32)
-		set(OUTPUT_FILENAME "win.xpl")
-	endif()
+if(APPLE)
+	set(OUTPUT_FILENAME "mac.xpl")
+	SET_TARGET_PROPERTIES(betterpushback PROPERTIES LINK_FLAGS
+	    "${CMAKE_SHARED_LINKER_FLAGS} -fPIC -fvisibility=hidden \
+	    -bundle")
+elseif(UNIX)
+	set(OUTPUT_FILENAME "lin.xpl")
+	SET_TARGET_PROPERTIES(betterpushback PROPERTIES LINK_FLAGS
+	    "${CMAKE_SHARED_LINKER_FLAGS} -rdynamic -nodefaultlibs \
+	    -undefined_warning -fPIC -fvisibility=hidden")
+elseif(WIN32)
+	set(OUTPUT_FILENAME "win.xpl")
 endif()
 
 set_target_properties(betterpushback PROPERTIES RUNTIME_OUTPUT_DIRECTORY
