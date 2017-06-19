@@ -29,6 +29,7 @@ extern "C" {
 typedef struct {
 	int	all;
 	int	wav;
+	int	bp;
 } dbg_info_t;
 
 extern dbg_info_t bp_dbg;
@@ -40,7 +41,7 @@ void bp_log_impl_v(const char *filename, int line, const char *fmt,
 void bp_log_backtrace(void);
 
 #define	logMsg(...) \
-	bp_log_impl(NULL, 0, bp_basename(__FILE__), __LINE__, __VA_ARGS__)
+	bp_log_impl(NULL, 0, __VA_ARGS__)
 
 #if	defined(__GNUC__) || defined(__clang__)
 #define	bp_basename(f) (__builtin_strrchr(f, BUILD_DIRSEP) ? \
@@ -49,7 +50,6 @@ void bp_log_backtrace(void);
 const char *bp_basename(const char *filename);
 #endif	/* !__GNUC__ && !__clang__ */
 
-#ifndef	TEST_STANDALONE_BUILD
 #define	dbg_log(class, level, ...) \
 	do { \
 		if (bp_dbg.class >= level || bp_dbg.all >= level) { \
@@ -57,14 +57,6 @@ const char *bp_basename(const char *filename);
 			    "[" #class "/" #level "]: " __VA_ARGS__); \
 		} \
 	} while (0)
-#else	/* TEST_STANDALONE_BUILD */
-#define	dbg_log(class, level, ...) \
-	do { \
-		if (bp_dbg.class >= level || bp_dbg.all >= level) { \
-			bp_log_impl(NULL, 0, __VA_ARGS__); \
-		} \
-	} while (0)
-#endif	/* TEST_STANDALONE_BUILD */
 
 #ifdef __cplusplus
 }

@@ -16,9 +16,10 @@
 cmake_minimum_required(VERSION 2.8)
 project(bp C)
 
-SET(SRC avl.c geom.c helpers.c list.c log.c math.c time.c wav.c riff.c)
-SET(HDR avl.h avl_impl.h geom.h helpers.h log.h list.h list_impl.h
-    math.h types.h time.h wav.h riff.h)
+SET(SRC avl.c bp.c dr.c geom.c helpers.c list.c log.c math.c time.c
+    wav.c riff.c xplane.c)
+SET(HDR avl.h avl_impl.h bp.h dr.h geom.h helpers.h log.h list.h list_impl.h
+    math.h types.h time.h wav.h riff.h xplane.h)
 
 SET(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELEASE} -DDEBUG")
 SET(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DDEBUG -O0")
@@ -83,10 +84,11 @@ if(APPLE)
 	set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH} ../SDK/Libraries/Mac/)
 	FIND_LIBRARY(XPLM_LIBRARY XPLM ../SDK/Libraries/Mac/)
 	FIND_LIBRARY(XPWIDGETS_LIBRARY XPWidgets ../SDK/Libraries/Mac/)
+	FIND_LIBRARY(OPENGL_LIBRARY OpenGL)
 	FIND_LIBRARY(OPENAL_LIBRARY OpenAL)
 	FIND_LIBRARY(CURSES_LIBRARY ncurses)
-	target_link_libraries(bp ${OPENAL_LIBRARY}
-	    ${XPLM_LIBRARY} ${XPWIDGETS_LIBRARY})
+	target_link_libraries(bp ${OPENAL_LIBRARY} ${OPENGL_LIBRARY}
+	    ${XPLM_LIBRARY})
 elseif(UNIX)
 	INCLUDE(FindPkgConfig)
 	pkg_check_modules(UDEV REQUIRED libudev)

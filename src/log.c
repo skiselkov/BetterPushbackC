@@ -28,24 +28,19 @@
 #include <execinfo.h>   /* used for stack tracing */
 #endif	/* !IBM */
 
-#ifndef	TEST_STANDALONE_BUILD
 #include "XPLMUtilities.h"
-#endif
 
 #include "assert.h"
 #include "helpers.h"
 #include "log.h"
 
-#define	PREFIX		"X-TCAS"
-#define	DATE_FMT	"%Y-%m-%d %H:%M:%S"
-#ifndef	TEST_STANDALONE_BUILD
-#define	PREFIX_FMT	"%s %s[%s:%d]: ", timedate, PREFIX, filename, line
-#else	/* TEST_STANDALONE_BUILD */
-#define	PREFIX_FMT	"%s:%d: ", filename ? filename : "", line
-#endif	/* TEST_STANDALONE_BUILD */
+#define	PREFIX		"BetterPushback"
+#define	DATE_FMT	"%H:%M:%S"
+#define	PREFIX_FMT	"%s %s[%s:%d]: ", timedate, PREFIX, \
+	filename ? filename : "", line
 
 dbg_info_t bp_dbg = {
-	.all = 0, .wav = 0
+	.all = 0, .wav = 0, .bp = 0
 };
 
 void
@@ -81,9 +76,7 @@ bp_log_impl_v(const char *filename, int line, const char *fmt, va_list ap)
 	(void) vsnprintf(&buf[prefix_len], len + 1, fmt, ap);
 	strncat(buf, "\n", prefix_len + len + 2);
 
-#ifndef	TEST_STANDALONE_BUILD
 	XPLMDebugString(buf);
-#endif
 	printf("%s", buf);
 	fflush(stdout);
 
@@ -178,9 +171,7 @@ bp_log_backtrace(void)
 		}
 	}
 
-#ifndef	TEST_STANDALONE_BUILD
 	XPLMDebugString(backtrace_buf);
-#endif
 	fprintf(stderr, "%s", backtrace_buf);
 
 #else	/* !IBM */
@@ -202,9 +193,7 @@ bp_log_backtrace(void)
 	for (i = 1, j = BACKTRACE_STRLEN; i < sz; i++)
 		j += sprintf(&msg[j], "%s\n", fnames[i]);
 
-#ifndef	TEST_STANDALONE_BUILD
 	XPLMDebugString(msg);
-#endif
 	fprintf(stderr, "%s", msg);
 	fflush(stderr);
 

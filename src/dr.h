@@ -26,13 +26,16 @@
 extern "C" {
 #endif
 
+#define	DR_MAX_NAME_LEN	128
+
 typedef struct {
+	char		name[DR_MAX_NAME_LEN];
 	XPLMDataRef	dr;
 	XPLMDataTypeID	type;
 	bool_t		writable;
 } dr_t;
 
-void bp_dr_find(dr_t *dr, const char *fmt, ...);
+void bp_dr_init(dr_t *dr, const char *fmt, ...) PRINTF_ATTR(2);
 
 int bp_dr_geti(dr_t *dr);
 void bp_dr_seti(dr_t *dr, int i);

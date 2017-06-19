@@ -20,10 +20,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "XPLMUtilities.h"
-#include "XPLMProcessing.h"
+#include <XPLMUtilities.h>
 
 #include "helpers.h"
+#include "log.h"
 
 #include "bp.h"
 
@@ -31,67 +31,58 @@
 #define BP_PLUGIN_SIG		"skiselkov.BetterPushback1.0"
 #define BP_PLUGIN_DESCRIPTION	"Generic automated pushback plugin"
 
-static bool_t		started = B_FALSE;
-static XPLMCommandRef	start_cmd, stop_cmd;
+static XPLMCommandRef	start_pb, stop_pb, start_cam, stop_cam;
 
-static int start_cmd_handler(XPLMCommandRef, XPLMCommandPhase, void *);
-static int stop_cmd_handler(XPLMCommandRef, XPLMCommandPhase, void *);
-static float floop_cb(float, float, int, void *);
+static int start_pb_handler(XPLMCommandRef, XPLMCommandPhase, void *);
+static int stop_pb_handler(XPLMCommandRef, XPLMCommandPhase, void *);
+static int start_cam_handler(XPLMCommandRef, XPLMCommandPhase, void *);
+static int stop_cam_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 
 static int
-start_cmd_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
+start_pb_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 {
 	UNUSED(cmd);
-	UNUSED(phase);
 	UNUSED(refcon);
-
-	/* make sure we're stopped */
-	stop_cmd_handler(NULL, 0, NULL);
-
+	if (phase != xplm_CommandEnd)
+		return (1);
+	bp_cam_fini();
 	if (!bp_init())
 		return (1);
-
-	bp_test_setup();
-
-	XPLMRegisterFlightLoopCallback(floop_cb, -1, NULL);
-	started = B_TRUE;
-
+	bp_start();
 	return (1);
 }
 
 static int
-stop_cmd_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
+stop_pb_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 {
 	UNUSED(cmd);
-	UNUSED(phase);
 	UNUSED(refcon);
-
-	if (!started)
+	if (phase != xplm_CommandEnd)
 		return (1);
-
-	bp_fini();
-	XPLMUnregisterFlightLoopCallback(floop_cb, NULL);
-
-	started = B_FALSE;
-
+	bp_stop();
 	return (1);
 }
 
-static float
-floop_cb(float elapsed_since_last_call, float elapsed_since_last_floop,
-    int counter, void *refcon)
+static int
+start_cam_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 {
-	UNUSED(elapsed_since_last_call);
-	UNUSED(elapsed_since_last_floop);
-	UNUSED(counter);
+	UNUSED(cmd);
 	UNUSED(refcon);
+	if (phase != xplm_CommandEnd)
+		return (1);
+	bp_cam_init();
+	return (1);
+}
 
-	if (!bp_run()) {
-		/* can't unregister from callback, so just stop the callback */
-		return (0);
-	}
-
-	return (-1.0);
+static int
+stop_cam_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
+{
+	UNUSED(cmd);
+	UNUSED(refcon);
+	if (phase != xplm_CommandEnd)
+		return (1);
+	bp_cam_fini();
+	return (1);
 }
 
 PLUGIN_API int
@@ -101,8 +92,12 @@ XPluginStart(char *name, char *sig, char *desc)
 	strcpy(sig, BP_PLUGIN_SIG);
 	strcpy(desc, BP_PLUGIN_DESCRIPTION);
 
-	start_cmd = XPLMCreateCommand("BetterPushback/start", "Start BP");
-	stop_cmd = XPLMCreateCommand("BetterPushback/stop", "Stop BP");
+	start_pb = XPLMCreateCommand("BetterPushback/start", "Start BP");
+	stop_pb = XPLMCreateCommand("BetterPushback/stop", "Stop BP");
+	start_cam = XPLMCreateCommand("BetterPushback/start_cam",
+	    "Start BP Camera");
+	stop_cam = XPLMCreateCommand("BetterPushback/stop_cam",
+	    "Stop BP Camera");
 
 	return (1);
 }
@@ -115,16 +110,20 @@ XPluginStop(void)
 PLUGIN_API void
 XPluginEnable(void)
 {
-	XPLMRegisterCommandHandler(start_cmd, start_cmd_handler, 1, NULL);
-	XPLMRegisterCommandHandler(stop_cmd, stop_cmd_handler, 1, NULL);
+	XPLMRegisterCommandHandler(start_pb, start_pb_handler, 1, NULL);
+	XPLMRegisterCommandHandler(stop_pb, stop_pb_handler, 1, NULL);
+	XPLMRegisterCommandHandler(start_cam, start_cam_handler, 1, NULL);
+	XPLMRegisterCommandHandler(stop_cam, stop_cam_handler, 1, NULL);
 }
 
 PLUGIN_API void
 XPluginDisable(void)
 {
-	XPLMUnregisterCommandHandler(start_cmd, start_cmd_handler, 1, NULL);
-	XPLMUnregisterCommandHandler(stop_cmd, stop_cmd_handler, 1, NULL);
-	stop_cmd_handler(NULL, 0, NULL);
+	XPLMUnregisterCommandHandler(start_pb, start_pb_handler, 1, NULL);
+	XPLMUnregisterCommandHandler(stop_pb, stop_pb_handler, 1, NULL);
+	XPLMUnregisterCommandHandler(start_cam, start_pb_handler, 1, NULL);
+	XPLMUnregisterCommandHandler(stop_cam, stop_pb_handler, 1, NULL);
+	stop_pb_handler(NULL, 0, NULL);
 }
 
 PLUGIN_API void

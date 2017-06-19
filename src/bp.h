@@ -27,8 +27,11 @@ extern "C" {
 
 bool_t bp_init(void);
 void bp_fini(void);
-bool_t bp_run(void);
-void bp_test_setup(void);
+void bp_start(void);
+void bp_stop(void);
+
+void bp_cam_init(void);
+void bp_cam_fini(void);
 
 #ifdef	__cplusplus
 }

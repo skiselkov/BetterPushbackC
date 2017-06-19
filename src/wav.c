@@ -44,11 +44,7 @@
 
 static ALCdevice *old_dev = NULL, *my_dev = NULL;
 static ALCcontext *old_ctx = NULL, *my_ctx = NULL;
-#ifdef	TEST_STANDALONE_BUILD
-static bool_t use_shared = B_TRUE;
-#else	/* !TEST_STANDALONE_BUILD */
 static bool_t use_shared = B_FALSE;
-#endif	/* !TEST_STANDALONE_BUILD */
 static bool_t ctx_saved = B_FALSE;
 static bool_t openal_inited = B_FALSE;
 
