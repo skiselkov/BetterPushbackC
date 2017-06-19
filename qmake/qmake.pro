@@ -57,12 +57,14 @@ win32 {
 win32:contains(CROSS_COMPILE, x86_64-w64-mingw32-) {
 	LIBS += -lXPLM_64
 	LIBS += -L../OpenAL/libs/Win64 -lOpenAL32
+	LIBS += -L../GL_for_Windows/lib -lopengl32
 }
 
 win32:contains(CROSS_COMPILE, i686-w64-mingw32-) {
 	LIBS += -lXPLM
 	LIBS += -L../OpenAL/libs/Win32 -lOpenAL32
-	DEFINES += __MIDL_user_allocate_free_DEFINED__
+	LIBS += -L../GL_for_Windows/lib -lopengl32
+#	DEFINES += __MIDL_user_allocate_free_DEFINED__
 }
 
 unix:!macx {
@@ -83,7 +85,7 @@ macx {
 	TARGET = mac.xpl
 	INCLUDEPATH += ../OpenAL/include
 	LIBS += -F../SDK/Libraries/Mac
-	LIBS += -framework XPLM -framework OpenAL
+	LIBS += -framework OpenGL -framework OpenAL -framework XPLM
 
 	# To make sure we run on everything that X-Plane 10 ran on
 	QMAKE_MACOSX_DEPLOYMENT_TARGET=10.6
@@ -104,7 +106,6 @@ HEADERS += \
 	../src/list.h \
 	../src/math.h \
 	../src/riff.h \
-	../src/snd_sys.h \
 	../src/wav.h
 SOURCES += \
 	../src/avl.c \
@@ -115,5 +116,4 @@ SOURCES += \
 	../src/list.c \
 	../src/math.c \
 	../src/riff.c \
-	../src/snd_sys.c \
 	../src/wav.c
