@@ -1,3 +1,4 @@
 .qmake.stash
 output
 libmac.xpl.dylib
+win.xpl_resource.rc
