@@ -46,10 +46,10 @@ void log_impl_v(const char *filename, int line, const char *fmt,
 void log_backtrace(void);
 
 #define	logMsg(...) \
-	bp_log_impl(NULL, 0, __VA_ARGS__)
+	log_impl(NULL, 0, __VA_ARGS__)
 
 #if	defined(__GNUC__) || defined(__clang__)
-#define	bp_basename(f) (__builtin_strrchr(f, BUILD_DIRSEP) ? \
+#define	my_basename(f) (__builtin_strrchr(f, BUILD_DIRSEP) ? \
 	__builtin_strrchr(f, BUILD_DIRSEP) + 1 : f)
 #else	/* !__GNUC__ && !__clang__ */
 #define	my_basename	SYMBOL_PREFIX(my_basename)
@@ -59,7 +59,7 @@ const char *my_basename(const char *filename);
 #define	dbg_log(class, level, ...) \
 	do { \
 		if (bp_dbg.class >= level || bp_dbg.all >= level) { \
-			log_impl(bp_basename(__FILE__), __LINE__,  \
+			log_impl(my_basename(__FILE__), __LINE__,  \
 			    "[" #class "/" #level "]: " __VA_ARGS__); \
 		} \
 	} while (0)

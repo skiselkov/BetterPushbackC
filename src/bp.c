@@ -65,6 +65,7 @@
 #define	MAX_STEER_ANGLE		60	/* beyond this our push algos go nuts */
 #define	MAX_ANG_VEL		2.5	/* degrees per second */
 #define	MIN_TURN_RADIUS		1.5	/* in case the aircraft is tiny */
+#define	MIN_STEERING_ARM_LEN	5	/* meters */
 
 #define	DEBUG_PRINT_SEG(class, level, seg) \
 	do { \
@@ -258,8 +259,8 @@ compute_segs(const acf_t *acf, vect2_t start_pos, double start_hdg,
 		return (-1);
 	}
 
-	l1 = vect2_abs(vect2_sub(turn_edge, start_pos));
-	l2 = vect2_abs(vect2_sub(turn_edge, end_pos));
+	l1 = vect2_dist(turn_edge, start_pos);
+	l2 = vect2_dist(turn_edge, end_pos);
 	x = MIN(l1, l2);
 	l1 -= x;
 	l2 -= x;
@@ -426,7 +427,7 @@ static void
 straight_run(vect2_t s, double hdg, double speed)
 {
 	vect2_t c, s2c, align_s, dir_v;
-	double s2c_hdg, mis_hdg;
+	double s2c_hdg, mis_hdg, steering_arm;
 
 	/* Neutralize steering until we're traveling in our direction */
 	if ((speed < 0 && bp.cur_spd > 0) || (speed > 0 && bp.cur_spd < 0)) {
@@ -453,8 +454,9 @@ straight_run(vect2_t s, double hdg, double speed)
 	 */
 
 	/* this is the point we're tring to align */
+	steering_arm = MAX(bp.acf.wheelbase / 2, MIN_STEERING_ARM_LEN);
 	c = vect2_add(bp.cur_pos, vect2_scmul(hdg2dir(bp.cur_hdg),
-	    (speed > 0 ? bp.acf.wheelbase : -bp.acf.wheelbase)));
+	    (speed > 0 ? steering_arm : -steering_arm)));
 
 	/*
 	 * We project our position onto the ideal straight line. Limit the
@@ -496,7 +498,7 @@ turn_run(vect2_t c, double radius, bool_t right, bool_t backward, double speed)
 	vect2_t refpt = vect2_add(bp.cur_pos,
 	    vect2_set_abs(vect2_neg(hdg2dir(bp.cur_hdg)), bp.acf.main_z));
 	vect2_t c2r, p1, p2, r, p1_to_r, p2_to_r;
-	double mis_hdg;
+	double mis_hdg, steering_arm;
 
 	/* Don't turn the nosewheel if we're traveling in the wrong direction */
 	if ((!backward && bp.cur_spd < 0) || (backward && bp.cur_spd > 0)) {
@@ -512,8 +514,9 @@ turn_run(vect2_t c, double radius, bool_t right, bool_t backward, double speed)
 	else
 		p1 = vect2_add(r, vect2_norm(c2r, !right));
 
+	steering_arm = MAX(bp.acf.wheelbase / 5, MIN_STEERING_ARM_LEN);
 	p2 = vect2_add(refpt, vect2_scmul(hdg2dir(bp.cur_hdg),
-	    (backward ? -bp.acf.wheelbase / 5 : bp.acf.wheelbase / 5)));
+	    (backward ? -steering_arm : steering_arm)));
 
 	p1_to_r = vect2_sub(r, p1);
 	p2_to_r = vect2_sub(r, p2);
@@ -524,7 +527,7 @@ turn_run(vect2_t c, double radius, bool_t right, bool_t backward, double speed)
 
 	dbg_log(bp, 1, "mis_hdg: %.1f speed: %.2f", mis_hdg, speed);
 
-	turn_nosewheel(2 * mis_hdg, TURN_STEER_RATE);
+	turn_nosewheel(3 * mis_hdg, TURN_STEER_RATE);
 	push_at_speed(speed, NORMAL_ACCEL);
 }
 
@@ -628,7 +631,7 @@ bp_can_start(char **reason)
 		return (B_FALSE);
 	}
 	pos = VECT2(dr_getf(&drs.local_x), -dr_getf(&drs.local_z));
-	if (vect2_abs(vect2_sub(pos, seg->start_pos)) >= 3) {
+	if (vect2_dist(pos, seg->start_pos) >= 3) {
 		if (reason != NULL) {
 			*reason = "Pushback failure: aircraft has moved. "
 			    "Please plan a new pushback path.";
@@ -862,8 +865,7 @@ bp_run(void)
 			break;
 		}
 		if (seg->type == SEG_TYPE_STRAIGHT) {
-			double len = vect2_abs(vect2_sub(bp.cur_pos,
-			    seg->start_pos));
+			double len = vect2_dist(bp.cur_pos, seg->start_pos);
 			double speed = straight_run_speed(seg->len - len,
 			    seg->backward, list_next(&bp.segs, seg));
 			if (len >= seg->len) {
@@ -881,14 +883,20 @@ bp_run(void)
 			}
 		} else {
 			vect2_t c;
-			double rhdg = rel_hdg(bp.cur_hdg, seg->end_hdg);
-			bool_t cw = ((seg->turn.right && !seg->backward) ||
-			    (!seg->turn.right && seg->backward));
+			double rhdg = fabs(rel_hdg(bp.cur_hdg, seg->end_hdg));
+			double end_brg = fabs(rel_hdg(seg->end_hdg, dir2hdg(
+			    vect2_sub(bp.cur_pos, seg->end_pos))));
 			double speed = turn_run_speed(ABS(rhdg), seg->turn.r,
 			    seg->backward, list_next(&bp.segs, seg));
 
-			if ((cw && rhdg <= 0 && rhdg > -40) ||
-			    (!cw && rhdg >= 0 && rhdg < 40)) {
+			/*
+			 * Segment completion condition:
+			 * 1) we are within 15 degrees of end_hdg AND
+			 * 2) we are past the end_pos point (delta between
+			 *    end_hdg and a vector from end_pos to cur_pos
+			 *    is less than 90 degrees)
+			 */
+			if (rhdg < 15 && end_brg < 90) {
 				list_remove(&bp.segs, seg);
 				free(seg);
 				continue;
@@ -936,10 +944,15 @@ bp_run(void)
 		if (dr_getf(&drs.pbrake) == 0) {
 			return (-1);
 		}
+		dr_setf(&drs.lbrake, 0);
+		dr_setf(&drs.rbrake, 0);
 		dr_seti(&drs.override_steer, 0);
 		started = B_FALSE;
 		XPLMSpeakString("Disconnected, have a nice day");
 		bp_done_notify();
+		bp.starting = B_FALSE;
+		bp.stopping = B_FALSE;
+		bp.stopped = B_FALSE;
 		return (0);
 	}
 }
@@ -959,15 +972,18 @@ static bool_t force_root_win_focus = B_TRUE;
 #define	ANGLE_DRAW_STEP		5
 #define	ORIENTATION_LINE_LEN	200
 
-#define	INCR_SMALL		4
-#define	INCR_MED		20
-#define	INCR_BIG		100
+#define	INCR_SMALL		5
+#define	INCR_MED		25
+#define	INCR_BIG		125
 
 #define	AMBER_TUPLE		VECT3(0.9, 0.9, 0)	/* RGB color */
 #define	RED_TUPLE		VECT3(1, 0, 0)		/* RGB color */
 #define	GREEN_TUPLE		VECT3(0, 1, 0)		/* RGB color */
 
 #define	CLICK_THRESHOLD_US	200000			/* microseconds */
+#define	US_PER_CLICK_ACCEL	60000			/* microseconds */
+#define	US_PER_CLICK_DEACCEL	120000			/* microseconds */
+#define	MAX_ACCEL_MULT		5
 
 typedef struct {
 	const char	*name;
@@ -1376,7 +1392,18 @@ fake_win_wheel(XPLMWindowID inWindowID, int x, int y, int wheel, int clicks,
 	UNUSED(inRefcon);
 
 	if (wheel == 0) {
-		cursor_hdg = normalize_hdg(cursor_hdg + clicks * 2);
+		static int accel = 1;
+		static uint64_t last_wheel_t = 0;
+		uint64_t now = microclock();
+		uint64_t us_per_click = (now - last_wheel_t) / ABS(clicks);
+
+		if (us_per_click < US_PER_CLICK_ACCEL)
+			accel = MIN(accel + 1, MAX_ACCEL_MULT);
+		else if (us_per_click > US_PER_CLICK_DEACCEL)
+			accel = 1;
+
+		cursor_hdg = normalize_hdg(cursor_hdg + clicks * accel);
+		last_wheel_t = now;
 	}
 
 	return (0);
@@ -1457,7 +1484,7 @@ bp_cam_start(void)
 
 	list_create(&pred_segs, sizeof (seg_t), offsetof(seg_t, node));
 	force_root_win_focus = B_TRUE;
-	cam_height = 20 * bp.acf.wheelbase;
+	cam_height = 15 * bp.acf.wheelbase;
 	/* We keep the camera position in our coordinates for ease of manip */
 	cam_pos = VECT3(dr_getf(&drs.local_x),
 	    dr_getf(&drs.local_y), -dr_getf(&drs.local_z));

@@ -52,7 +52,7 @@ extern "C" {
 #define	VERIFY_MSG(x, fmt, ...) \
 	do { \
 		if (!(x)) { \
-			log_impl(bp_basename(__FILE__), __LINE__, \
+			log_impl(my_basename(__FILE__), __LINE__, \
 			    "assertion \"%s\" failed: " fmt, #x, __VA_ARGS__); \
 			log_backtrace(); \
 			abort(); \
@@ -66,7 +66,7 @@ extern "C" {
 		type tmp_x = (type)(x); \
 		type tmp_y = (type)(y); \
 		if (!(tmp_x op tmp_y)) { \
-			log_impl(bp_basename(__FILE__), __LINE__, \
+			log_impl(my_basename(__FILE__), __LINE__, \
 			    "assertion " #x " " #op " " #y " failed (" \
 			    fmt " " #op " " fmt ")", tmp_x, tmp_y); \
 			log_backtrace(); \
