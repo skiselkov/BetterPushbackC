@@ -42,6 +42,7 @@
 
 #include "assert.h"
 #include "geom.h"
+#include "math.h"
 #include "list.h"
 #include "dr.h"
 #include "time.h"
@@ -50,17 +51,18 @@
 
 #define	STRAIGHT_STEER_RATE	40	/* degrees per second */
 #define	TURN_STEER_RATE		10	/* degrees per second */
-#define	STRAIGHT_SPEED		1.11	/* m/s [4 km/h, "walking speed"] */
-#define	FAST_STRAIGHT_SPEED	7	/* m/s [~14 knots] */
-#define	TURN_SPEED		0.55	/* m/s [2 km/h] */
-#define	STRAIGHT_ACCEL		0.25	/* m/s^2 */
-#define	TURN_ACCEL		0.25	/* m/s^2 */
+#define	NORMAL_SPEED		1.11	/* m/s [4 km/h, "walking speed"] */
+#define	FAST_SPEED		7	/* m/s [~14 knots] */
+#define	CRAWL_SPEED		0.1	/* m/s */
+#define	NORMAL_ACCEL		0.25	/* m/s^2 */
 #define	BRAKE_PEDAL_THRESH	0.1	/* brake pedal angle, 0..1 */
 #define	FORCE_PER_TON		5000	/* max push force per ton, Newtons */
 #define	BREAKAWAY_THRESH	0.1	/* m/s */
 #define	SEG_TURN_MULT		0.9	/* leave 10% for oversteer */
 #define	SPEED_COMPLETE_THRESH	0.05	/* m/s */
 #define	MAX_STEER_ANGLE		60	/* beyond this our push algos go nuts */
+#define	MAX_ANG_VEL		2.5	/* degrees per second */
+#define	MIN_TURN_RADIUS		1.5	/* in case the aircraft is tiny */
 
 #define	DEBUG_PRINT_SEG(class, level, seg) \
 	do { \
@@ -190,6 +192,12 @@ static struct {
 static bool_t inited = B_FALSE, cam_inited = B_FALSE, started = B_FALSE;
 static bp_state_t bp;
 
+
+static double straight_run_speed(double rmng_d, bool_t backward,
+    const seg_t *next);
+static double turn_run_speed(double rhdg, double radius, bool_t backward,
+    const seg_t *next);
+static double next_seg_speed(const seg_t *next, bool_t cur_backward);
 static float bp_run(void);
 
 static int
@@ -254,11 +262,12 @@ compute_segs(const acf_t *acf, vect2_t start_pos, double start_hdg,
 	l2 -= x;
 
 	/*
-	 * Compute minimum radius using less than max_nw_angl (hence
+	 * Compute minimum radius using less than max_nw_angle (hence
 	 * SEG_TURN_MULT), to allow for some oversteering correction.
+	 * Also limit the radius to something sensible (MIN_TURN_RADIUS).
 	 */
-	min_radius = tan(DEG2RAD(90 - (acf->max_nw_angle * SEG_TURN_MULT))) *
-	    acf->wheelbase;
+	min_radius = MAX(tan(DEG2RAD(90 - (acf->max_nw_angle *
+	    SEG_TURN_MULT))) * acf->wheelbase, MIN_TURN_RADIUS);
 	a = (180 - ABS(rel_hdg(start_hdg, end_hdg)));
 	r = x * tan(DEG2RAD(a / 2));
 	if (r < min_radius) {
@@ -419,7 +428,7 @@ straight_run(vect2_t s, double hdg, double speed)
 	/* Neutralize steering until we're traveling in our direction */
 	if ((speed < 0 && bp.cur_spd > 0) || (speed > 0 && bp.cur_spd < 0)) {
 		turn_nosewheel(0, STRAIGHT_STEER_RATE);
-		push_at_speed(speed, STRAIGHT_ACCEL);
+		push_at_speed(speed, NORMAL_ACCEL);
 		return;
 	}
 
@@ -475,21 +484,21 @@ straight_run(vect2_t s, double hdg, double speed)
 	    mis_hdg, hdg, s2c_hdg);
 
 	turn_nosewheel(mis_hdg, STRAIGHT_STEER_RATE);
-	push_at_speed(speed, STRAIGHT_ACCEL);
+	push_at_speed(speed, NORMAL_ACCEL);
 }
 
 static void
-turn_run(vect2_t c, double radius, bool_t right, bool_t backward)
+turn_run(vect2_t c, double radius, bool_t right, bool_t backward, double speed)
 {
 	vect2_t refpt = vect2_add(bp.cur_pos,
 	    vect2_set_abs(vect2_neg(hdg2dir(bp.cur_hdg)), bp.acf.main_z));
 	vect2_t c2r, p1, p2, r, p1_to_r, p2_to_r;
-	double mis_hdg, speed;
+	double mis_hdg;
 
 	/* Don't turn the nosewheel if we're traveling in the wrong direction */
 	if ((!backward && bp.cur_spd < 0) || (backward && bp.cur_spd > 0)) {
 		turn_nosewheel(0, TURN_STEER_RATE);
-		push_at_speed(STRAIGHT_SPEED * (backward ? -1 : 1), TURN_ACCEL);
+		push_at_speed(speed, NORMAL_ACCEL);
 		return;
 	}
 
@@ -510,19 +519,10 @@ turn_run(vect2_t c, double radius, bool_t right, bool_t backward)
 	if (backward)
 		mis_hdg = -mis_hdg;
 
-	/*
-	 * Control as a function of how much turn correction we need to
-	 * apply. Near maximum turn deflection slow down to TURN_SPEED,
-	 * otherwise go near maximum STRAIGHT_SPEED.
-	 */
-	speed = (backward ? -1 : 1) * (TURN_SPEED +
-	    (STRAIGHT_SPEED - TURN_SPEED) *
-	    (ABS(mis_hdg) / bp.acf.max_nw_angle));
-
 	dbg_log(bp, 1, "mis_hdg: %.1f speed: %.2f", mis_hdg, speed);
 
 	turn_nosewheel(2 * mis_hdg, TURN_STEER_RATE);
-	push_at_speed(speed, TURN_ACCEL);
+	push_at_speed(speed, NORMAL_ACCEL);
 }
 
 bool_t
@@ -669,6 +669,69 @@ bp_gather(void)
 	    VECT2(bp_dr_getf(&drs.vx), -bp_dr_getf(&drs.vz)));
 }
 
+static double
+next_seg_speed(const seg_t *next, bool_t cur_backward)
+{
+	if (next != NULL && next->backward == cur_backward) {
+		if (next->type == SEG_TYPE_STRAIGHT) {
+			return (straight_run_speed(next->len, next->backward,
+			    list_next(&bp.segs, next)));
+		} else {
+			return (turn_run_speed(rel_hdg(next->start_hdg,
+			    next->end_hdg), next->turn.r, next->backward,
+			    list_next(&bp.segs, next)));
+		}
+	} else {
+		/*
+		 * At the end of the operation or when reversing direction,
+		 * target a nearly stopped speed.
+		 */
+		return (CRAWL_SPEED);
+	}
+}
+
+/*
+ * Estimates the speed we want to achieve during a turn run. This basically
+ * treats the circle we're supposed to travel as if it were a straight line
+ * (thus employing the straight_run_speed algorithm), but limits the maximum
+ * angular velocity around the circle to MAX_ANG_VEL (2.5 deg/s) to limit
+ * side-loading. This means the tighter the turn, the slower our speed.
+ */
+static double
+turn_run_speed(double rhdg, double radius, bool_t backward, const seg_t *next)
+{
+	double rmng_d = (2 * M_PI * radius) * (rhdg / 360.0);
+	double spd = straight_run_speed(rmng_d, backward, next);
+	double rmng_t = rmng_d / spd;
+	double ang_vel = rhdg / rmng_t;
+
+	spd *= MIN(MAX_ANG_VEL / ang_vel, 1);
+
+	return (spd);
+}
+
+static double
+straight_run_speed(double rmng_d, bool_t backward, const seg_t *next)
+{
+	double next_spd, cruise_spd, t, accel_d, decel_d, spd;
+
+	next_spd = next_seg_speed(next, backward);
+	cruise_spd = (backward ? NORMAL_SPEED : FAST_SPEED);
+	accel_d = 0.5 * NORMAL_ACCEL *
+	    POW2((cruise_spd - bp.cur_spd) / NORMAL_ACCEL);
+	if (next_spd < cruise_spd) {
+		decel_d = 0.5 * NORMAL_ACCEL *
+		    POW2((cruise_spd - next_spd) / NORMAL_ACCEL);
+	} else {
+		decel_d = 0;
+	}
+
+	t = (rmng_d >= 0 ? sqrt((2 * rmng_d) / NORMAL_ACCEL) : 0);
+	spd = MIN(NORMAL_ACCEL * t + next_spd, cruise_spd);
+
+	return (spd);
+}
+
 static float
 bp_run(void)
 {
@@ -705,6 +768,8 @@ bp_run(void)
 		if (seg->type == SEG_TYPE_STRAIGHT) {
 			double len = vect2_abs(vect2_sub(bp.cur_pos,
 			    seg->start_pos));
+			double speed = straight_run_speed(seg->len - len,
+			    seg->backward, list_next(&bp.segs, seg));
 			if (len >= seg->len) {
 				list_remove(&bp.segs, seg);
 				free(seg);
@@ -712,17 +777,19 @@ bp_run(void)
 			}
 			if (!seg->backward) {
 				straight_run(seg->start_pos, seg->start_hdg,
-				    STRAIGHT_SPEED);
+				    speed);
 			} else {
 				straight_run(seg->start_pos,
 				    normalize_hdg(seg->start_hdg + 180),
-				    -STRAIGHT_SPEED);
+				    -speed);
 			}
 		} else {
 			vect2_t c;
 			double rhdg = rel_hdg(bp.cur_hdg, seg->end_hdg);
 			bool_t cw = ((seg->turn.right && !seg->backward) ||
 			    (!seg->turn.right && seg->backward));
+			double speed = turn_run_speed(ABS(rhdg), seg->turn.r,
+			    seg->backward, list_next(&bp.segs, seg));
 
 			if ((cw && rhdg <= 0 && rhdg > -40) ||
 			    (!cw && rhdg >= 0 && rhdg < 40)) {
@@ -739,7 +806,7 @@ bp_run(void)
 			    seg->start_hdg), seg->turn.right), seg->turn.r),
 			    seg->start_pos);
 			turn_run(c, seg->turn.r, seg->turn.right,
-			    seg->backward);
+			    seg->backward, seg->backward ? -speed : speed);
 		}
 		break;
 	}
@@ -755,7 +822,7 @@ bp_run(void)
 		if (last)
 			bp.stopping = B_TRUE;
 		turn_nosewheel(0, STRAIGHT_STEER_RATE);
-		push_at_speed(0, STRAIGHT_ACCEL);
+		push_at_speed(0, NORMAL_ACCEL);
 		if (ABS(bp.cur_spd) < SPEED_COMPLETE_THRESH && !bp.stopped) {
 			XPLMSpeakString("Operation complete, set parking "
 			    "brake");
