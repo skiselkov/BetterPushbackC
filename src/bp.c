@@ -55,6 +55,7 @@
 #define	FAST_SPEED		7	/* m/s [~14 knots] */
 #define	CRAWL_SPEED		0.1	/* m/s */
 #define	NORMAL_ACCEL		0.25	/* m/s^2 */
+#define	NORMAL_DECEL		0.17	/* m/s^2 */
 #define	BRAKE_PEDAL_THRESH	0.1	/* brake pedal angle, 0..1 */
 #define	FORCE_PER_TON		5000	/* max push force per ton, Newtons */
 #define	BREAKAWAY_THRESH	0.1	/* m/s */
@@ -177,13 +178,14 @@ static struct {
 	dr_t	axial_force;
 	dr_t	local_x, local_y, local_z;
 	dr_t	hdg;
-	dr_t	vx, vz;
+	dr_t	vx, vy, vz;
 	dr_t	sim_time;
 	dr_t	acf_mass;
 	dr_t	tire_z;
 	dr_t	nw_steerdeg1, nw_steerdeg2;
 	dr_t	tire_steer_cmd;
 	dr_t	override_steer;
+	dr_t	gear_deploy;
 
 	dr_t	camera_fov_h, camera_fov_v;
 	dr_t	view_is_ext;
@@ -546,6 +548,7 @@ bp_init(void)
 	bp_dr_init(&drs.local_z, "sim/flightmodel/position/local_z");
 	bp_dr_init(&drs.hdg, "sim/flightmodel/position/psi");
 	bp_dr_init(&drs.vx, "sim/flightmodel/position/local_vx");
+	bp_dr_init(&drs.vy, "sim/flightmodel/position/local_vy");
 	bp_dr_init(&drs.vz, "sim/flightmodel/position/local_vz");
 	bp_dr_init(&drs.sim_time, "sim/time/total_running_time_sec");
 	bp_dr_init(&drs.acf_mass, "sim/flightmodel/weight/m_total");
@@ -556,6 +559,7 @@ bp_init(void)
 	    "sim/flightmodel/parts/tire_steer_cmd");
 	bp_dr_init(&drs.override_steer,
 	    "sim/operation/override/override_wheel_steer");
+	bp_dr_init(&drs.gear_deploy, "sim/aircraft/parts/acf_gear_deploy");
 
 	bp_dr_init(&drs.camera_fov_h,
 	    "sim/graphics/view/field_of_view_deg");
@@ -571,8 +575,8 @@ bp_init(void)
 	bp_dr_getvf(&drs.tire_z, &bp.acf.nw_z, 0, 1);
 	n_main = bp_dr_getvf(&drs.tire_z, tire_z_main, 1, 8);
 	if (n_main < 1) {
-		/* Huh? Aircraft only has one gear leg?! */
-		logMsg("Aircraft only has one gear leg?!");
+		XPLMSpeakString("Pushback failure: aircraft seems to only "
+		    "have one gear leg.");
 		return (B_FALSE);
 	}
 	for (int i = 0; i < n_main; i++)
@@ -580,12 +584,13 @@ bp_init(void)
 	bp.acf.main_z /= n_main;
 	bp.acf.wheelbase = bp.acf.main_z - bp.acf.nw_z;
 	if (bp.acf.wheelbase <= 0) {
-		logMsg("Aircraft has non-positive wheelbase. "
-		    "Sorry, tail draggers aren't supported.");
+		XPLMSpeakString("Pushback failure: aircraft has non-positive "
+		    "wheelbase. Sorry, tail draggers aren't supported.");
 		return (B_FALSE);
 	}
 	bp.acf.max_nw_angle = MIN(MAX(bp_dr_getf(&drs.nw_steerdeg1),
 	    bp_dr_getf(&drs.nw_steerdeg2)), MAX_STEER_ANGLE);
+
 
 	dbg_log(bp, 1, "nw_z: %.1f main_z: %.1f wheelbase: %.1f nw_max: %.1f",
 	    bp.acf.nw_z, bp.acf.main_z, bp.acf.wheelbase, bp.acf.max_nw_angle);
@@ -600,6 +605,16 @@ bp_start(void)
 {
 	if (started)
 		return;
+
+	if (bp_dr_getf(&drs.gear_deploy) != 1) {
+		XPLMSpeakString("Pushback failure: gear not extended.");
+		return;
+	}
+	if (vect3_abs(VECT3(bp_dr_getf(&drs.vx), bp_dr_getf(&drs.vy),
+	    bp_dr_getf(&drs.vz))) >= 1) {
+		XPLMSpeakString("Pushback failure: aircraft not stationary.");
+		return;
+	}
 
 	if (list_head(&bp.segs) == NULL) {
 		XPLMSpeakString("Please first start the pushback camera to "
@@ -713,21 +728,62 @@ turn_run_speed(double rhdg, double radius, bool_t backward, const seg_t *next)
 static double
 straight_run_speed(double rmng_d, bool_t backward, const seg_t *next)
 {
-	double next_spd, cruise_spd, t, accel_d, decel_d, spd;
+	double next_spd, cruise_spd, spd;
+	double ts[2];
 
 	next_spd = next_seg_speed(next, backward);
 	cruise_spd = (backward ? NORMAL_SPEED : FAST_SPEED);
-	accel_d = 0.5 * NORMAL_ACCEL *
-	    POW2((cruise_spd - bp.cur_spd) / NORMAL_ACCEL);
-	if (next_spd < cruise_spd) {
-		decel_d = 0.5 * NORMAL_ACCEL *
-		    POW2((cruise_spd - next_spd) / NORMAL_ACCEL);
-	} else {
-		decel_d = 0;
-	}
 
-	t = (rmng_d >= 0 ? sqrt((2 * rmng_d) / NORMAL_ACCEL) : 0);
-	spd = MIN(NORMAL_ACCEL * t + next_spd, cruise_spd);
+	/*
+	 * This algorithm works as follows:
+	 * We know the remaining distance and the next segment's target
+	 * speed. So we work backwards to determine what maximum speed
+	 * we could be going in order to hit next_spd using NORMAL_DECEL.
+	 *
+	 *          (speed)
+	 *          ^
+	 * max ---> |
+	 * spd      |\       (NORMAL_DECEL slope)
+	 *          |  \    /
+	 *          |    \ V
+	 *          |      \
+	 *          |        \
+	 *          |          \
+	 *          |           + <--- next_spd
+	 *          |           |
+	 *          +-----------+------------->
+	 *          |   rmng_d  |    (distance)
+	 *          |<--------->|
+	 *
+	 * Here's the general equation for acceleration:
+	 *
+	 * d = 1/2at^2 + vt
+	 *
+	 * Where:
+	 *	'd' = rmng_d
+	 *	'a' = NORMAL_DECEL
+	 *	'v' = next_spd
+	 *	't' = <unknown>
+	 *
+	 * This is a simple quadratic equation (1/2at^2 + vt - d = 0), so
+	 * we can solve for the only unknown, time 't'. If we have two
+	 * results, taking greater value i.e. the one lying in the future,
+	 * we simply calculate the initial max_spd = next_spd + at. This
+	 * is our theoretical maximum. Taking the lesser of that and the
+	 * target cruise speed, we arrive at our final governed speed `spd'.
+	 */
+	switch (quadratic_solve(0.5 * NORMAL_DECEL, next_spd, -rmng_d, ts)) {
+	case 1:
+		spd = MIN(NORMAL_DECEL * ts[0] + next_spd, cruise_spd);
+		break;
+	case 2:
+		spd = MIN(NORMAL_DECEL * MAX(ts[0], ts[1]) + next_spd,
+		    cruise_spd);
+		break;
+	default:
+		spd = next_spd;
+		break;
+	}
 
 	return (spd);
 }
@@ -1324,6 +1380,12 @@ bp_cam_init(void)
 
 	if (cam_inited || !bp_init())
 		return;
+
+	if (vect3_abs(VECT3(bp_dr_getf(&drs.vx), bp_dr_getf(&drs.vy),
+	    bp_dr_getf(&drs.vz))) >= 1) {
+		XPLMSpeakString("Can't start camera: aircraft not stationary.");
+		return;
+	}
 
 	XPLMGetScreenSize(&fake_win_ops.right, &fake_win_ops.top);
 
