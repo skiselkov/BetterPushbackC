@@ -27,11 +27,12 @@ extern "C" {
 
 bool_t bp_init(void);
 void bp_fini(void);
-void bp_start(void);
-void bp_stop(void);
+bool_t bp_start(void);
+bool_t bp_can_start(char **reason);
+bool_t bp_stop(void);
 
-void bp_cam_init(void);
-void bp_cam_fini(void);
+bool_t bp_cam_start(void);
+bool_t bp_cam_stop(void);
 
 #ifdef	__cplusplus
 }

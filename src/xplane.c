@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <XPLMMenus.h>
 #include <XPLMUtilities.h>
 #include <XPLMPlugin.h>
 
@@ -33,6 +34,10 @@
 #define BP_PLUGIN_DESCRIPTION	"Generic automated pushback plugin"
 
 static XPLMCommandRef	start_pb, stop_pb, start_cam, stop_cam;
+static XPLMMenuID	root_menu;
+static int		plugins_menu_item;
+static int		start_pb_plan_menu_item, stop_pb_plan_menu_item;
+static int		start_pb_menu_item, stop_pb_menu_item;
 
 static int start_pb_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 static int stop_pb_handler(XPLMCommandRef, XPLMCommandPhase, void *);
@@ -46,10 +51,15 @@ start_pb_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	UNUSED(refcon);
 	if (phase != xplm_CommandEnd)
 		return (1);
-	bp_cam_fini();
-	if (!bp_init())
+	(void) bp_cam_stop();
+	if (!bp_init() || !bp_start())
 		return (1);
-	bp_start();
+
+	XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_FALSE);
+	XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
+	XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_FALSE);
+	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_TRUE);
+
 	return (1);
 }
 
@@ -58,9 +68,12 @@ stop_pb_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 {
 	UNUSED(cmd);
 	UNUSED(refcon);
-	if (phase != xplm_CommandEnd)
+	if (phase != xplm_CommandEnd || !bp_init() || !bp_stop())
 		return (1);
-	bp_stop();
+	XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_TRUE);
+	XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
+	XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_FALSE);
+	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
 	return (1);
 }
 
@@ -69,9 +82,12 @@ start_cam_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 {
 	UNUSED(cmd);
 	UNUSED(refcon);
-	if (phase != xplm_CommandEnd)
+	if (phase != xplm_CommandEnd || !bp_init() || !bp_cam_start())
 		return (1);
-	bp_cam_init();
+	XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_FALSE);
+	XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_TRUE);
+	XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_FALSE);
+	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
 	return (1);
 }
 
@@ -80,10 +96,20 @@ stop_cam_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 {
 	UNUSED(cmd);
 	UNUSED(refcon);
-	if (phase != xplm_CommandEnd)
+	if (phase != xplm_CommandEnd || !bp_init() || !bp_cam_stop())
 		return (1);
-	bp_cam_fini();
+	XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_TRUE);
+	XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
+	XPLMEnableMenuItem(root_menu, start_pb_menu_item, bp_can_start(NULL));
+	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
 	return (1);
+}
+
+static void
+menu_cb(void *inMenuRef, void *inItemRef)
+{
+	UNUSED(inMenuRef);
+	XPLMCommandOnce((XPLMCommandRef)inItemRef);
 }
 
 PLUGIN_API int
@@ -93,12 +119,15 @@ XPluginStart(char *name, char *sig, char *desc)
 	strcpy(sig, BP_PLUGIN_SIG);
 	strcpy(desc, BP_PLUGIN_DESCRIPTION);
 
-	start_pb = XPLMCreateCommand("BetterPushback/start", "Start BP");
-	stop_pb = XPLMCreateCommand("BetterPushback/stop", "Stop BP");
-	start_cam = XPLMCreateCommand("BetterPushback/start_cam",
-	    "Start BP Camera");
-	stop_cam = XPLMCreateCommand("BetterPushback/stop_cam",
-	    "Stop BP Camera");
+	/* We can't delete commands, so put their creation here */
+	start_pb = XPLMCreateCommand("BetterPushback/start",
+	    "Start BetterPushback");
+	stop_pb = XPLMCreateCommand("BetterPushback/stop",
+	    "Stop BetterPushback");
+	start_cam = XPLMCreateCommand("BetterPushback/start_planner",
+	    "Start BetterPushback planner");
+	stop_cam = XPLMCreateCommand("BetterPushback/stop_planner",
+	    "Stop BetterPushback planner");
 
 	return (1);
 }
@@ -115,6 +144,24 @@ XPluginEnable(void)
 	XPLMRegisterCommandHandler(stop_pb, stop_pb_handler, 1, NULL);
 	XPLMRegisterCommandHandler(start_cam, start_cam_handler, 1, NULL);
 	XPLMRegisterCommandHandler(stop_cam, stop_cam_handler, 1, NULL);
+
+	plugins_menu_item = XPLMAppendMenuItem(XPLMFindPluginsMenu(),
+	    "Better Pushback", NULL, 1);
+	root_menu = XPLMCreateMenu("Better Pushback", XPLMFindPluginsMenu(),
+	    plugins_menu_item, menu_cb, NULL);
+	start_pb_plan_menu_item = XPLMAppendMenuItem(root_menu,
+	    "Plan pushback", start_cam, 1);
+	stop_pb_plan_menu_item = XPLMAppendMenuItem(root_menu,
+	    "Close pushback planner", stop_cam, 1);
+	start_pb_menu_item = XPLMAppendMenuItem(root_menu, "Start pushback",
+	    start_pb, 1);
+	stop_pb_menu_item = XPLMAppendMenuItem(root_menu, "Stop pushback",
+	    stop_pb, 1);
+
+	XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_TRUE);
+	XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
+	XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_FALSE);
+	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
 }
 
 PLUGIN_API void
@@ -124,7 +171,10 @@ XPluginDisable(void)
 	XPLMUnregisterCommandHandler(stop_pb, stop_pb_handler, 1, NULL);
 	XPLMUnregisterCommandHandler(start_cam, start_pb_handler, 1, NULL);
 	XPLMUnregisterCommandHandler(stop_cam, stop_pb_handler, 1, NULL);
-	stop_pb_handler(NULL, 0, NULL);
+	bp_fini();
+
+	XPLMDestroyMenu(root_menu);
+	XPLMRemoveMenuItem(XPLMFindPluginsMenu(), plugins_menu_item);
 }
 
 PLUGIN_API void

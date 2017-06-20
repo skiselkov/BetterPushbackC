@@ -600,26 +600,59 @@ bp_init(void)
 	return (B_TRUE);
 }
 
-void
-bp_start(void)
+bool_t
+bp_can_start(char **reason)
 {
-	if (started)
-		return;
+	seg_t *seg;
+	vect2_t pos;
 
 	if (bp_dr_getf(&drs.gear_deploy) != 1) {
-		XPLMSpeakString("Pushback failure: gear not extended.");
-		return;
+		if (reason != NULL)
+			*reason = "Pushback failure: gear not extended.";
+		return (B_FALSE);
 	}
 	if (vect3_abs(VECT3(bp_dr_getf(&drs.vx), bp_dr_getf(&drs.vy),
 	    bp_dr_getf(&drs.vz))) >= 1) {
-		XPLMSpeakString("Pushback failure: aircraft not stationary.");
-		return;
+		if (reason != NULL)
+			*reason = "Pushback failure: aircraft not stationary.";
+		return (B_FALSE);
 	}
 
-	if (list_head(&bp.segs) == NULL) {
-		XPLMSpeakString("Please first start the pushback camera to "
-		    "tell me where you want to go.");
-		return;
+	seg = list_head(&bp.segs);
+	if (seg == NULL) {
+		if (reason != NULL) {
+			*reason = "Pushback failure: please first plan your "
+			    "pushback to tell me where you want to go.";
+		}
+		return (B_FALSE);
+	}
+	pos = VECT2(bp_dr_getf(&drs.local_x), -bp_dr_getf(&drs.local_z));
+	if (vect2_abs(vect2_sub(pos, seg->start_pos)) >= 3) {
+		if (reason != NULL) {
+			*reason = "Pushback failure: aircraft has moved. "
+			    "Please plan a new pushback path.";
+		}
+		do {
+			list_remove(&bp.segs, seg);
+			free(seg);
+			seg = list_head(&bp.segs);
+		} while (seg != NULL);
+		return (B_FALSE);
+	}
+
+	return (B_TRUE);
+}
+
+bool_t
+bp_start(void)
+{
+	char *reason;
+
+	if (started)
+		return (B_TRUE);
+	if (!bp_can_start(&reason)) {
+		XPLMSpeakString(reason);
+		return (B_FALSE);
 	}
 
 	XPLMRegisterFlightLoopCallback((XPLMFlightLoop_f)bp_run, -1, NULL);
@@ -629,19 +662,23 @@ bp_start(void)
 		bp.starting = B_TRUE;
 		XPLMSpeakString("Connected, release parking brake.");
 	}
+
+	return (B_TRUE);
 }
 
-void
+bool_t
 bp_stop(void)
 {
 	if (!started)
-		return;
+		return (B_FALSE);
 	/* Delete all pushback segments, that'll stop us */
 	for (seg_t *seg = list_head(&bp.segs); seg != NULL;
 	    seg = list_head(&bp.segs)) {
 		list_remove_head(&bp.segs);
 		free(seg);
 	}
+
+	return (B_TRUE);
 }
 
 void
@@ -649,6 +686,8 @@ bp_fini(void)
 {
 	if (!inited)
 		return;
+
+	bp_stop();
 
 	bp_dr_seti(&drs.override_steer, 0);
 
@@ -1296,16 +1335,17 @@ fake_win_click(XPLMWindowID inWindowID, int x, int y, XPLMMouseStatus inMouse,
 			down_x = x;
 			down_y = y;
 		}
-	} else if (inMouse == xplm_MouseUp &&
-	    microclock() - down_t < CLICK_THRESHOLD_US) {
-		/*
-		 * Transfer whatever is in pred_segs to the normal segments
-		 * and clear pred_segs.
-		 */
-		for (seg_t *seg = list_head(&pred_segs); seg != NULL;
-		    seg = list_head(&pred_segs)) {
-			list_remove(&pred_segs, seg);
-			list_insert_tail(&bp.segs, seg);
+	} else {
+		if (microclock() - down_t < CLICK_THRESHOLD_US) {
+			/*
+			 * Transfer whatever is in pred_segs to the normal
+			 * segments and clear pred_segs.
+			 */
+			for (seg_t *seg = list_head(&pred_segs); seg != NULL;
+			    seg = list_head(&pred_segs)) {
+				list_remove(&pred_segs, seg);
+				list_insert_tail(&bp.segs, seg);
+			}
 		}
 		force_root_win_focus = B_TRUE;
 	}
@@ -1344,7 +1384,7 @@ key_sniffer(char inChar, XPLMKeyFlags inFlags, char inVirtualKey, void *refcon)
 	switch (inVirtualKey) {
 	case XPLM_VK_RETURN:
 	case XPLM_VK_ESCAPE:
-		bp_cam_fini();
+		XPLMCommandOnce(XPLMFindCommand("BetterPushback/stop_planner"));
 		return (0);
 	case XPLM_VK_CLEAR:
 	case XPLM_VK_BACK:
@@ -1364,8 +1404,8 @@ key_sniffer(char inChar, XPLMKeyFlags inFlags, char inVirtualKey, void *refcon)
 	return (1);
 }
 
-void
-bp_cam_init(void)
+bool_t
+bp_cam_start(void)
 {
 	XPLMCreateWindow_t fake_win_ops = {
 	    .structSize = sizeof (XPLMCreateWindow_t),
@@ -1379,12 +1419,18 @@ bp_cam_init(void)
 	};
 
 	if (cam_inited || !bp_init())
-		return;
+		return (B_FALSE);
 
 	if (vect3_abs(VECT3(bp_dr_getf(&drs.vx), bp_dr_getf(&drs.vy),
 	    bp_dr_getf(&drs.vz))) >= 1) {
-		XPLMSpeakString("Can't start camera: aircraft not stationary.");
-		return;
+		XPLMSpeakString("Can't start planner: aircraft not "
+		    "stationary.");
+		return (B_FALSE);
+	}
+	if (started) {
+		XPLMSpeakString("Can't start planner: pushback already in "
+		    "progress. Please stop the pushback operation first.");
+		return (B_FALSE);
 	}
 
 	XPLMGetScreenSize(&fake_win_ops.right, &fake_win_ops.top);
@@ -1399,6 +1445,7 @@ bp_cam_init(void)
 	XPLMTakeKeyboardFocus(fake_win);
 
 	list_create(&pred_segs, sizeof (seg_t), offsetof(seg_t, node));
+	force_root_win_focus = B_TRUE;
 	cam_height = 20 * bp.acf.wheelbase;
 	/* We keep the camera position in our coordinates for ease of manip */
 	cam_pos = VECT3(bp_dr_getf(&drs.local_x),
@@ -1418,13 +1465,15 @@ bp_cam_init(void)
 	XPLMRegisterKeySniffer(key_sniffer, 1, NULL);
 
 	cam_inited = B_TRUE;
+
+	return (B_TRUE);
 }
 
-void
-bp_cam_fini(void)
+bool_t
+bp_cam_stop(void)
 {
 	if (!cam_inited)
-		return;
+		return (B_FALSE);
 
 	for (seg_t *seg = list_head(&pred_segs); seg != NULL;
 	    seg = list_head(&pred_segs)) {
@@ -1443,4 +1492,6 @@ bp_cam_fini(void)
 	XPLMUnregisterKeySniffer(key_sniffer, 1, NULL);
 
 	cam_inited = B_FALSE;
+
+	return (B_TRUE);
 }
