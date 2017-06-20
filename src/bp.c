@@ -59,8 +59,8 @@
 #define	FORCE_PER_TON		5000	/* max push force per ton, Newtons */
 #define	BREAKAWAY_THRESH	0.1	/* m/s */
 #define	SEG_TURN_MULT		0.9	/* leave 10% for oversteer */
-#define	TURN_COMPLETE_THRESH	2	/* degrees */
 #define	SPEED_COMPLETE_THRESH	0.05	/* m/s */
+#define	MAX_STEER_ANGLE		60	/* beyond this our push algos go nuts */
 
 #define	DEBUG_PRINT_SEG(class, level, seg) \
 	do { \
@@ -83,7 +83,6 @@
 	} while (0)
 
 typedef struct {
-	double		mass;
 	double		wheelbase;
 	double		nw_z, main_z;
 	double		max_nw_angle;
@@ -162,6 +161,7 @@ typedef struct {
 	double		last_force;
 	vect2_t		turn_c_pos;
 
+	bool_t		starting;	/* waiting for brake release */
 	bool_t		stopping;	/* stopping at end of operation */
 	bool_t		stopped;	/* stopped moving, waiting for pbrk */
 
@@ -257,7 +257,7 @@ compute_segs(const acf_t *acf, vect2_t start_pos, double start_hdg,
 	 * Compute minimum radius using less than max_nw_angl (hence
 	 * SEG_TURN_MULT), to allow for some oversteering correction.
 	 */
-	min_radius = tan(DEG2RAD(acf->max_nw_angle * SEG_TURN_MULT)) *
+	min_radius = tan(DEG2RAD(90 - (acf->max_nw_angle * SEG_TURN_MULT))) *
 	    acf->wheelbase;
 	a = (180 - ABS(rel_hdg(start_hdg, end_hdg)));
 	r = x * tan(DEG2RAD(a / 2));
@@ -350,7 +350,7 @@ push_at_speed(double targ_speed, double max_accel)
 	 * flinging the aircraft across the tarmac in case some external
 	 * factor is blocking us (like chocks).
 	 */
-	force_lim = FORCE_PER_TON * (bp.acf.mass / 1000);
+	force_lim = FORCE_PER_TON * (bp_dr_getf(&drs.acf_mass) / 1000);
 	/*
 	 * The maximum single-second force increment is 1/10 of the maximum
 	 * pushback force limit. This means it'll take up to 10s for us to
@@ -413,8 +413,15 @@ push_at_speed(double targ_speed, double max_accel)
 static void
 straight_run(vect2_t s, double hdg, double speed)
 {
-	vect2_t c, c2s, align_s, dir_v;
-	double c2s_hdg, mis_hdg;
+	vect2_t c, s2c, align_s, dir_v;
+	double s2c_hdg, mis_hdg;
+
+	/* Neutralize steering until we're traveling in our direction */
+	if ((speed < 0 && bp.cur_spd > 0) || (speed > 0 && bp.cur_spd < 0)) {
+		turn_nosewheel(0, STRAIGHT_STEER_RATE);
+		push_at_speed(speed, STRAIGHT_ACCEL);
+		return;
+	}
 
 	/*
 	 * Here we implement trying to keep the aircraft stable in crosswinds.
@@ -434,10 +441,14 @@ straight_run(vect2_t s, double hdg, double speed)
 	 */
 
 	/* this is the point we're tring to align */
-	c = vect2_add(bp.cur_pos, vect2_set_abs(hdg2dir(bp.cur_hdg),
-	    2 * (speed > 0 ? bp.acf.wheelbase : -bp.acf.wheelbase)));
+	c = vect2_add(bp.cur_pos, vect2_scmul(hdg2dir(bp.cur_hdg),
+	    (speed > 0 ? bp.acf.wheelbase : -bp.acf.wheelbase)));
 
-	/* We project our position onto the ideal straight line. */
+	/*
+	 * We project our position onto the ideal straight line. Limit the
+	 * projection backwards to be at least 1m ahead, otherwise we might
+	 * steer in the opposite sense than we want.
+	 */
 	dir_v = hdg2dir(hdg);
 	align_s = vect2_add(s, vect2_scmul(dir_v, vect2_dotprod(vect2_sub(
 	    bp.cur_pos, s), dir_v)));
@@ -446,22 +457,22 @@ straight_run(vect2_t s, double hdg, double speed)
 	 * Calculate a direction vector pointing from s to c (or
 	 * vice versa if pushing back) and transform into a heading.
 	 */
-	c2s = vect2_sub(align_s, c);
-	c2s_hdg = dir2hdg(c2s);
+	s2c = vect2_sub(c, align_s);
+	s2c_hdg = dir2hdg(s2c);
 
 	/*
 	 * Calculate the required steering change. mis_hdg is the angle by
 	 * which point `c' is deflected from the ideal straight line. So
 	 * simply steer in the opposite direction to try and nullify it.
 	 */
-	mis_hdg = rel_hdg(hdg, c2s_hdg);
+	mis_hdg = rel_hdg(s2c_hdg, hdg);
 
 	/* Steering works in reverse when pushing back. */
-	if (speed > 0)
+	if (speed < 0)
 		mis_hdg = -mis_hdg;
 
 	dbg_log(bp, 1, "mis_hdg: %.1f hdg:%.1f c2s_hdg: %.1f",
-	    mis_hdg, hdg, c2s_hdg);
+	    mis_hdg, hdg, s2c_hdg);
 
 	turn_nosewheel(mis_hdg, STRAIGHT_STEER_RATE);
 	push_at_speed(speed, STRAIGHT_ACCEL);
@@ -472,15 +483,11 @@ turn_run(vect2_t c, double radius, bool_t right, bool_t backward)
 {
 	vect2_t refpt = vect2_add(bp.cur_pos,
 	    vect2_set_abs(vect2_neg(hdg2dir(bp.cur_hdg)), bp.acf.main_z));
-	double act_radius = vect2_abs(vect2_sub(refpt, c));
-	double d_radius = act_radius - radius;
 	vect2_t c2r, p1, p2, r, p1_to_r, p2_to_r;
 	double mis_hdg, speed;
 
 	/* Don't turn the nosewheel if we're traveling in the wrong direction */
-	if ((!backward && bp.cur_spd < 0) || (backward && bp.cur_spd > 0) ||
-	    /* We're inside the turn radius, straighten out to catch up */
-	    (d_radius < 0)) {
+	if ((!backward && bp.cur_spd < 0) || (backward && bp.cur_spd > 0)) {
 		turn_nosewheel(0, TURN_STEER_RATE);
 		push_at_speed(STRAIGHT_SPEED * (backward ? -1 : 1), TURN_ACCEL);
 		return;
@@ -493,8 +500,8 @@ turn_run(vect2_t c, double radius, bool_t right, bool_t backward)
 	else
 		p1 = vect2_add(r, vect2_norm(c2r, !right));
 
-	p2 = vect2_add(bp.cur_pos, vect2_set_abs(hdg2dir(bp.cur_hdg),
-	    2 * (!backward ? bp.acf.wheelbase : -bp.acf.wheelbase)));
+	p2 = vect2_add(refpt, vect2_scmul(hdg2dir(bp.cur_hdg),
+	    (backward ? -bp.acf.wheelbase / 5 : bp.acf.wheelbase / 5)));
 
 	p1_to_r = vect2_sub(r, p1);
 	p2_to_r = vect2_sub(r, p2);
@@ -514,7 +521,7 @@ turn_run(vect2_t c, double radius, bool_t right, bool_t backward)
 
 	dbg_log(bp, 1, "mis_hdg: %.1f speed: %.2f", mis_hdg, speed);
 
-	turn_nosewheel(mis_hdg, TURN_STEER_RATE);
+	turn_nosewheel(2 * mis_hdg, TURN_STEER_RATE);
 	push_at_speed(speed, TURN_ACCEL);
 }
 
@@ -561,7 +568,6 @@ bp_init(void)
 
 	bp.turn_c_pos = NULL_VECT2;
 
-	bp.acf.mass = bp_dr_getf(&drs.acf_mass);
 	bp_dr_getvf(&drs.tire_z, &bp.acf.nw_z, 0, 1);
 	n_main = bp_dr_getvf(&drs.tire_z, tire_z_main, 1, 8);
 	if (n_main < 1) {
@@ -578,12 +584,11 @@ bp_init(void)
 		    "Sorry, tail draggers aren't supported.");
 		return (B_FALSE);
 	}
-	bp.acf.max_nw_angle = MAX(bp_dr_getf(&drs.nw_steerdeg1),
-	    bp_dr_getf(&drs.nw_steerdeg2));
+	bp.acf.max_nw_angle = MIN(MAX(bp_dr_getf(&drs.nw_steerdeg1),
+	    bp_dr_getf(&drs.nw_steerdeg2)), MAX_STEER_ANGLE);
 
-	dbg_log(bp, 1, "mass: %.0f nw_z: %.1f main_z: %.1f wheelbase: %.1f "
-	    "nw_max: %.1f", bp.acf.mass, bp.acf.nw_z, bp.acf.main_z,
-	    bp.acf.wheelbase, bp.acf.max_nw_angle);
+	dbg_log(bp, 1, "nw_z: %.1f main_z: %.1f wheelbase: %.1f nw_max: %.1f",
+	    bp.acf.nw_z, bp.acf.main_z, bp.acf.wheelbase, bp.acf.max_nw_angle);
 
 	inited = B_TRUE;
 
@@ -604,6 +609,11 @@ bp_start(void)
 
 	XPLMRegisterFlightLoopCallback((XPLMFlightLoop_f)bp_run, -1, NULL);
 	started = B_TRUE;
+
+	if (bp_dr_getf(&drs.pbrake) == 1) {
+		bp.starting = B_TRUE;
+		XPLMSpeakString("Connected, release parking brake.");
+	}
 }
 
 void
@@ -676,6 +686,11 @@ bp_run(void)
 
 	bp_dr_seti(&drs.override_steer, 1);
 
+	if (bp.starting && bp_dr_getf(&drs.pbrake) != 1) {
+		XPLMSpeakString("Here we go!");
+		bp.starting = B_FALSE;
+	}
+
 	while ((seg = list_head(&bp.segs)) != NULL) {
 		last = B_TRUE;
 		/* Pilot pressed brake pedals or set parking brake, stop */
@@ -696,17 +711,21 @@ bp_run(void)
 				continue;
 			}
 			if (!seg->backward) {
-				straight_run(seg->start_pos,
-				    normalize_hdg(-seg->start_hdg),
+				straight_run(seg->start_pos, seg->start_hdg,
 				    STRAIGHT_SPEED);
 			} else {
 				straight_run(seg->start_pos,
-				    seg->start_hdg, -STRAIGHT_SPEED);
+				    normalize_hdg(seg->start_hdg + 180),
+				    -STRAIGHT_SPEED);
 			}
 		} else {
 			vect2_t c;
-			if (fabs(rel_hdg(bp.cur_hdg, seg->end_hdg)) <
-			    TURN_COMPLETE_THRESH) {
+			double rhdg = rel_hdg(bp.cur_hdg, seg->end_hdg);
+			bool_t cw = ((seg->turn.right && !seg->backward) ||
+			    (!seg->turn.right && seg->backward));
+
+			if ((cw && rhdg <= 0 && rhdg > -40) ||
+			    (!cw && rhdg >= 0 && rhdg < 40)) {
 				list_remove(&bp.segs, seg);
 				free(seg);
 				continue;
@@ -756,7 +775,6 @@ static vect3_t cam_pos;
 static double cam_height;
 static double cam_hdg;
 static double cursor_hdg;
-static XPLMObjectRef prediction_obj = NULL;
 static list_t pred_segs;
 static XPLMCommandRef circle_view_cmd;
 static XPLMWindowID fake_win;
@@ -768,9 +786,15 @@ static bool_t force_root_win_focus = B_TRUE;
 #define	ANGLE_DRAW_STEP		5
 #define	ORIENTATION_LINE_LEN	200
 
-#define	INCR_SMALL		1
-#define	INCR_MED		2
-#define	INCR_BIG		4
+#define	INCR_SMALL		4
+#define	INCR_MED		20
+#define	INCR_BIG		100
+
+#define	AMBER_TUPLE		VECT3(0.9, 0.9, 0)	/* RGB color */
+#define	RED_TUPLE		VECT3(1, 0, 0)		/* RGB color */
+#define	GREEN_TUPLE		VECT3(0, 1, 0)		/* RGB color */
+
+#define	CLICK_THRESHOLD_US	200000			/* microseconds */
 
 typedef struct {
 	const char	*name;
@@ -821,12 +845,21 @@ static view_cmd_info_t view_cmds[] = {
 static int
 move_camera(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 {
-	unsigned i = (uintptr_t)refcon;
-	vect2_t v = vect2_rot(VECT2(view_cmds[i].incr.x, view_cmds[i].incr.z),
-	    cam_hdg);
+	static uint64_t last_cmd_t = 0;
 	UNUSED(cmd);
-	UNUSED(phase);
-	cam_pos = vect3_add(cam_pos, VECT3(v.x, view_cmds[i].incr.y, v.y));
+
+	if (phase == xplm_CommandBegin) {
+		last_cmd_t = microclock();
+	} else if (phase == xplm_CommandContinue) {
+		uint64_t now = microclock();
+		double d_t = (now - last_cmd_t) / 1000000.0;
+		unsigned i = (uintptr_t)refcon;
+		vect2_t v = vect2_rot(VECT2(view_cmds[i].incr.x,
+		    view_cmds[i].incr.z), cam_hdg);
+		cam_pos = vect3_add(cam_pos, VECT3(v.x * d_t, 0, v.y * d_t));
+		cam_height += view_cmds[i].incr.y * d_t;
+		last_cmd_t = now;
+	}
 	return (0);
 }
 
@@ -956,10 +989,46 @@ draw_segment(const seg_t *seg)
 	XPLMDestroyProbe(probe);
 }
 
+static void
+draw_acf_symbol(vect3_t pos, double hdg, double wheelbase, vect3_t color)
+{
+	vect2_t v;
+	vect3_t p;
+
+	/*
+	 * The wheelbase of most airlines is very roughly 1/3 of their
+	 * total length, so multiplying by 1.5 makes this value approx
+	 * half their size and gives a good rough "size ring" radius.
+	 */
+	wheelbase *= 1.5;
+
+	glLineWidth(MAX(wheelbase / 5, 2));
+	glColor4f(color.x, color.y, color.z, 1);
+	glBegin(GL_LINES);
+	v = vect2_rot(VECT2(-wheelbase, 0), hdg);
+	p = vect3_add(pos, VECT3(v.x, 0, v.y));
+	glVertex3f(p.x, p.y, -p.z);
+	v = vect2_rot(VECT2(wheelbase, 0), hdg);
+	p = vect3_add(pos, VECT3(v.x, 0, v.y));
+	glVertex3f(p.x, p.y, -p.z);
+	v = vect2_rot(VECT2(0, wheelbase / 2), hdg);
+	p = vect3_add(pos, VECT3(v.x, 0, v.y));
+	glVertex3f(p.x, p.y, -p.z);
+	v = vect2_rot(VECT2(0, -wheelbase), hdg);
+	p = vect3_add(pos, VECT3(v.x, 0, v.y));
+	glVertex3f(p.x, p.y, -p.z);
+	v = vect2_rot(VECT2(-wheelbase / 2, -wheelbase), hdg);
+	p = vect3_add(pos, VECT3(v.x, 0, v.y));
+	glVertex3f(p.x, p.y, -p.z);
+	v = vect2_rot(VECT2(wheelbase / 2, -wheelbase), hdg);
+	p = vect3_add(pos, VECT3(v.x, 0, v.y));
+	glVertex3f(p.x, p.y, -p.z);
+	glEnd();
+}
+
 static int
 draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 {
-	XPLMDrawInfo_t loc;
 	seg_t *seg;
 	XPLMProbeRef probe = XPLMCreateProbe(xplm_ProbeY);
 	XPLMProbeInfo_t info = { .structSize = sizeof (XPLMProbeInfo_t) };
@@ -985,14 +1054,6 @@ draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 
 		VERIFY3U(XPLMProbeTerrainXYZ(probe, seg->end_pos.x, 0,
 		    -seg->end_pos.y, &info), ==, xplm_ProbeHitTerrain);
-		loc.structSize = sizeof (XPLMDrawInfo_t);
-		loc.x = seg->end_pos.x;
-		loc.y = info.locationY + ABV_TERR_HEIGHT;
-		loc.z = -seg->end_pos.y;	/* invert X-Plane Z */
-		loc.pitch = 0;
-		loc.heading = seg->end_hdg;
-		loc.roll = 0;
-
 		if (seg->type == SEG_TYPE_TURN || !seg->backward) {
 			glColor4f(0, 1, 0, 1);
 			glBegin(GL_LINES);
@@ -1013,61 +1074,24 @@ draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 			glVertex3f(x.x, info.locationY + ABV_TERR_HEIGHT, -x.y);
 			glEnd();
 		}
-
-		XPLMDrawObjects(prediction_obj, 1, &loc, 0, 0);
+		draw_acf_symbol(VECT3(seg->end_pos.x, info.locationY +
+		    ABV_TERR_HEIGHT, seg->end_pos.y), seg->end_hdg,
+		    bp.acf.wheelbase, AMBER_TUPLE);
 	} else {
-		vect2_t v;
-		double cross_sz = cam_height / 30;
-		double y;
-
-		/*
-		 * Draw a red cross under the cursor. Remember to apply
-		 * inverted X-Plane Z coords to final draw calls.
-		 */
-
 		VERIFY3U(XPLMProbeTerrainXYZ(probe, cursor_world_pos.x, 0,
 		    -cursor_world_pos.y, &info), ==, xplm_ProbeHitTerrain);
-		y = info.locationY + ABV_TERR_HEIGHT;
-
-		glColor4f(1, 0, 0, 1);
-		glLineWidth(3);
-		glBegin(GL_LINES);
-		v = vect2_add(vect2_rot(VECT2(-cross_sz, cross_sz), cam_hdg),
-		    cursor_world_pos);
-		glVertex3f(v.x, y, -v.y);
-		v = vect2_add(vect2_rot(VECT2(cross_sz, -cross_sz), cam_hdg),
-		    cursor_world_pos);
-		glVertex3f(v.x, y, -v.y);
-		v = vect2_add(vect2_rot(VECT2(-cross_sz, -cross_sz), cam_hdg),
-		    cursor_world_pos);
-		glVertex3f(v.x, y, -v.y);
-		v = vect2_add(vect2_rot(VECT2(cross_sz, cross_sz), cam_hdg),
-		    cursor_world_pos);
-		glVertex3f(v.x, y, -v.y);
-		glEnd();
-
-		loc.structSize = sizeof (XPLMDrawInfo_t);
-		loc.x = cursor_world_pos.x;
-		loc.y = y;
-		loc.z = -cursor_world_pos.y;	/* invert X-Plane Z */
-		loc.pitch = 0;
-		loc.heading = cursor_hdg;
-		loc.roll = 0;
-		XPLMDrawObjects(prediction_obj, 1, &loc, 0, 0);
+		draw_acf_symbol(VECT3(cursor_world_pos.x, info.locationY +
+		    ABV_TERR_HEIGHT, cursor_world_pos.y), cursor_hdg,
+		    bp.acf.wheelbase, RED_TUPLE);
 	}
 
 
 	if ((seg = list_tail(&bp.segs)) != NULL) {
 		VERIFY3U(XPLMProbeTerrainXYZ(probe, seg->end_pos.x, 0,
 		    -seg->end_pos.y, &info), ==, xplm_ProbeHitTerrain);
-		loc.structSize = sizeof (XPLMDrawInfo_t);
-		loc.x = seg->end_pos.x;
-		loc.y = info.locationY + ABV_TERR_HEIGHT;
-		loc.z = -seg->end_pos.y;	/* invert X-Plane Z */
-		loc.pitch = 0;
-		loc.heading = seg->end_hdg;
-		loc.roll = 0;
-		XPLMDrawObjects(prediction_obj, 1, &loc, 0, 0);
+		draw_acf_symbol(VECT3(seg->end_pos.x, info.locationY +
+		    ABV_TERR_HEIGHT, seg->end_pos.y), seg->end_hdg,
+		    bp.acf.wheelbase, GREEN_TUPLE);
 	}
 
 	XPLMDestroyProbe(probe);
@@ -1112,8 +1136,6 @@ fake_win_cursor(XPLMWindowID inWindowID, int x, int y, void *inRefcon)
 	UNUSED(inRefcon);
 	return (xplm_CursorDefault);
 }
-
-#define	CLICK_THRESHOLD_US	200000
 
 static int
 fake_win_click(XPLMWindowID inWindowID, int x, int y, XPLMMouseStatus inMouse,
@@ -1248,7 +1270,7 @@ bp_cam_init(void)
 	XPLMTakeKeyboardFocus(fake_win);
 
 	list_create(&pred_segs, sizeof (seg_t), offsetof(seg_t, node));
-	cam_height = 100 * bp.acf.wheelbase;
+	cam_height = 20 * bp.acf.wheelbase;
 	/* We keep the camera position in our coordinates for ease of manip */
 	cam_pos = VECT3(bp_dr_getf(&drs.local_x),
 	    bp_dr_getf(&drs.local_y), -bp_dr_getf(&drs.local_z));
@@ -1257,9 +1279,6 @@ bp_cam_init(void)
 	XPLMControlCamera(xplm_ControlCameraForever, cam_ctl, NULL);
 
 	XPLMRegisterDrawCallback(draw_prediction, xplm_Phase_Objects, 0, NULL);
-	prediction_obj = XPLMLoadObject("Resources/default scenery/"
-	    "airport scenery/Aircraft/General_Aviation/Cessna_172.obj");
-	VERIFY(prediction_obj != NULL);
 
 	for (int i = 0; view_cmds[i].name != NULL; i++) {
 		view_cmds[i].cmd = XPLMFindCommand(view_cmds[i].name);
@@ -1286,7 +1305,6 @@ bp_cam_fini(void)
 	list_destroy(&pred_segs);
 	XPLMUnregisterDrawCallback(draw_prediction, xplm_Phase_Objects,
 	    0, NULL);
-	XPLMUnloadObject(prediction_obj);
 	XPLMDestroyWindow(fake_win);
 
 	for (int i = 0; view_cmds[i].name != NULL; i++) {

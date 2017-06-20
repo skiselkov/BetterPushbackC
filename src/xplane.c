@@ -21,6 +21,7 @@
 #include <string.h>
 
 #include <XPLMUtilities.h>
+#include <XPLMPlugin.h>
 
 #include "helpers.h"
 #include "log.h"
@@ -130,6 +131,14 @@ PLUGIN_API void
 XPluginReceiveMessage(XPLMPluginID from, int msg, void *param)
 {
 	UNUSED(from);
-	UNUSED(msg);
 	UNUSED(param);
+
+	switch (msg) {
+	case XPLM_MSG_LIVERY_LOADED:
+	case XPLM_MSG_AIRPORT_LOADED:
+	case XPLM_MSG_PLANE_UNLOADED:
+		/* Force a reinit to re-read aircraft size params */
+		bp_fini();
+		break;
+	}
 }
