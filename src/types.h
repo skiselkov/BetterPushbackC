@@ -16,8 +16,8 @@
  * Copyright 2017 Saso Kiselkov. All rights reserved.
  */
 
-#ifndef	_XTCAS_TYPES_H_
-#define	_XTCAS_TYPES_H_
+#ifndef	_BP_TYPES_H_
+#define	_BP_TYPES_H_
 
 #include <stdint.h>
 #include <limits.h>
@@ -37,4 +37,4 @@ typedef unsigned int bool_t;
 }
 #endif
 
-#endif	/* _XTCAS_TYPES_H_ */
+#endif	/* _BP_TYPES_H_ */

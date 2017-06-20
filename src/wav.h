@@ -23,12 +23,13 @@
  * Copyright 2017 Saso Kiselkov. All rights reserved.
  */
 
-#ifndef	_XRAAS_WAV_H_
-#define	_XRAAS_WAV_H_
+#ifndef	_BP_WAV_H_
+#define	_BP_WAV_H_
 
 #include <stdint.h>
 #include <al.h>
 
+#include "config.h"
 #include "types.h"
 
 #ifdef	__cplusplus
@@ -52,19 +53,27 @@ typedef struct wav_s {
 	ALuint		alsrc;
 } wav_t;
 
-void xtcas_openal_set_shared_ctx(bool_t flag);
-bool_t xtcas_openal_init();
-void xtcas_openal_fini();
+#define	openal_set_shared_ctx	SYMBOL_PREFIX(openal_set_shared_ctx)
+void openal_set_shared_ctx(bool_t flag);
+#define	openal_init		SYMBOL_PREFIX(openal_init)
+bool_t openal_init();
+#define	openal_fini		SYMBOL_PREFIX(openal_fini)
+void openal_fini();
 
-wav_t *xtcas_wav_load(const char *filename, const char *descr_name);
-void xtcas_wav_free(wav_t *wav);
+#define	wav_load		SYMBOL_PREFIX(wav_load)
+wav_t *wav_load(const char *filename, const char *descr_name);
+#define	wav_free		SYMBOL_PREFIX(wav_free)
+void wav_free(wav_t *wav);
 
-void xtcas_wav_set_gain(wav_t *wav, float gain);
-bool_t xtcas_wav_play(wav_t *wav);
-void xtcas_wav_stop(wav_t *wav);
+#define	wav_set_gain		SYMBOL_PREFIX(wav_set_gain)
+void wav_set_gain(wav_t *wav, float gain);
+#define	wav_play		SYMBOL_PREFIX(wav_play)
+bool_t wav_play(wav_t *wav);
+#define	wav_stop		SYMBOL_PREFIX(wav_stop)
+void wav_stop(wav_t *wav);
 
 #ifdef	__cplusplus
 }
 #endif
 
-#endif	/* _XRAAS_WAV_H_ */
+#endif	/* _BP_WAV_H_ */

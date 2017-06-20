@@ -2,3 +2,5 @@
 output
 libmac.xpl.dylib
 win.xpl_resource.rc
+object_script.win.xpl.Debug
+object_script.win.xpl.Release

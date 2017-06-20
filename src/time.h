@@ -16,20 +16,22 @@
  * Copyright 2017 Saso Kiselkov. All rights reserved.
  */
 
-#ifndef	_XTCAS_TIME_H_
-#define	_XTCAS_TIME_H_
+#ifndef	_BP_TIME_H_
+#define	_BP_TIME_H_
 
 #include <stdint.h>
+
+#include "config.h"
 
 #ifdef	__cplusplus
 extern "C" {
 #endif
 
-uint64_t xtcas_microclock();
-#define	microclock	xtcas_microclock
+#define	microclock	SYMBOL_PREFIX(microclock)
+uint64_t microclock();
 
 #ifdef	__cplusplus
 }
 #endif
 
-#endif	/* _XTCAS_TIME_H_ */
+#endif	/* _BP_TIME_H_ */

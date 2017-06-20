@@ -46,6 +46,7 @@
 #include "list.h"
 #include "dr.h"
 #include "time.h"
+#include "xplane.h"
 
 #include "bp.h"
 
@@ -333,7 +334,7 @@ turn_nosewheel(double req_angle, double rate)
 {
 	double rate_of_turn, steer_incr, cur_nw_angle;
 
-	cur_nw_angle = bp_dr_getf(&drs.tire_steer_cmd);
+	cur_nw_angle = dr_getf(&drs.tire_steer_cmd);
 	if (cur_nw_angle == req_angle)
 		return;
 
@@ -347,7 +348,7 @@ turn_nosewheel(double req_angle, double rate)
 	/* prevent excessive deflection */
 	cur_nw_angle = MIN(cur_nw_angle, bp.acf.max_nw_angle);
 	cur_nw_angle = MAX(cur_nw_angle, -bp.acf.max_nw_angle);
-	bp_dr_setf(&drs.tire_steer_cmd, cur_nw_angle);
+	dr_setf(&drs.tire_steer_cmd, cur_nw_angle);
 }
 
 static void
@@ -361,7 +362,7 @@ push_at_speed(double targ_speed, double max_accel)
 	 * flinging the aircraft across the tarmac in case some external
 	 * factor is blocking us (like chocks).
 	 */
-	force_lim = FORCE_PER_TON * (bp_dr_getf(&drs.acf_mass) / 1000);
+	force_lim = FORCE_PER_TON * (dr_getf(&drs.acf_mass) / 1000);
 	/*
 	 * The maximum single-second force increment is 1/10 of the maximum
 	 * pushback force limit. This means it'll take up to 10s for us to
@@ -378,12 +379,12 @@ push_at_speed(double targ_speed, double max_accel)
 	 * to correctly apply angular momentum forces below.
 	 * N.B. we only push in the horizontal plane, hence no Fy component.
 	 */
-	angle_rad = DEG2RAD(bp_dr_getf(&drs.tire_steer_cmd));
+	angle_rad = DEG2RAD(dr_getf(&drs.tire_steer_cmd));
 	Fx = -force * sin(angle_rad);
 	Fz = force * cos(angle_rad);
 
-	bp_dr_setf(&drs.axial_force, bp_dr_getf(&drs.axial_force) + Fz);
-	bp_dr_setf(&drs.rot_force_N, bp_dr_getf(&drs.rot_force_N) -
+	dr_setf(&drs.axial_force, dr_getf(&drs.axial_force) + Fz);
+	dr_setf(&drs.rot_force_N, dr_getf(&drs.rot_force_N) -
 	    Fx * bp.acf.nw_z);
 
 	/*
@@ -538,42 +539,42 @@ bp_init(void)
 
 	memset(&drs, 0, sizeof (drs));
 
-	bp_dr_init(&drs.lbrake, "sim/cockpit2/controls/left_brake_ratio");
-	bp_dr_init(&drs.rbrake, "sim/cockpit2/controls/right_brake_ratio");
-	bp_dr_init(&drs.pbrake, "sim/flightmodel/controls/parkbrake");
-	bp_dr_init(&drs.rot_force_N, "sim/flightmodel/forces/N_plug_acf");
-	bp_dr_init(&drs.axial_force, "sim/flightmodel/forces/faxil_plug_acf");
-	bp_dr_init(&drs.local_x, "sim/flightmodel/position/local_x");
-	bp_dr_init(&drs.local_y, "sim/flightmodel/position/local_y");
-	bp_dr_init(&drs.local_z, "sim/flightmodel/position/local_z");
-	bp_dr_init(&drs.hdg, "sim/flightmodel/position/psi");
-	bp_dr_init(&drs.vx, "sim/flightmodel/position/local_vx");
-	bp_dr_init(&drs.vy, "sim/flightmodel/position/local_vy");
-	bp_dr_init(&drs.vz, "sim/flightmodel/position/local_vz");
-	bp_dr_init(&drs.sim_time, "sim/time/total_running_time_sec");
-	bp_dr_init(&drs.acf_mass, "sim/flightmodel/weight/m_total");
-	bp_dr_init(&drs.tire_z, "sim/flightmodel/parts/tire_z_no_deflection");
-	bp_dr_init(&drs.nw_steerdeg1, "sim/aircraft/gear/acf_nw_steerdeg1");
-	bp_dr_init(&drs.nw_steerdeg2, "sim/aircraft/gear/acf_nw_steerdeg2");
-	bp_dr_init(&drs.tire_steer_cmd,
+	dr_init(&drs.lbrake, "sim/cockpit2/controls/left_brake_ratio");
+	dr_init(&drs.rbrake, "sim/cockpit2/controls/right_brake_ratio");
+	dr_init(&drs.pbrake, "sim/flightmodel/controls/parkbrake");
+	dr_init(&drs.rot_force_N, "sim/flightmodel/forces/N_plug_acf");
+	dr_init(&drs.axial_force, "sim/flightmodel/forces/faxil_plug_acf");
+	dr_init(&drs.local_x, "sim/flightmodel/position/local_x");
+	dr_init(&drs.local_y, "sim/flightmodel/position/local_y");
+	dr_init(&drs.local_z, "sim/flightmodel/position/local_z");
+	dr_init(&drs.hdg, "sim/flightmodel/position/psi");
+	dr_init(&drs.vx, "sim/flightmodel/position/local_vx");
+	dr_init(&drs.vy, "sim/flightmodel/position/local_vy");
+	dr_init(&drs.vz, "sim/flightmodel/position/local_vz");
+	dr_init(&drs.sim_time, "sim/time/total_running_time_sec");
+	dr_init(&drs.acf_mass, "sim/flightmodel/weight/m_total");
+	dr_init(&drs.tire_z, "sim/flightmodel/parts/tire_z_no_deflection");
+	dr_init(&drs.nw_steerdeg1, "sim/aircraft/gear/acf_nw_steerdeg1");
+	dr_init(&drs.nw_steerdeg2, "sim/aircraft/gear/acf_nw_steerdeg2");
+	dr_init(&drs.tire_steer_cmd,
 	    "sim/flightmodel/parts/tire_steer_cmd");
-	bp_dr_init(&drs.override_steer,
+	dr_init(&drs.override_steer,
 	    "sim/operation/override/override_wheel_steer");
-	bp_dr_init(&drs.gear_deploy, "sim/aircraft/parts/acf_gear_deploy");
+	dr_init(&drs.gear_deploy, "sim/aircraft/parts/acf_gear_deploy");
 
-	bp_dr_init(&drs.camera_fov_h,
+	dr_init(&drs.camera_fov_h,
 	    "sim/graphics/view/field_of_view_deg");
-	bp_dr_init(&drs.camera_fov_v,
+	dr_init(&drs.camera_fov_v,
 	    "sim/graphics/view/vertical_field_of_view_deg");
-	bp_dr_init(&drs.view_is_ext, "sim/graphics/view/view_is_external");
+	dr_init(&drs.view_is_ext, "sim/graphics/view/view_is_external");
 
 	memset(&bp, 0, sizeof (bp));
 	list_create(&bp.segs, sizeof (seg_t), offsetof(seg_t, node));
 
 	bp.turn_c_pos = NULL_VECT2;
 
-	bp_dr_getvf(&drs.tire_z, &bp.acf.nw_z, 0, 1);
-	n_main = bp_dr_getvf(&drs.tire_z, tire_z_main, 1, 8);
+	dr_getvf(&drs.tire_z, &bp.acf.nw_z, 0, 1);
+	n_main = dr_getvf(&drs.tire_z, tire_z_main, 1, 8);
 	if (n_main < 1) {
 		XPLMSpeakString("Pushback failure: aircraft seems to only "
 		    "have one gear leg.");
@@ -588,8 +589,8 @@ bp_init(void)
 		    "wheelbase. Sorry, tail draggers aren't supported.");
 		return (B_FALSE);
 	}
-	bp.acf.max_nw_angle = MIN(MAX(bp_dr_getf(&drs.nw_steerdeg1),
-	    bp_dr_getf(&drs.nw_steerdeg2)), MAX_STEER_ANGLE);
+	bp.acf.max_nw_angle = MIN(MAX(dr_getf(&drs.nw_steerdeg1),
+	    dr_getf(&drs.nw_steerdeg2)), MAX_STEER_ANGLE);
 
 
 	dbg_log(bp, 1, "nw_z: %.1f main_z: %.1f wheelbase: %.1f nw_max: %.1f",
@@ -606,13 +607,13 @@ bp_can_start(char **reason)
 	seg_t *seg;
 	vect2_t pos;
 
-	if (bp_dr_getf(&drs.gear_deploy) != 1) {
+	if (dr_getf(&drs.gear_deploy) != 1) {
 		if (reason != NULL)
 			*reason = "Pushback failure: gear not extended.";
 		return (B_FALSE);
 	}
-	if (vect3_abs(VECT3(bp_dr_getf(&drs.vx), bp_dr_getf(&drs.vy),
-	    bp_dr_getf(&drs.vz))) >= 1) {
+	if (vect3_abs(VECT3(dr_getf(&drs.vx), dr_getf(&drs.vy),
+	    dr_getf(&drs.vz))) >= 1) {
 		if (reason != NULL)
 			*reason = "Pushback failure: aircraft not stationary.";
 		return (B_FALSE);
@@ -626,7 +627,7 @@ bp_can_start(char **reason)
 		}
 		return (B_FALSE);
 	}
-	pos = VECT2(bp_dr_getf(&drs.local_x), -bp_dr_getf(&drs.local_z));
+	pos = VECT2(dr_getf(&drs.local_x), -dr_getf(&drs.local_z));
 	if (vect2_abs(vect2_sub(pos, seg->start_pos)) >= 3) {
 		if (reason != NULL) {
 			*reason = "Pushback failure: aircraft has moved. "
@@ -658,7 +659,7 @@ bp_start(void)
 	XPLMRegisterFlightLoopCallback((XPLMFlightLoop_f)bp_run, -1, NULL);
 	started = B_TRUE;
 
-	if (bp_dr_getf(&drs.pbrake) == 1) {
+	if (dr_getf(&drs.pbrake) == 1) {
 		bp.starting = B_TRUE;
 		XPLMSpeakString("Connected, release parking brake.");
 	}
@@ -689,7 +690,7 @@ bp_fini(void)
 
 	bp_stop();
 
-	bp_dr_seti(&drs.override_steer, 0);
+	dr_seti(&drs.override_steer, 0);
 
 	if (started) {
 		XPLMUnregisterFlightLoopCallback((XPLMFlightLoop_f)bp_run,
@@ -707,7 +708,7 @@ bp_fini(void)
 	inited = B_FALSE;
 }
 
-void
+static void
 bp_gather(void)
 {
 	/*
@@ -715,12 +716,12 @@ bp_gather(void)
 	 * X-Plane's north-south axis (Z) is flipped to our understanding, so
 	 * whenever we access 'local_z' or 'vz', we need to flip it.
 	 */
-	bp.cur_pos = VECT2(bp_dr_getf(&drs.local_x),
-	    -bp_dr_getf(&drs.local_z));
-	bp.cur_hdg = bp_dr_getf(&drs.hdg);
-	bp.cur_t = bp_dr_getf(&drs.sim_time);
+	bp.cur_pos = VECT2(dr_getf(&drs.local_x),
+	    -dr_getf(&drs.local_z));
+	bp.cur_hdg = dr_getf(&drs.hdg);
+	bp.cur_t = dr_getf(&drs.sim_time);
 	bp.cur_spd = vect2_dotprod(hdg2dir(bp.cur_hdg),
-	    VECT2(bp_dr_getf(&drs.vx), -bp_dr_getf(&drs.vz)));
+	    VECT2(dr_getf(&drs.vx), -dr_getf(&drs.vz)));
 }
 
 static double
@@ -842,9 +843,9 @@ bp_run(void)
 	bp.d_hdg = bp.cur_hdg - bp.last_hdg;
 	bp.d_t = bp.cur_t - bp.last_t;
 
-	bp_dr_seti(&drs.override_steer, 1);
+	dr_seti(&drs.override_steer, 1);
 
-	if (bp.starting && bp_dr_getf(&drs.pbrake) != 1) {
+	if (bp.starting && dr_getf(&drs.pbrake) != 1) {
 		XPLMSpeakString("Here we go!");
 		bp.starting = B_FALSE;
 	}
@@ -852,12 +853,12 @@ bp_run(void)
 	while ((seg = list_head(&bp.segs)) != NULL) {
 		last = B_TRUE;
 		/* Pilot pressed brake pedals or set parking brake, stop */
-		if (bp_dr_getf(&drs.lbrake) > BRAKE_PEDAL_THRESH ||
-		    bp_dr_getf(&drs.rbrake) > BRAKE_PEDAL_THRESH ||
-		    bp_dr_getf(&drs.pbrake) != 0) {
+		if (dr_getf(&drs.lbrake) > BRAKE_PEDAL_THRESH ||
+		    dr_getf(&drs.rbrake) > BRAKE_PEDAL_THRESH ||
+		    dr_getf(&drs.pbrake) != 0) {
 			dbg_log(bp, 2, "Brakes ON, STOPPING! (%.3f/%.3f/%f)",
-			    bp_dr_getf(&drs.lbrake), bp_dr_getf(&drs.rbrake),
-			    bp_dr_getf(&drs.pbrake));
+			    dr_getf(&drs.lbrake), dr_getf(&drs.rbrake),
+			    dr_getf(&drs.pbrake));
 			break;
 		}
 		if (seg->type == SEG_TYPE_STRAIGHT) {
@@ -923,12 +924,22 @@ bp_run(void)
 			    "brake");
 			bp.stopped = B_TRUE;
 		}
-		if (bp_dr_getf(&drs.pbrake) == 0) {
+		if (bp.stopped) {
+			/*
+			 * Apply the brakes to prevent the aircraft from
+			 * attempting to move while we're waiting for the
+			 * parking brake to be set.
+			 */
+			dr_setf(&drs.lbrake, 1);
+			dr_setf(&drs.rbrake, 1);
+		}
+		if (dr_getf(&drs.pbrake) == 0) {
 			return (-1);
 		}
-		bp_dr_seti(&drs.override_steer, 0);
+		dr_seti(&drs.override_steer, 0);
 		started = B_FALSE;
 		XPLMSpeakString("Disconnected, have a nice day");
+		bp_done_notify();
 		return (0);
 	}
 }
@@ -1054,8 +1065,8 @@ cam_ctl(XPLMCameraPosition_t *pos, int losing_control, void *refcon)
 	/* make the mouse coordinates relative to the screen center */
 	rx = ((double)x - w / 2) / (w / 2);
 	ry = ((double)y - h / 2) / (h / 2);
-	fov_h = DEG2RAD(bp_dr_getf(&drs.camera_fov_h));
-	fov_v = DEG2RAD(bp_dr_getf(&drs.camera_fov_v));
+	fov_h = DEG2RAD(dr_getf(&drs.camera_fov_h));
+	fov_v = DEG2RAD(dr_getf(&drs.camera_fov_v));
 	rw = cam_height * tan(fov_h / 2);
 	rh = cam_height * tan(fov_v / 2);
 	dx = rw * rx;
@@ -1079,9 +1090,9 @@ cam_ctl(XPLMCameraPosition_t *pos, int losing_control, void *refcon)
 		start_pos = seg->end_pos;
 		start_hdg = seg->end_hdg;
 	} else {
-		start_pos = VECT2(bp_dr_getf(&drs.local_x),
-		    -bp_dr_getf(&drs.local_z));	/* inverted X-Plane Z */
-		start_hdg = bp_dr_getf(&drs.hdg);
+		start_pos = VECT2(dr_getf(&drs.local_x),
+		    -dr_getf(&drs.local_z));	/* inverted X-Plane Z */
+		start_hdg = dr_getf(&drs.hdg);
 	}
 
 	end_pos = vect2_add(VECT2(cam_pos.x, cam_pos.z),
@@ -1199,7 +1210,7 @@ draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 	UNUSED(before);
 	UNUSED(refcon);
 
-	if (bp_dr_geti(&drs.view_is_ext) != 1)
+	if (dr_geti(&drs.view_is_ext) != 1)
 		XPLMCommandOnce(circle_view_cmd);
 
 	for (seg = list_head(&bp.segs); seg != NULL;
@@ -1323,8 +1334,8 @@ fake_win_click(XPLMWindowID inWindowID, int x, int y, XPLMMouseStatus inMouse,
 			XPLMGetScreenSize(&w, &h);
 			rx = ((double)x - down_x) / (w / 2);
 			ry = ((double)y - down_y) / (h / 2);
-			fov_h = DEG2RAD(bp_dr_getf(&drs.camera_fov_h));
-			fov_v = DEG2RAD(bp_dr_getf(&drs.camera_fov_v));
+			fov_h = DEG2RAD(dr_getf(&drs.camera_fov_h));
+			fov_v = DEG2RAD(dr_getf(&drs.camera_fov_v));
 			rw = cam_height * tan(fov_h / 2);
 			rh = cam_height * tan(fov_v / 2);
 			dx = rw * rx;
@@ -1421,8 +1432,8 @@ bp_cam_start(void)
 	if (cam_inited || !bp_init())
 		return (B_FALSE);
 
-	if (vect3_abs(VECT3(bp_dr_getf(&drs.vx), bp_dr_getf(&drs.vy),
-	    bp_dr_getf(&drs.vz))) >= 1) {
+	if (vect3_abs(VECT3(dr_getf(&drs.vx), dr_getf(&drs.vy),
+	    dr_getf(&drs.vz))) >= 1) {
 		XPLMSpeakString("Can't start planner: aircraft not "
 		    "stationary.");
 		return (B_FALSE);
@@ -1448,10 +1459,10 @@ bp_cam_start(void)
 	force_root_win_focus = B_TRUE;
 	cam_height = 20 * bp.acf.wheelbase;
 	/* We keep the camera position in our coordinates for ease of manip */
-	cam_pos = VECT3(bp_dr_getf(&drs.local_x),
-	    bp_dr_getf(&drs.local_y), -bp_dr_getf(&drs.local_z));
-	cam_hdg = bp_dr_getf(&drs.hdg);
-	cursor_hdg = bp_dr_getf(&drs.hdg);
+	cam_pos = VECT3(dr_getf(&drs.local_x),
+	    dr_getf(&drs.local_y), -dr_getf(&drs.local_z));
+	cam_hdg = dr_getf(&drs.hdg);
+	cursor_hdg = dr_getf(&drs.hdg);
 	XPLMControlCamera(xplm_ControlCameraForever, cam_ctl, NULL);
 
 	XPLMRegisterDrawCallback(draw_prediction, xplm_Phase_Objects, 0, NULL);

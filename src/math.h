@@ -16,8 +16,10 @@
  * Copyright 2017 Saso Kiselkov. All rights reserved.
  */
 
-#ifndef	_XTCAS_MATH_H_
-#define	_XTCAS_MATH_H_
+#ifndef	_BP_MATH_H_
+#define	_BP_MATH_H_
+
+#include "config.h"
 
 #ifdef	__cplusplus
 extern "C" {
@@ -27,11 +29,11 @@ extern "C" {
 #define	POW2(x)	((x) * (x))
 #define	ROUND_ERROR	1e-10
 
+#define	quadratic_solve		SYMBOL_PREFIX(quadratic_solve)
 unsigned quadratic_solve(double a, double b, double c, double x[2]);
-double fx_lin(double x, double x1, double y1, double x2, double y2);
 
 #ifdef	__cplusplus
 }
 #endif
 
-#endif	/* _XTCAS_GEOM_H_ */
+#endif	/* _BP_GEOM_H_ */

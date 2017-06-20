@@ -23,11 +23,12 @@
  * Copyright 2017 Saso Kiselkov. All rights reserved.
  */
 
-#ifndef	_XRAAS_RIFF_H_
-#define	_XRAAS_RIFF_H_
+#ifndef	_BP_RIFF_H_
+#define	_BP_RIFF_H_
 
 #include <stdint.h>
 
+#include "config.h"
 #include "types.h"
 
 #ifdef	__cplusplus
@@ -66,13 +67,17 @@ typedef struct riff_chunk {
 	list_node_t	node;
 } riff_chunk_t;
 
-void riff_free_chunk(riff_chunk_t *c);
+#define	riff_parse	SYMBOL_PREFIX(riff_parse)
 riff_chunk_t *riff_parse(uint32_t filetype, uint8_t *buf, size_t bufsz);
+#define	riff_free_chunk	SYMBOL_PREFIX(riff_free_chunk)
+void riff_free_chunk(riff_chunk_t *c);
+#define	riff_find_chunk	SYMBOL_PREFIX(riff_find_chunk)
 riff_chunk_t *riff_find_chunk(riff_chunk_t *topchunk, ...);
+#define	riff_dump	SYMBOL_PREFIX(riff_dump)
 char *riff_dump(const riff_chunk_t *topchunk);
 
 #ifdef	__cplusplus
 }
 #endif
 
-#endif	/* _XRAAS_RIFF_H_ */
+#endif	/* _BP_RIFF_H_ */

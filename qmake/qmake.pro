@@ -97,23 +97,5 @@ macx {
 	QMAKE_LFLAGS -= -stdlib=libc++
 }
 
-HEADERS += \
-	../src/avl.h \
-	../src/helpers.h \
-	../src/log.h \
-	../src/time.h \
-	../src/geom.h \
-	../src/list.h \
-	../src/math.h \
-	../src/riff.h \
-	../src/wav.h
-SOURCES += \
-	../src/avl.c \
-	../src/helpers.c \
-	../src/log.c \
-	../src/time.c \
-	../src/geom.c \
-	../src/list.c \
-	../src/math.c \
-	../src/riff.c \
-	../src/wav.c
+HEADERS += ../src/*.h
+SOURCES += ../src/*.c

@@ -31,6 +31,8 @@ extern "C" {
 #endif
 
 #include <sys/types.h>
+
+#include "config.h"
 #include "types.h"
 
 #define _AVL_IMPL_INCLUDED_FROM_AVL_H
@@ -147,6 +149,7 @@ typedef uintptr_t avl_index_t;
  * size   - the value of sizeof(struct my_type)
  * offset - the value of OFFSETOF(struct my_type, my_link)
  */
+#define avl_create	SYMBOL_PREFIX(avl_create)
 extern void avl_create(avl_tree_t *tree,
 	int (*compar) (const void *, const void *), size_t size, size_t offset);
 
@@ -159,6 +162,7 @@ extern void avl_create(avl_tree_t *tree,
  * node   - node that has the value being looked for
  * where  - position for use with avl_nearest() or avl_insert(), may be NULL
  */
+#define avl_find	SYMBOL_PREFIX(avl_find)
 extern void *avl_find(avl_tree_t *tree, const void *node, avl_index_t *where);
 
 /*
@@ -167,6 +171,7 @@ extern void *avl_find(avl_tree_t *tree, const void *node, avl_index_t *where);
  * node   - the node to insert
  * where  - position as returned from avl_find()
  */
+#define avl_insert	SYMBOL_PREFIX(avl_insert)
 extern void avl_insert(avl_tree_t *tree, void *node, avl_index_t where);
 
 /*
@@ -180,6 +185,7 @@ extern void avl_insert(avl_tree_t *tree, void *node, avl_index_t where);
  * here		- existing node in "tree"
  * direction	- either AVL_AFTER or AVL_BEFORE the data "here".
  */
+#define avl_insert_here	SYMBOL_PREFIX(avl_insert_here)
 extern void avl_insert_here(avl_tree_t *tree, void *new_data, void *here,
     int direction);
 
@@ -189,7 +195,9 @@ extern void avl_insert_here(avl_tree_t *tree, void *new_data, void *here,
  * if the tree is empty.
  *
  */
+#define avl_first	SYMBOL_PREFIX(avl_first)
 extern void *avl_first(avl_tree_t *tree);
+#define avl_last	SYMBOL_PREFIX(avl_last)
 extern void *avl_last(avl_tree_t *tree);
 
 
@@ -226,6 +234,7 @@ extern void *avl_last(avl_tree_t *tree);
  *	else
  *		less = avl_nearest(tree, where, AVL_BEFORE);
  */
+#define	avl_nearest	SYMBOL_PREFIX(avl_nearest)
 extern void *avl_nearest(avl_tree_t *tree, avl_index_t where, int direction);
 
 
@@ -236,6 +245,7 @@ extern void *avl_nearest(avl_tree_t *tree, avl_index_t where, int direction);
  *
  * node   - the node to add
  */
+#define avl_add		SYMBOL_PREFIX(avl_add)
 extern void avl_add(avl_tree_t *tree, void *node);
 
 
@@ -244,6 +254,7 @@ extern void avl_add(avl_tree_t *tree, void *node);
  *
  * node   - the node to remove
  */
+#define avl_remove	SYMBOL_PREFIX(avl_remove)
 extern void avl_remove(avl_tree_t *tree, void *node);
 
 /*
@@ -253,18 +264,23 @@ extern void avl_remove(avl_tree_t *tree, void *node);
  * avl_update_gt() only if you know the direction in which the order of the
  * node may change.
  */
+#define avl_update	SYMBOL_PREFIX(avl_update)
 extern bool_t avl_update(avl_tree_t *, void *);
+#define avl_update_lt	SYMBOL_PREFIX(avl_update_lt)
 extern bool_t avl_update_lt(avl_tree_t *, void *);
+#define avl_update_gt	SYMBOL_PREFIX(avl_update_gt)
 extern bool_t avl_update_gt(avl_tree_t *, void *);
 
 /*
  * Return the number of nodes in the tree
  */
+#define avl_numnodes	SYMBOL_PREFIX(avl_numnodes)
 extern unsigned long avl_numnodes(avl_tree_t *tree);
 
 /*
  * Return B_TRUE if there are zero nodes in the tree, B_FALSE otherwise.
  */
+#define avl_is_empty	SYMBOL_PREFIX(avl_is_empty)
 extern bool_t avl_is_empty(avl_tree_t *tree);
 
 /*
@@ -288,6 +304,7 @@ extern bool_t avl_is_empty(avl_tree_t *tree);
  *		free(node);
  *	avl_destroy(tree);
  */
+#define	avl_destroy_nodes	SYMBOL_PREFIX(avl_destroy_nodes)
 extern void *avl_destroy_nodes(avl_tree_t *tree, void **cookie);
 
 
@@ -296,6 +313,7 @@ extern void *avl_destroy_nodes(avl_tree_t *tree, void **cookie);
  *
  * tree   - the empty tree to destroy
  */
+#define	avl_destroy		SYMBOL_PREFIX(avl_destroy)
 extern void avl_destroy(avl_tree_t *tree);
 
 

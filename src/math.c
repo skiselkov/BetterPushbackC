@@ -51,18 +51,3 @@ quadratic_solve(double a, double b, double c, double x[2])
 		return (0);
 	}
 }
-
-/*
- * Interpolates a linear function defined by two points.
- *
- * @param x Point who's 'y' value we're looking for on the function.
- * @param x1 First reference point's x coordinate.
- * @param y1 First reference point's y coordinate.
- * @param x2 Second reference point's x coordinate.
- * @param y2 Second reference point's y coordinate.
- */
-double
-fx_lin(double x, double x1, double y1, double x2, double y2)
-{
-	return (((x - x1) / (x2 - x1)) * (y2 - y1) + y1);
-}

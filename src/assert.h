@@ -29,6 +29,7 @@
 #include <assert.h>
 #include <stdlib.h>
 
+#include "config.h"
 #include "log.h"
 #include "helpers.h"
 
@@ -51,9 +52,9 @@ extern "C" {
 #define	VERIFY_MSG(x, fmt, ...) \
 	do { \
 		if (!(x)) { \
-			bp_log_impl(bp_basename(__FILE__), __LINE__, \
+			log_impl(bp_basename(__FILE__), __LINE__, \
 			    "assertion \"%s\" failed: " fmt, #x, __VA_ARGS__); \
-			bp_log_backtrace(); \
+			log_backtrace(); \
 			abort(); \
 		} \
 	} while (0)
@@ -65,10 +66,10 @@ extern "C" {
 		type tmp_x = (type)(x); \
 		type tmp_y = (type)(y); \
 		if (!(tmp_x op tmp_y)) { \
-			bp_log_impl(bp_basename(__FILE__), __LINE__, \
+			log_impl(bp_basename(__FILE__), __LINE__, \
 			    "assertion " #x " " #op " " #y " failed (" \
 			    fmt " " #op " " fmt ")", tmp_x, tmp_y); \
-			bp_log_backtrace(); \
+			log_backtrace(); \
 			abort(); \
 		} \
 	} while (0)

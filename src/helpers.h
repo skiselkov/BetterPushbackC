@@ -16,14 +16,15 @@
  * Copyright 2017 Saso Kiselkov. All rights reserved.
  */
 
-#ifndef	_XTCAS_HELPERS_H_
-#define	_XTCAS_HELPERS_H_
+#ifndef	_BP_HELPERS_H_
+#define	_BP_HELPERS_H_
 
 #include <stdarg.h>
 #include <assert.h>
 #include <stdio.h>
 #include <math.h>
 
+#include "config.h"
 #include "types.h"
 
 #ifdef	__cplusplus
@@ -150,6 +151,7 @@ normalize_hdg(double hdg)
 	return (hdg);
 }
 
+#define	rel_hdg	SYMBOL_PREFIX(rel_hdg)
 double rel_hdg(double hdg1, double hdg2);
 
 static inline bool_t
@@ -164,25 +166,15 @@ is_valid_bool(bool_t b)
 	return (b == B_FALSE || b == B_TRUE);
 }
 
-bool_t is_valid_vor_freq(double freq_mhz);
-bool_t is_valid_loc_freq(double freq_mhz);
-bool_t is_valid_ndb_freq(double freq_khz);
-bool_t is_valid_tacan_freq(double freq_mhz);
-bool_t is_valid_rwy_ID(const char *rwy_ID);
-
-/* CSV file & string processing helpers */
-ssize_t parser_get_next_line(FILE *fp, char **linep, size_t *linecap,
-    size_t *linenum);
-ssize_t explode_line(char *line, char delim, char **comps, size_t capacity);
-void strip_space(char *line);
-void append_format(char **str, size_t *sz, const char *format, ...)
-    PRINTF_ATTR(3);
-
+#define	mkpathname	SYMBOL_PREFIX(mkpathname)
 char *mkpathname(const char *comp, ...);
+#define	mkpathname_v	SYMBOL_PREFIX(mkpathname_v)
 char *mkpathname_v(const char *comp, va_list ap);
 
+#define	my_strlcpy	SYMBOL_PREFIX(my_strlcpy)
 void my_strlcpy(char *restrict dest, const char *restrict src, size_t cap);
 #if	IBM
+#define	getline		SYMBOL_PREFIX(getline)
 ssize_t getline(char **lineptr, size_t *n, FILE *stream);
 #endif	/* IBM */
 
@@ -222,4 +214,4 @@ floormul(double x, double y)
 }
 #endif
 
-#endif	/* _XTCAS_HELPERS_H_ */
+#endif	/* _BP_HELPERS_H_ */

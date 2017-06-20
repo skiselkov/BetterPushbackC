@@ -7,7 +7,7 @@
  * with the License.
  *
  * You can obtain a copy of the license in the file COPYING
- * or http://www.opensolaris.org/os/licensing.
+ * or http://www.opensource.org/licenses/CDDL-1.0.
  * See the License for the specific language governing permissions
  * and limitations under the License.
  *
@@ -20,33 +20,12 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2003 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright 2017 Saso Kiselkov. All rights reserved.
  */
 
-#ifndef	_XTCAS_LIST_IMPL_H
-#define	_XTCAS_LIST_IMPL_H
+#ifndef	_BP_CONFIG_H_
+#define	_BP_CONFIG_H_
 
-#include <sys/types.h>
+#define	SYMBOL_PREFIX(func)	BetterPushback10_ ## func
 
-#ifdef	__cplusplus
-extern "C" {
-#endif
-
-struct list_node {
-	struct list_node *list_next;
-	struct list_node *list_prev;
-};
-
-struct list {
-	size_t	list_size;
-	size_t	list_offset;
-	size_t	list_count;
-	struct list_node list_head;
-};
-
-#ifdef	__cplusplus
-}
-#endif
-
-#endif	/* _XTCAS_LIST_IMPL_H */
+#endif	/* _BP_CONFIG_H_ */

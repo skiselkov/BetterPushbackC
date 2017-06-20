@@ -26,7 +26,7 @@
 #include "time.h"
 
 uint64_t
-xtcas_microclock(void)
+microclock(void)
 {
 #if	IBM
     LARGE_INTEGER val, freq;

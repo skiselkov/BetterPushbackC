@@ -24,10 +24,10 @@
 #include <XPLMUtilities.h>
 #include <XPLMPlugin.h>
 
+#include "bp.h"
 #include "helpers.h"
 #include "log.h"
-
-#include "bp.h"
+#include "xplane.h"
 
 #define BP_PLUGIN_NAME		"BetterPushback 1.0"
 #define BP_PLUGIN_SIG		"skiselkov.BetterPushback1.0"
@@ -68,12 +68,9 @@ stop_pb_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 {
 	UNUSED(cmd);
 	UNUSED(refcon);
-	if (phase != xplm_CommandEnd || !bp_init() || !bp_stop())
+	if (phase != xplm_CommandEnd || !bp_init())
 		return (1);
-	XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_TRUE);
-	XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
-	XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_FALSE);
-	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
+	(void) bp_stop();
 	return (1);
 }
 
@@ -110,6 +107,15 @@ menu_cb(void *inMenuRef, void *inItemRef)
 {
 	UNUSED(inMenuRef);
 	XPLMCommandOnce((XPLMCommandRef)inItemRef);
+}
+
+void
+bp_done_notify(void)
+{
+	XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_TRUE);
+	XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
+	XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_FALSE);
+	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
 }
 
 PLUGIN_API int

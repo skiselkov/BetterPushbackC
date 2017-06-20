@@ -24,7 +24,7 @@
 #include "dr.h"
 
 void
-bp_dr_init(dr_t *dr, const char *fmt, ...)
+dr_init(dr_t *dr, const char *fmt, ...)
 {
 	va_list ap;
 
@@ -39,7 +39,7 @@ bp_dr_init(dr_t *dr, const char *fmt, ...)
 }
 
 int
-bp_dr_geti(dr_t *dr)
+dr_geti(dr_t *dr)
 {
 	if (dr->type & xplmType_Int)
 		return (XPLMGetDatai(dr->dr));
@@ -50,14 +50,14 @@ bp_dr_geti(dr_t *dr)
 	if (dr->type & (xplmType_FloatArray | xplmType_IntArray |
 	    xplmType_Data)) {
 		int i;
-		VERIFY3U(bp_dr_getvi(dr, &i, 0, 1), ==, 1);
+		VERIFY3U(dr_getvi(dr, &i, 0, 1), ==, 1);
 		return (i);
 	}
 	VERIFY_MSG(0, "dr %s has bad type %x", dr->name, dr->type);
 }
 
 void
-bp_dr_seti(dr_t *dr, int i)
+dr_seti(dr_t *dr, int i)
 {
 	ASSERT_MSG(dr->writable, "%s", dr->name);
 	if (dr->type & xplmType_Int)
@@ -68,13 +68,13 @@ bp_dr_seti(dr_t *dr, int i)
 		XPLMSetDatad(dr->dr, i);
 	else if (dr->type & (xplmType_FloatArray | xplmType_IntArray |
 	    xplmType_Data))
-		bp_dr_setvi(dr, &i, 0, 1);
+		dr_setvi(dr, &i, 0, 1);
 	else
 		VERIFY_MSG(0, "dr %s has bad type %x", dr->name, dr->type);
 }
 
 double
-bp_dr_getf(dr_t *dr)
+dr_getf(dr_t *dr)
 {
 	if (dr->type & xplmType_Int)
 		return (XPLMGetDatai(dr->dr));
@@ -85,14 +85,14 @@ bp_dr_getf(dr_t *dr)
 	if (dr->type & (xplmType_FloatArray | xplmType_IntArray |
 	    xplmType_Data)) {
 		double f;
-		VERIFY3U(bp_dr_getvf(dr, &f, 0, 1), ==, 1);
+		VERIFY3U(dr_getvf(dr, &f, 0, 1), ==, 1);
 		return (f);
 	}
 	VERIFY_MSG(0, "dr %s has bad type %x", dr->name, dr->type);
 }
 
 void
-bp_dr_setf(dr_t *dr, double f)
+dr_setf(dr_t *dr, double f)
 {
 	ASSERT_MSG(dr->writable, "%s", dr->name);
 	if (dr->type & xplmType_Int)
@@ -103,13 +103,13 @@ bp_dr_setf(dr_t *dr, double f)
 		XPLMSetDatad(dr->dr, f);
 	else if (dr->type & (xplmType_FloatArray | xplmType_IntArray |
 	    xplmType_Data))
-		bp_dr_setvf(dr, &f, 0, 1);
+		dr_setvf(dr, &f, 0, 1);
 	else
 		VERIFY_MSG(0, "dr %s has bad type %x", dr->name, dr->type);
 }
 
 int
-bp_dr_getvi(dr_t *dr, int *i, unsigned off, unsigned num)
+dr_getvi(dr_t *dr, int *i, unsigned off, unsigned num)
 {
 	if (dr->type & xplmType_IntArray)
 		return (XPLMGetDatavi(dr->dr, i, off, num));
@@ -131,7 +131,7 @@ bp_dr_getvi(dr_t *dr, int *i, unsigned off, unsigned num)
 }
 
 void
-bp_dr_setvi(dr_t *dr, int *i, unsigned off, unsigned num)
+dr_setvi(dr_t *dr, int *i, unsigned off, unsigned num)
 {
 	ASSERT_MSG(dr->writable, "%s", dr->name);
 	if (dr->type & xplmType_IntArray) {
@@ -152,7 +152,7 @@ bp_dr_setvi(dr_t *dr, int *i, unsigned off, unsigned num)
 }
 
 int
-bp_dr_getvf(dr_t *dr, double *df, unsigned off, unsigned num)
+dr_getvf(dr_t *dr, double *df, unsigned off, unsigned num)
 {
 	if (dr->type & xplmType_IntArray) {
 		int i[num];
@@ -179,7 +179,7 @@ bp_dr_getvf(dr_t *dr, double *df, unsigned off, unsigned num)
 }
 
 void
-bp_dr_setvf(dr_t *dr, double *df, unsigned off, unsigned num)
+dr_setvf(dr_t *dr, double *df, unsigned off, unsigned num)
 {
 	ASSERT_MSG(dr->writable, "%s", dr->name);
 	if (dr->type & xplmType_IntArray) {

@@ -484,7 +484,7 @@ avl_insert(avl_tree_t *tree, void *new_data, avl_index_t where)
 	/*
 	 * First, add the node to the tree at the indicated position.
 	 */
-	++tree->avl_numnodes;
+	++tree->avl_num_nodes;
 
 	node->avl_child[0] = NULL;
 	node->avl_child[1] = NULL;
@@ -738,8 +738,8 @@ avl_remove(avl_tree_t *tree, void *data)
 	 * Here we know "delete" is at least partially a leaf node. It can
 	 * be easily removed from the tree.
 	 */
-	ASSERT(tree->avl_numnodes > 0);
-	--tree->avl_numnodes;
+	ASSERT(tree->avl_num_nodes > 0);
+	--tree->avl_num_nodes;
 	parent = AVL_XPARENT(delete);
 	which_child = AVL_XCHILD(delete);
 	if (delete->avl_child[0] != NULL)
@@ -878,7 +878,7 @@ avl_create(avl_tree_t *tree, int (*compar) (const void *, const void *),
 
 	tree->avl_compar = compar;
 	tree->avl_root = NULL;
-	tree->avl_numnodes = 0;
+	tree->avl_num_nodes = 0;
 	tree->avl_size = size;
 	tree->avl_offset = offset;
 }
@@ -891,7 +891,7 @@ void
 avl_destroy(avl_tree_t *tree)
 {
 	ASSERT(tree);
-	ASSERT(tree->avl_numnodes == 0);
+	ASSERT(tree->avl_num_nodes == 0);
 	ASSERT(tree->avl_root == NULL);
 }
 
@@ -903,14 +903,14 @@ unsigned long
 avl_numnodes(avl_tree_t *tree)
 {
 	ASSERT(tree);
-	return (tree->avl_numnodes);
+	return (tree->avl_num_nodes);
 }
 
 bool_t
 avl_is_empty(avl_tree_t *tree)
 {
 	ASSERT(tree);
-	return (tree->avl_numnodes == 0);
+	return (tree->avl_num_nodes == 0);
 }
 
 #define	CHILDBIT	(1L)
@@ -968,9 +968,9 @@ avl_destroy_nodes(avl_tree_t *tree, void **cookie)
 	parent = (avl_node_t *)((uintptr_t)(*cookie) & ~CHILDBIT);
 	if (parent == NULL) {
 		if (tree->avl_root != NULL) {
-			ASSERT(tree->avl_numnodes == 1);
+			ASSERT(tree->avl_num_nodes == 1);
 			tree->avl_root = NULL;
-			tree->avl_numnodes = 0;
+			tree->avl_num_nodes = 0;
 		}
 		return (NULL);
 	}
@@ -980,8 +980,8 @@ avl_destroy_nodes(avl_tree_t *tree, void **cookie)
 	 */
 	child = (uintptr_t)(*cookie) & CHILDBIT;
 	parent->avl_child[child] = NULL;
-	ASSERT(tree->avl_numnodes > 1);
-	--tree->avl_numnodes;
+	ASSERT(tree->avl_num_nodes > 1);
+	--tree->avl_num_nodes;
 
 	/*
 	 * If we just did a right child or there isn't one, go up to parent.

@@ -18,7 +18,7 @@ project(bp C)
 
 SET(SRC avl.c bp.c dr.c geom.c helpers.c list.c log.c math.c time.c
     wav.c riff.c xplane.c)
-SET(HDR avl.h avl_impl.h bp.h dr.h geom.h helpers.h log.h list.h list_impl.h
+SET(HDR avl.h avl_impl.h bp.h dr.h geom.h helpers.h log.h list.h
     math.h types.h time.h wav.h riff.h xplane.h)
 
 SET(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELEASE} -DDEBUG")
@@ -89,12 +89,6 @@ if(APPLE)
 	FIND_LIBRARY(CURSES_LIBRARY ncurses)
 	target_link_libraries(bp ${OPENAL_LIBRARY} ${OPENGL_LIBRARY}
 	    ${XPLM_LIBRARY})
-elseif(UNIX)
-	INCLUDE(FindPkgConfig)
-	pkg_check_modules(UDEV REQUIRED libudev)
-	include_directories(${UDEV_INCLUDE_DIRS})
-	link_directories(${UDEV_LIBRARY_DIRS})
-	target_link_libraries(bp ${UDEV_LIBRARIES})
 elseif(WIN32)
 	set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH}
 	    "..\\SDK\\Libraries\\Win\\")

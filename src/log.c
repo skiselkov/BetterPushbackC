@@ -44,16 +44,16 @@ dbg_info_t bp_dbg = {
 };
 
 void
-bp_log_impl(const char *filename, int line, const char *fmt, ...)
+log_impl(const char *filename, int line, const char *fmt, ...)
 {
 	va_list ap;
 	va_start(ap, fmt);
-	bp_log_impl_v(filename, line, fmt, ap);
+	log_impl_v(filename, line, fmt, ap);
 	va_end(ap);
 }
 
 void
-bp_log_impl_v(const char *filename, int line, const char *fmt, va_list ap)
+log_impl_v(const char *filename, int line, const char *fmt, va_list ap)
 {
 	va_list ap_copy;
 	char timedate[32];
@@ -105,7 +105,7 @@ static char line_buf[sizeof (IMAGEHLP_LINE64)];
 #endif	/* IBM */
 
 void
-bp_log_backtrace(void)
+log_backtrace(void)
 {
 #if	IBM
 

@@ -38,6 +38,8 @@
 
 #include <sys/types.h>
 
+#include "config.h"
+
 #ifdef	__cplusplus
 extern "C" {
 #endif
@@ -149,7 +151,7 @@ struct avl_tree {
 	struct avl_node *avl_root;	/* root node in tree */
 	int (*avl_compar)(const void *, const void *);
 	size_t avl_offset;		/* offsetof(type, avl_link_t field) */
-	unsigned long avl_numnodes;	/* number of nodes in the tree */
+	unsigned long avl_num_nodes;	/* number of nodes in the tree */
 	size_t avl_size;		/* sizeof user type struct */
 };
 
@@ -157,6 +159,7 @@ struct avl_tree {
 /*
  * This will only by used via AVL_NEXT() or AVL_PREV()
  */
+#define	avl_walk	SYMBOL_PREFIX(avl_walk)
 extern void *avl_walk(struct avl_tree *, void *, int);
 
 #ifdef	__cplusplus

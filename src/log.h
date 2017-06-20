@@ -16,10 +16,12 @@
  * Copyright 2017 Saso Kiselkov. All rights reserved.
  */
 
-#ifndef _XTCAS_LOG_H_
-#define _XTCAS_LOG_H_
+#ifndef _BP_LOG_H_
+#define _BP_LOG_H_
 
 #include <stdarg.h>
+
+#include "config.h"
 #include "helpers.h"
 
 #ifdef __cplusplus
@@ -34,11 +36,14 @@ typedef struct {
 
 extern dbg_info_t bp_dbg;
 
-void bp_log_impl(const char *filename, int line,
+#define	log_impl	SYMBOL_PREFIX(log_impl)
+void log_impl(const char *filename, int line,
     const char *fmt, ...) PRINTF_ATTR(3);
-void bp_log_impl_v(const char *filename, int line, const char *fmt,
+#define	log_impl_v	SYMBOL_PREFIX(log_impl_v)
+void log_impl_v(const char *filename, int line, const char *fmt,
     va_list ap);
-void bp_log_backtrace(void);
+#define	log_backtrace	SYMBOL_PREFIX(log_backtrace)
+void log_backtrace(void);
 
 #define	logMsg(...) \
 	bp_log_impl(NULL, 0, __VA_ARGS__)
@@ -47,13 +52,14 @@ void bp_log_backtrace(void);
 #define	bp_basename(f) (__builtin_strrchr(f, BUILD_DIRSEP) ? \
 	__builtin_strrchr(f, BUILD_DIRSEP) + 1 : f)
 #else	/* !__GNUC__ && !__clang__ */
-const char *bp_basename(const char *filename);
+#define	my_basename	SYMBOL_PREFIX(my_basename)
+const char *my_basename(const char *filename);
 #endif	/* !__GNUC__ && !__clang__ */
 
 #define	dbg_log(class, level, ...) \
 	do { \
 		if (bp_dbg.class >= level || bp_dbg.all >= level) { \
-			bp_log_impl(bp_basename(__FILE__), __LINE__,  \
+			log_impl(bp_basename(__FILE__), __LINE__,  \
 			    "[" #class "/" #level "]: " __VA_ARGS__); \
 		} \
 	} while (0)
@@ -62,4 +68,4 @@ const char *bp_basename(const char *filename);
 }
 #endif
 
-#endif /* _XTCAS_LOG_H_ */
+#endif /* _BP_LOG_H_ */

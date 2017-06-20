@@ -19,19 +19,32 @@
 #ifndef	_BP_H_
 #define	_BP_H_
 
+#include "config.h"
 #include "types.h"
 
 #ifdef	__cplusplus
 extern "C" {
 #endif
 
+#define bp_init		SYMBOL_PREFIX(bp_init)
 bool_t bp_init(void);
+
+#define	bp_fini		SYMBOL_PREFIX(bp_fini)
 void bp_fini(void);
+
+#define	bp_start	SYMBOL_PREFIX(bp_start)
 bool_t bp_start(void);
+
+#define	bp_can_start	SYMBOL_PREFIX(bp_can_start)
 bool_t bp_can_start(char **reason);
+
+#define	bp_stop		SYMBOL_PREFIX(bp_stop)
 bool_t bp_stop(void);
 
+#define	bp_cam_start	SYMBOL_PREFIX(bp_cam_start)
 bool_t bp_cam_start(void);
+
+#define	bp_cam_stop	SYMBOL_PREFIX(bp_cam_stop)
 bool_t bp_cam_stop(void);
 
 #ifdef	__cplusplus
