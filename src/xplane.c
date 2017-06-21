@@ -57,7 +57,8 @@ start_pb_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	if (!bp_init())
 		return (1);
 	if (bp_num_segs() == 0) {
-		XPLMSpeakString("Please plan the pushback operation");
+		XPLMSpeakString("Ground to cockpit. Please show me where "
+		    "you want to go.");
 		start_after_cam = B_TRUE;
 		XPLMCommandOnce(start_cam);
 		return (1);
@@ -113,6 +114,9 @@ stop_cam_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 		if (bp_num_segs() != 0)
 			XPLMCommandOnce(start_pb);
 		start_after_cam = B_FALSE;
+	} else if (bp_can_start(NULL)) {
+		XPLMSpeakString("Ground to cockpit. Plan acknowledged, "
+		    "call me through the menu when you are ready.");
 	}
 	return (1);
 }

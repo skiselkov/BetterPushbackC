@@ -68,7 +68,7 @@
 #define	MAX_STEER_ANGLE		60	/* beyond this our push algos go nuts */
 #define	MAX_ANG_VEL		2.5	/* degrees per second */
 #define	MIN_TURN_RADIUS		1.5	/* in case the aircraft is tiny */
-#define	MIN_STEERING_ARM_LEN	3	/* meters */
+#define	MIN_STEERING_ARM_LEN	2	/* meters */
 #define	HARD_STEER_ANGLE	10	/* degrees */
 #define	MAX_OFF_PATH_ANGLE	35	/* degrees */
 
@@ -438,6 +438,8 @@ track_line(vect2_t s, double hdg, double speed, double arm_len,
 	vect2_t c, s2c, align_s, dir_v;
 	double s2c_hdg, mis_hdg, steering_arm, turn_radius, ang_vel, rhdg;
 	double steer, off_angle;
+	double cur_hdg = (speed >= 0 ? bp.cur_hdg :
+	    normalize_hdg(bp.cur_hdg + 180));
 	bool_t overcorrecting = B_FALSE;
 
 	/* Neutralize steering until we're traveling in our direction */
@@ -466,8 +468,7 @@ track_line(vect2_t s, double hdg, double speed, double arm_len,
 
 	/* this is the point we're tring to align */
 	steering_arm = MAX(arm_len, MIN_STEERING_ARM_LEN);
-	c = vect2_add(bp.cur_pos, vect2_scmul(hdg2dir(bp.cur_hdg),
-	    (speed > 0 ? steering_arm : -steering_arm)));
+	c = vect2_add(bp.cur_pos, vect2_scmul(hdg2dir(cur_hdg), steering_arm));
 
 	/*
 	 * We project our position onto the ideal straight line. Limit the
@@ -486,7 +487,7 @@ track_line(vect2_t s, double hdg, double speed, double arm_len,
 	s2c_hdg = dir2hdg(s2c);
 
 	mis_hdg = rel_hdg(s2c_hdg, hdg);
-	rhdg = rel_hdg(bp.cur_hdg, hdg);
+	rhdg = rel_hdg(cur_hdg, hdg);
 
 	/*
 	 * Calculate the required steering change. mis_hdg is the angle by
@@ -522,12 +523,6 @@ track_line(vect2_t s, double hdg, double speed, double arm_len,
 	turn_radius = tan(DEG2RAD(90 - ABS(steer))) * bp.acf.wheelbase;
 	ang_vel = RAD2DEG(ABS(speed) / turn_radius);
 	speed *= MIN(MAX_ANG_VEL / ang_vel, 1);
-#if 0
-	if (speed < 0 && speed > -NORMAL_SPEED)
-		speed = -NORMAL_SPEED;
-	if (speed > 0 && speed < NORMAL_SPEED)
-		speed = NORMAL_SPEED;
-#endif
 
 	off_angle = MIN(ABS(rhdg), ABS(mis_hdg));
 	if (off_angle > 0.1) {
@@ -540,6 +535,9 @@ track_line(vect2_t s, double hdg, double speed, double arm_len,
 	if (speed < 0)
 		steer = -steer;
 
+	logMsg("mis_hdg: %.1f hdg:%.1f rhdg: %.1f steer: %.1f "
+	    "c2s_hdg: %.1f speed: %.1f off: %.1f", mis_hdg, hdg, rhdg, steer,
+	    s2c_hdg, speed, off_angle);
 	dbg_log(bp, 1, "mis_hdg: %.1f hdg:%.1f rhdg: %.1f steer: %.1f "
 	    "c2s_hdg: %.1f speed: %.1f off: %.1f", mis_hdg, hdg, rhdg, steer,
 	    s2c_hdg, speed, off_angle);
@@ -718,8 +716,8 @@ bp_start(void)
 	}
 
 	if (dr_getf(&drs.pbrake) == 0) {
-		XPLMSpeakString("Cannot connect tow, please set the "
-		    "parking brake first.");
+		XPLMSpeakString("Ground to cockpit. Cannot connect tow. "
+		    "Please set the parking brake first.");
 		return (B_FALSE);
 	}
 
@@ -728,7 +726,8 @@ bp_start(void)
 
 	if (dr_getf(&drs.pbrake) == 1) {
 		bp.starting = B_TRUE;
-		XPLMSpeakString("Connected, release parking brake.");
+		XPLMSpeakString("Ground to cockpit. Tow is connected and "
+		    "bypass pin has been inserted. Release parking brake.");
 	}
 
 	return (B_TRUE);
@@ -913,7 +912,12 @@ bp_run(void)
 	dr_seti(&drs.override_steer, 1);
 
 	if (bp.starting && dr_getf(&drs.pbrake) != 1) {
-		XPLMSpeakString("Here we go!");
+		seg = list_head(&bp.segs);
+		ASSERT(seg != NULL);
+		if (seg->backward)
+			XPLMSpeakString("Starting pushback!");
+		else
+			XPLMSpeakString("Starting tow!");
 		bp.starting = B_FALSE;
 	}
 
@@ -948,7 +952,11 @@ bp_run(void)
 		} else {
 			vect2_t c;
 			double rhdg = fabs(rel_hdg(bp.cur_hdg, seg->end_hdg));
-			double end_brg = fabs(rel_hdg(seg->end_hdg, dir2hdg(
+			double start_hdg = (!seg->backward ? seg->start_hdg :
+			    normalize_hdg(seg->start_hdg + 180));
+			double end_hdg = (!seg->backward ? seg->end_hdg :
+			    normalize_hdg(seg->end_hdg + 180));
+			double end_brg = fabs(rel_hdg(end_hdg, dir2hdg(
 			    vect2_sub(bp.cur_pos, seg->end_pos))));
 			double speed = turn_run_speed(ABS(rhdg), seg->turn.r,
 			    seg->backward, list_next(&bp.segs, seg));
@@ -959,6 +967,7 @@ bp_run(void)
 			 * cur_pos is <= 90 degrees)
 			 */
 			if (end_brg <= 90) {
+				logMsg("end_brg: %.1f", end_brg);
 				list_remove(&bp.segs, seg);
 				free(seg);
 				continue;
@@ -971,7 +980,7 @@ bp_run(void)
 			c = vect2_add(vect2_set_abs(vect2_norm(hdg2dir(
 			    seg->start_hdg), seg->turn.right), seg->turn.r),
 			    seg->start_pos);
-			turn_run(c, seg->turn.r, seg->start_hdg, seg->end_hdg,
+			turn_run(c, seg->turn.r, start_hdg, end_hdg,
 			    seg->turn.right, seg->backward ? -speed : speed);
 		}
 		break;
@@ -1010,7 +1019,8 @@ bp_run(void)
 		dr_setf(&drs.rbrake, 0);
 		dr_seti(&drs.override_steer, 0);
 		started = B_FALSE;
-		XPLMSpeakString("Disconnected, have a nice day");
+		XPLMSpeakString("Tow is disconnected and steering pin has "
+		    "been removed. Have a nice day!");
 		bp_done_notify();
 
 		/*
