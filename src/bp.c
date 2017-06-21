@@ -51,10 +51,12 @@
 
 #include "bp.h"
 
+#define	PB_DEBUG_INTF
+
 #define	STRAIGHT_STEER_RATE	40	/* degrees per second */
 #define	TURN_STEER_RATE		10	/* degrees per second */
 #define	NORMAL_SPEED		1.11	/* m/s [4 km/h, "walking speed"] */
-#define	FAST_SPEED		7	/* m/s [~14 knots] */
+#define	FAST_SPEED		6	/* m/s [~12 knots] */
 #define	CRAWL_SPEED		0.1	/* m/s */
 #define	NORMAL_ACCEL		0.25	/* m/s^2 */
 #define	NORMAL_DECEL		0.17	/* m/s^2 */
@@ -66,7 +68,12 @@
 #define	MAX_STEER_ANGLE		60	/* beyond this our push algos go nuts */
 #define	MAX_ANG_VEL		2.5	/* degrees per second */
 #define	MIN_TURN_RADIUS		1.5	/* in case the aircraft is tiny */
-#define	MIN_STEERING_ARM_LEN	5	/* meters */
+#define	MIN_STEERING_ARM_LEN	3	/* meters */
+#define	HARD_STEER_ANGLE	10	/* degrees */
+#define	MAX_OFF_PATH_ANGLE	35	/* degrees */
+
+#define	STEER_GATE(x)	\
+	(MAX(MIN((x), bp.acf.max_nw_angle), -bp.acf.max_nw_angle))
 
 #define	DEBUG_PRINT_SEG(class, level, seg) \
 	do { \
@@ -425,10 +432,13 @@ push_at_speed(double targ_speed, double max_accel)
 }
 
 static void
-straight_run(vect2_t s, double hdg, double speed)
+track_line(vect2_t s, double hdg, double speed, double arm_len,
+    double steer_corr_amp, double steer_rate)
 {
 	vect2_t c, s2c, align_s, dir_v;
-	double s2c_hdg, mis_hdg, steering_arm;
+	double s2c_hdg, mis_hdg, steering_arm, turn_radius, ang_vel, rhdg;
+	double steer, off_angle;
+	bool_t overcorrecting = B_FALSE;
 
 	/* Neutralize steering until we're traveling in our direction */
 	if ((speed < 0 && bp.cur_spd > 0) || (speed > 0 && bp.cur_spd < 0)) {
@@ -455,7 +465,7 @@ straight_run(vect2_t s, double hdg, double speed)
 	 */
 
 	/* this is the point we're tring to align */
-	steering_arm = MAX(bp.acf.wheelbase / 2, MIN_STEERING_ARM_LEN);
+	steering_arm = MAX(arm_len, MIN_STEERING_ARM_LEN);
 	c = vect2_add(bp.cur_pos, vect2_scmul(hdg2dir(bp.cur_hdg),
 	    (speed > 0 ? steering_arm : -steering_arm)));
 
@@ -475,69 +485,138 @@ straight_run(vect2_t s, double hdg, double speed)
 	s2c = vect2_sub(c, align_s);
 	s2c_hdg = dir2hdg(s2c);
 
+	mis_hdg = rel_hdg(s2c_hdg, hdg);
+	rhdg = rel_hdg(bp.cur_hdg, hdg);
+
 	/*
 	 * Calculate the required steering change. mis_hdg is the angle by
 	 * which point `c' is deflected from the ideal straight line. So
 	 * simply steer in the opposite direction to try and nullify it.
 	 */
-	mis_hdg = rel_hdg(s2c_hdg, hdg);
+	steer = STEER_GATE(mis_hdg);
+	/*
+	 * Watch out for overcorrecting. If our heading is too far in the
+	 * opposite direction, limit our relative angle to the desired path
+	 * angle to MAX_OFF_PATH_ANGLE and steer that way until we get back
+	 * on track.
+	 */
+	if (mis_hdg < 0 && rhdg > MAX_OFF_PATH_ANGLE) {
+		steer = STEER_GATE(rhdg - MAX_OFF_PATH_ANGLE);
+		overcorrecting = B_TRUE;
+	} else if (mis_hdg > 0 && rhdg < -MAX_OFF_PATH_ANGLE) {
+		steer = STEER_GATE(rhdg + MAX_OFF_PATH_ANGLE);
+		overcorrecting = B_TRUE;
+	}
+	/*
+	 * If we've come off the path even with overcorrection, slow down
+	 * until we're re-established again.
+	 */
+	if (overcorrecting)
+		speed = MAX(MIN(speed, NORMAL_SPEED), -NORMAL_SPEED);
+
+	/*
+	 * Limit our speed to not overstep maximum angular velocity for
+	 * a correction maneuver. This helps in case we get kicked off
+	 * from a straight line very far and need to correct a lot.
+	 */
+	turn_radius = tan(DEG2RAD(90 - ABS(steer))) * bp.acf.wheelbase;
+	ang_vel = RAD2DEG(ABS(speed) / turn_radius);
+	speed *= MIN(MAX_ANG_VEL / ang_vel, 1);
+#if 0
+	if (speed < 0 && speed > -NORMAL_SPEED)
+		speed = -NORMAL_SPEED;
+	if (speed > 0 && speed < NORMAL_SPEED)
+		speed = NORMAL_SPEED;
+#endif
+
+	off_angle = MIN(ABS(rhdg), ABS(mis_hdg));
+	if (off_angle > 0.1) {
+		steer *= MAX(MIN(bp.acf.max_nw_angle / off_angle,
+		    steer_corr_amp), 1);
+		steer = STEER_GATE(steer);
+	}
 
 	/* Steering works in reverse when pushing back. */
 	if (speed < 0)
-		mis_hdg = -mis_hdg;
+		steer = -steer;
 
-	dbg_log(bp, 1, "mis_hdg: %.1f hdg:%.1f c2s_hdg: %.1f",
-	    mis_hdg, hdg, s2c_hdg);
+	dbg_log(bp, 1, "mis_hdg: %.1f hdg:%.1f rhdg: %.1f steer: %.1f "
+	    "c2s_hdg: %.1f speed: %.1f off: %.1f", mis_hdg, hdg, rhdg, steer,
+	    s2c_hdg, speed, off_angle);
 
-	turn_nosewheel(2 * mis_hdg, STRAIGHT_STEER_RATE);
+	turn_nosewheel(steer, steer_rate);
 	push_at_speed(speed, NORMAL_ACCEL);
 }
 
 static void
-turn_run(vect2_t c, double radius, bool_t right, bool_t backward, double speed)
+straight_run(vect2_t s, double hdg, double speed)
 {
-	vect2_t refpt = vect2_add(bp.cur_pos,
-	    vect2_set_abs(vect2_neg(hdg2dir(bp.cur_hdg)), bp.acf.main_z));
-	vect2_t c2r, p1, p2, r, p1_to_r, p2_to_r;
-	double mis_hdg, steering_arm;
+	track_line(s, hdg, speed, bp.acf.wheelbase / 2, 1.2,
+	    STRAIGHT_STEER_RATE);
+}
 
-	/* Don't turn the nosewheel if we're traveling in the wrong direction */
-	if ((!backward && bp.cur_spd < 0) || (backward && bp.cur_spd > 0)) {
-		turn_nosewheel(0, STRAIGHT_STEER_RATE);
-		push_at_speed(speed, NORMAL_ACCEL);
-		return;
-	}
+static void
+turn_run(vect2_t c, double radius, double start_hdg, double end_hdg,
+    bool_t right, double speed)
+{
+	vect2_t c2r, r, dir_v;
+	double hdg, cur_radial, start_radial, end_radial;
+	bool_t cw = ((right && speed >= 0) || (!right && speed <= 0));
 
 	c2r = vect2_set_abs(vect2_sub(bp.cur_pos, c), radius);
+	cur_radial = dir2hdg(c2r);
 	r = vect2_add(c, c2r);
-	if (!backward)
-		p1 = vect2_add(r, vect2_norm(c2r, right));
-	else
-		p1 = vect2_add(r, vect2_norm(c2r, !right));
+	dir_v = vect2_norm(c2r, cw);
+	start_radial = normalize_hdg(start_hdg + (cw ? -90 : 90));
+	end_radial = normalize_hdg(end_hdg + (cw ? -90 : 90));
+	if (is_on_arc(cur_radial, start_radial, end_radial, cw)) {
+		hdg = dir2hdg(dir_v);
+	} else if (fabs(rel_hdg(cur_radial, start_radial)) <
+	    fabs(rel_hdg(cur_radial, end_radial))) {
+		hdg = start_hdg;
+	} else {
+		hdg = end_hdg;
+	}
 
-	steering_arm = MAX(bp.acf.wheelbase / 5, MIN_STEERING_ARM_LEN);
-	p2 = vect2_add(refpt, vect2_scmul(hdg2dir(bp.cur_hdg),
-	    (backward ? -steering_arm : steering_arm)));
+	track_line(r, hdg, speed, bp.acf.wheelbase / 5, 1.4, TURN_STEER_RATE);
+}
 
-	p1_to_r = vect2_sub(r, p1);
-	p2_to_r = vect2_sub(r, p2);
-	mis_hdg = rel_hdg(dir2hdg(p2_to_r), dir2hdg(p1_to_r));
-	/* Steering works in reverse when pushing back. */
-	if (backward)
-		mis_hdg = -mis_hdg;
+static bool_t
+bp_state_init(void)
+{
+	double tire_z_main[8];
+	int n_main;
 
-	dbg_log(bp, 1, "mis_hdg: %.1f speed: %.2f", mis_hdg, speed);
+	memset(&bp, 0, sizeof (bp));
+	list_create(&bp.segs, sizeof (seg_t), offsetof(seg_t, node));
 
-	turn_nosewheel(3 * mis_hdg, TURN_STEER_RATE);
-	push_at_speed(speed, NORMAL_ACCEL);
+	bp.turn_c_pos = NULL_VECT2;
+
+	dr_getvf(&drs.tire_z, &bp.acf.nw_z, 0, 1);
+	n_main = dr_getvf(&drs.tire_z, tire_z_main, 1, 8);
+	if (n_main < 1) {
+		XPLMSpeakString("Pushback failure: aircraft seems to only "
+		    "have one gear leg.");
+		return (B_FALSE);
+	}
+	for (int i = 0; i < n_main; i++)
+		bp.acf.main_z += tire_z_main[i];
+	bp.acf.main_z /= n_main;
+	bp.acf.wheelbase = bp.acf.main_z - bp.acf.nw_z;
+	if (bp.acf.wheelbase <= 0) {
+		XPLMSpeakString("Pushback failure: aircraft has non-positive "
+		    "wheelbase. Sorry, tail draggers aren't supported.");
+		return (B_FALSE);
+	}
+	bp.acf.max_nw_angle = MIN(MAX(dr_getf(&drs.nw_steerdeg1),
+	    dr_getf(&drs.nw_steerdeg2)), MAX_STEER_ANGLE);
+
+	return (B_TRUE);
 }
 
 bool_t
 bp_init(void)
 {
-	double tire_z_main[8];
-	int n_main;
-
 	if (inited)
 		return (B_TRUE);
 
@@ -572,30 +651,8 @@ bp_init(void)
 	    "sim/graphics/view/vertical_field_of_view_deg");
 	dr_init(&drs.view_is_ext, "sim/graphics/view/view_is_external");
 
-	memset(&bp, 0, sizeof (bp));
-	list_create(&bp.segs, sizeof (seg_t), offsetof(seg_t, node));
-
-	bp.turn_c_pos = NULL_VECT2;
-
-	dr_getvf(&drs.tire_z, &bp.acf.nw_z, 0, 1);
-	n_main = dr_getvf(&drs.tire_z, tire_z_main, 1, 8);
-	if (n_main < 1) {
-		XPLMSpeakString("Pushback failure: aircraft seems to only "
-		    "have one gear leg.");
+	if (!bp_state_init())
 		return (B_FALSE);
-	}
-	for (int i = 0; i < n_main; i++)
-		bp.acf.main_z += tire_z_main[i];
-	bp.acf.main_z /= n_main;
-	bp.acf.wheelbase = bp.acf.main_z - bp.acf.nw_z;
-	if (bp.acf.wheelbase <= 0) {
-		XPLMSpeakString("Pushback failure: aircraft has non-positive "
-		    "wheelbase. Sorry, tail draggers aren't supported.");
-		return (B_FALSE);
-	}
-	bp.acf.max_nw_angle = MIN(MAX(dr_getf(&drs.nw_steerdeg1),
-	    dr_getf(&drs.nw_steerdeg2)), MAX_STEER_ANGLE);
-
 
 	dbg_log(bp, 1, "nw_z: %.1f main_z: %.1f wheelbase: %.1f nw_max: %.1f",
 	    bp.acf.nw_z, bp.acf.main_z, bp.acf.wheelbase, bp.acf.max_nw_angle);
@@ -891,23 +948,17 @@ bp_run(void)
 		} else {
 			vect2_t c;
 			double rhdg = fabs(rel_hdg(bp.cur_hdg, seg->end_hdg));
-			bool_t cw = ((seg->turn.right && !seg->backward) ||
-			    (!seg->turn.right && seg->backward));
 			double end_brg = fabs(rel_hdg(seg->end_hdg, dir2hdg(
 			    vect2_sub(bp.cur_pos, seg->end_pos))));
 			double speed = turn_run_speed(ABS(rhdg), seg->turn.r,
 			    seg->backward, list_next(&bp.segs, seg));
 
 			/*
-			 * Segment completion condition:
-			 * 1) we are within 15 degrees of end_hdg AND
-			 * 2) we are past the end_pos point (delta between
-			 *    end_hdg and a vector from end_pos to cur_pos
-			 *    is less than 90 degrees)
+			 * Segment complete when we are past the end_pos point
+			 * (delta between end_hdg and a vector from end_pos to
+			 * cur_pos is <= 90 degrees)
 			 */
-			if (((cw && rhdg <= 2 && rhdg > -90) ||
-			    (!cw && rhdg >= -2 && rhdg < 90)) &&
-			    end_brg < 90) {
+			if (end_brg <= 90) {
 				list_remove(&bp.segs, seg);
 				free(seg);
 				continue;
@@ -920,8 +971,8 @@ bp_run(void)
 			c = vect2_add(vect2_set_abs(vect2_norm(hdg2dir(
 			    seg->start_hdg), seg->turn.right), seg->turn.r),
 			    seg->start_pos);
-			turn_run(c, seg->turn.r, seg->turn.right,
-			    seg->backward, seg->backward ? -speed : speed);
+			turn_run(c, seg->turn.r, seg->start_hdg, seg->end_hdg,
+			    seg->turn.right, seg->backward ? -speed : speed);
 		}
 		break;
 	}
@@ -961,9 +1012,13 @@ bp_run(void)
 		started = B_FALSE;
 		XPLMSpeakString("Disconnected, have a nice day");
 		bp_done_notify();
-		bp.starting = B_FALSE;
-		bp.stopping = B_FALSE;
-		bp.stopped = B_FALSE;
+
+		/*
+		 * Reinitialize our state so we're starting with a clean
+		 * slate next time.
+		 */
+		bp_state_init();
+
 		return (0);
 	}
 }
@@ -1474,6 +1529,7 @@ bp_cam_start(void)
 	if (cam_inited || !bp_init())
 		return (B_FALSE);
 
+#ifndef	PB_DEBUG_INTF
 	if (vect3_abs(VECT3(dr_getf(&drs.vx), dr_getf(&drs.vy),
 	    dr_getf(&drs.vz))) >= 1) {
 		XPLMSpeakString("Can't start planner: aircraft not "
@@ -1490,6 +1546,7 @@ bp_cam_start(void)
 		    "progress. Please stop the pushback operation first.");
 		return (B_FALSE);
 	}
+#endif	/* !PB_DEBUG_INTF */
 
 	XPLMGetScreenSize(&fake_win_ops.right, &fake_win_ops.top);
 

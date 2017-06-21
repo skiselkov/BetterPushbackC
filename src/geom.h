@@ -93,6 +93,12 @@ typedef struct {
 #endif
 
 /*
+ * Small helpers.
+ */
+#define	is_on_arc	SYMBOL_PREFIX(is_on_arc)
+bool_t is_on_arc(double angle_x, double angle1, double angle2, bool_t cw);
+
+/*
  * Vector math.
  */
 #define	vect3_abs	SYMBOL_PREFIX(vect3_abs)

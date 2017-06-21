@@ -27,6 +27,34 @@
 #include "geom.h"
 
 /*
+ * Determines whether an angle is part of an arc.
+ *
+ * @param angle_x Angle who's membership of the arc to examine (in degrees).
+ * @param angle1 Start angle of the arc (in degrees).
+ * @param angle2 End angle of the arc (in degrees).
+ * @param cw Flag indicating whether the arc progresses clockwise or
+ *      counter clockwise from angle1 to angle2.
+ *
+ * @return B_TRUE if angle_x is on the arc, B_FALSE if it is not.
+ */
+bool_t
+is_on_arc(double angle_x, double angle1, double angle2, bool_t cw)
+{
+	if (cw) {
+		if (angle1 < angle2)
+			return (angle_x >= angle1 && angle_x <= angle2);
+		else
+			return (angle_x >= angle1 || angle_x <= angle2);
+	} else {
+		if (angle1 < angle2)
+			return (angle_x <= angle1 || angle_x >= angle2);
+		else
+			return (angle_x <= angle1 && angle_x >= angle2);
+	}
+}
+
+
+/*
  * Returns the absolute value (length) of a 3-space vector:
  * r = |a|
  */
