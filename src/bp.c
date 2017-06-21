@@ -36,6 +36,7 @@
 
 #include <XPLMCamera.h>
 #include <XPLMDisplay.h>
+#include <XPLMGraphics.h>
 #include <XPLMScenery.h>
 #include <XPLMUtilities.h>
 #include <XPLMProcessing.h>
@@ -488,7 +489,7 @@ straight_run(vect2_t s, double hdg, double speed)
 	dbg_log(bp, 1, "mis_hdg: %.1f hdg:%.1f c2s_hdg: %.1f",
 	    mis_hdg, hdg, s2c_hdg);
 
-	turn_nosewheel(mis_hdg, STRAIGHT_STEER_RATE);
+	turn_nosewheel(2 * mis_hdg, STRAIGHT_STEER_RATE);
 	push_at_speed(speed, NORMAL_ACCEL);
 }
 
@@ -502,7 +503,7 @@ turn_run(vect2_t c, double radius, bool_t right, bool_t backward, double speed)
 
 	/* Don't turn the nosewheel if we're traveling in the wrong direction */
 	if ((!backward && bp.cur_spd < 0) || (backward && bp.cur_spd > 0)) {
-		turn_nosewheel(0, TURN_STEER_RATE);
+		turn_nosewheel(0, STRAIGHT_STEER_RATE);
 		push_at_speed(speed, NORMAL_ACCEL);
 		return;
 	}
@@ -656,6 +657,12 @@ bp_start(void)
 		return (B_TRUE);
 	if (!bp_can_start(&reason)) {
 		XPLMSpeakString(reason);
+		return (B_FALSE);
+	}
+
+	if (dr_getf(&drs.pbrake) == 0) {
+		XPLMSpeakString("Cannot connect tow, please set the "
+		    "parking brake first.");
 		return (B_FALSE);
 	}
 
@@ -884,6 +891,8 @@ bp_run(void)
 		} else {
 			vect2_t c;
 			double rhdg = fabs(rel_hdg(bp.cur_hdg, seg->end_hdg));
+			bool_t cw = ((seg->turn.right && !seg->backward) ||
+			    (!seg->turn.right && seg->backward));
 			double end_brg = fabs(rel_hdg(seg->end_hdg, dir2hdg(
 			    vect2_sub(bp.cur_pos, seg->end_pos))));
 			double speed = turn_run_speed(ABS(rhdg), seg->turn.r,
@@ -896,7 +905,9 @@ bp_run(void)
 			 *    end_hdg and a vector from end_pos to cur_pos
 			 *    is less than 90 degrees)
 			 */
-			if (rhdg < 15 && end_brg < 90) {
+			if (((cw && rhdg <= 2 && rhdg > -90) ||
+			    (!cw && rhdg >= -2 && rhdg < 90)) &&
+			    end_brg < 90) {
 				list_remove(&bp.segs, seg);
 				free(seg);
 				continue;
@@ -929,7 +940,7 @@ bp_run(void)
 		push_at_speed(0, NORMAL_ACCEL);
 		if (ABS(bp.cur_spd) < SPEED_COMPLETE_THRESH && !bp.stopped) {
 			XPLMSpeakString("Operation complete, set parking "
-			    "brake");
+			    "brake.");
 			bp.stopped = B_TRUE;
 		}
 		if (bp.stopped) {
@@ -984,6 +995,8 @@ static bool_t force_root_win_focus = B_TRUE;
 #define	US_PER_CLICK_ACCEL	60000			/* microseconds */
 #define	US_PER_CLICK_DEACCEL	120000			/* microseconds */
 #define	MAX_ACCEL_MULT		5
+
+#define	PREDICTION_DRAWING_PHASE	xplm_Phase_Airplanes
 
 typedef struct {
 	const char	*name;
@@ -1131,9 +1144,8 @@ draw_segment(const seg_t *seg)
 	XPLMProbeRef probe = XPLMCreateProbe(xplm_ProbeY);
 	XPLMProbeInfo_t info = { .structSize = sizeof (XPLMProbeInfo_t) };
 
-	glColor4f(0, 0, 1, 1);
-	glLineWidth(2);
-	glPointSize(4);
+	glColor3f(0, 0, 1);
+	glLineWidth(3);
 
 	switch (seg->type) {
 	case SEG_TYPE_STRAIGHT:
@@ -1191,8 +1203,9 @@ draw_acf_symbol(vect3_t pos, double hdg, double wheelbase, vect3_t color)
 	 */
 	wheelbase *= 1.5;
 
-	glLineWidth(MAX(wheelbase / 5, 2));
-	glColor4f(color.x, color.y, color.z, 1);
+	glLineWidth(4);
+	glColor3f(color.x, color.y, color.z);
+
 	glBegin(GL_LINES);
 	v = vect2_rot(VECT2(-wheelbase, 0), hdg);
 	p = vect3_add(pos, VECT3(v.x, 0, v.y));
@@ -1229,6 +1242,8 @@ draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 	if (dr_geti(&drs.view_is_ext) != 1)
 		XPLMCommandOnce(circle_view_cmd);
 
+	XPLMSetGraphicsState(0, 0, 0, 0, 0, 0, 0);
+
 	for (seg = list_head(&bp.segs); seg != NULL;
 	    seg = list_next(&bp.segs, seg))
 		draw_segment(seg);
@@ -1244,8 +1259,8 @@ draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 		VERIFY3U(XPLMProbeTerrainXYZ(probe, seg->end_pos.x, 0,
 		    -seg->end_pos.y, &info), ==, xplm_ProbeHitTerrain);
 		if (seg->type == SEG_TYPE_TURN || !seg->backward) {
-			glColor4f(0, 1, 0, 1);
 			glBegin(GL_LINES);
+			glColor3f(0, 1, 0);
 			glVertex3f(seg->end_pos.x, info.locationY +
 			    ABV_TERR_HEIGHT, -seg->end_pos.y);
 			x = vect2_add(seg->end_pos, vect2_scmul(dir_v,
@@ -1254,8 +1269,8 @@ draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 			glEnd();
 		}
 		if (seg->type == SEG_TYPE_TURN || seg->backward) {
-			glColor4f(1, 0, 0, 1);
 			glBegin(GL_LINES);
+			glColor3f(1, 0, 0);
 			glVertex3f(seg->end_pos.x, info.locationY +
 			    ABV_TERR_HEIGHT, -seg->end_pos.y);
 			x = vect2_add(seg->end_pos, vect2_neg(vect2_scmul(
@@ -1465,6 +1480,11 @@ bp_cam_start(void)
 		    "stationary.");
 		return (B_FALSE);
 	}
+	if (dr_getf(&drs.pbrake) == 0) {
+		XPLMSpeakString("Can't start pushback planner: please "
+		    "set the parking brake first.");
+		return (B_FALSE);
+	}
 	if (started) {
 		XPLMSpeakString("Can't start planner: pushback already in "
 		    "progress. Please stop the pushback operation first.");
@@ -1492,7 +1512,8 @@ bp_cam_start(void)
 	cursor_hdg = dr_getf(&drs.hdg);
 	XPLMControlCamera(xplm_ControlCameraForever, cam_ctl, NULL);
 
-	XPLMRegisterDrawCallback(draw_prediction, xplm_Phase_Objects, 0, NULL);
+	XPLMRegisterDrawCallback(draw_prediction, PREDICTION_DRAWING_PHASE, 0,
+	    NULL);
 
 	for (int i = 0; view_cmds[i].name != NULL; i++) {
 		view_cmds[i].cmd = XPLMFindCommand(view_cmds[i].name);
@@ -1519,7 +1540,7 @@ bp_cam_stop(void)
 		free(seg);
 	}
 	list_destroy(&pred_segs);
-	XPLMUnregisterDrawCallback(draw_prediction, xplm_Phase_Objects,
+	XPLMUnregisterDrawCallback(draw_prediction, PREDICTION_DRAWING_PHASE,
 	    0, NULL);
 	XPLMDestroyWindow(fake_win);
 
@@ -1532,4 +1553,12 @@ bp_cam_stop(void)
 	cam_inited = B_FALSE;
 
 	return (B_TRUE);
+}
+
+unsigned
+bp_num_segs(void)
+{
+	if (!bp_init())
+		return (0);
+	return (list_count(&bp.segs));
 }

@@ -47,6 +47,9 @@ bool_t bp_cam_start(void);
 #define	bp_cam_stop	SYMBOL_PREFIX(bp_cam_stop)
 bool_t bp_cam_stop(void);
 
+#define	bp_num_segs	SYMBOL_PREFIX(bp_num_segs)
+unsigned bp_num_segs(void);
+
 #ifdef	__cplusplus
 }
 #endif
