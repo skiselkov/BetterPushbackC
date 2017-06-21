@@ -1406,7 +1406,7 @@ fake_win_wheel(XPLMWindowID inWindowID, int x, int y, int wheel, int clicks,
 	UNUSED(clicks);
 	UNUSED(inRefcon);
 
-	if (wheel == 0) {
+	if (wheel == 0 && clicks != 0) {
 		static int accel = 1;
 		static uint64_t last_wheel_t = 0;
 		uint64_t now = microclock();
