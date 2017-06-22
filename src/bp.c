@@ -535,9 +535,6 @@ track_line(vect2_t s, double hdg, double speed, double arm_len,
 	if (speed < 0)
 		steer = -steer;
 
-	logMsg("mis_hdg: %.1f hdg:%.1f rhdg: %.1f steer: %.1f "
-	    "c2s_hdg: %.1f speed: %.1f off: %.1f", mis_hdg, hdg, rhdg, steer,
-	    s2c_hdg, speed, off_angle);
 	dbg_log(bp, 1, "mis_hdg: %.1f hdg:%.1f rhdg: %.1f steer: %.1f "
 	    "c2s_hdg: %.1f speed: %.1f off: %.1f", mis_hdg, hdg, rhdg, steer,
 	    s2c_hdg, speed, off_angle);
@@ -622,7 +619,10 @@ bp_init(void)
 
 	dr_init(&drs.lbrake, "sim/cockpit2/controls/left_brake_ratio");
 	dr_init(&drs.rbrake, "sim/cockpit2/controls/right_brake_ratio");
-	dr_init(&drs.pbrake, "sim/flightmodel/controls/parkbrake");
+	if (XPLMFindDataRef("model/controls/park_break") != NULL)
+		dr_init(&drs.pbrake, "model/controls/park_break");
+	else
+		dr_init(&drs.pbrake, "sim/flightmodel/controls/parkbrake");
 	dr_init(&drs.rot_force_N, "sim/flightmodel/forces/N_plug_acf");
 	dr_init(&drs.axial_force, "sim/flightmodel/forces/faxil_plug_acf");
 	dr_init(&drs.local_x, "sim/flightmodel/position/local_x");
@@ -967,7 +967,6 @@ bp_run(void)
 			 * cur_pos is <= 90 degrees)
 			 */
 			if (end_brg <= 90) {
-				logMsg("end_brg: %.1f", end_brg);
 				list_remove(&bp.segs, seg);
 				free(seg);
 				continue;
