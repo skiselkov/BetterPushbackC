@@ -19,6 +19,22 @@
 # Make sure also to install macports's qt5-qtcreator package and
 # have `qmake' available in your $PATH.
 
+# Locate libacfutils and build it if necessary
+LIBACFUTILS="$(qmake -query LIBACFUTILS)"
+
+if [ -z "$LIBACFUTILS" ]; then
+	echo "Please use \"qmake -set LIBACFUTILS <<path>>\" to " \
+	    "point to where you have libacfutils unpacked." >&2
+	exit 1
+fi
+
+if ! [ -f "$LIBACFUTILS/qmake/mac32/libacfutils.a" ] ||
+    ! [ -f "$LIBACFUTILS/qmake/mac64/libacfutils.a" ]; then
+	if ! ( cd "$LIBACFUTILS/qmake" && ./build-mac ) ; then
+		exit 1
+	fi
+fi
+
 # We'll try to build on N+1 CPUs we have available. The extra +1 is to allow
 # for one make instance to be blocking on disk.
 NCPUS=$(( $(sysctl -n hw.ncpu) + 1 ))
