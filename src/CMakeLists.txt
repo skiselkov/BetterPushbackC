@@ -16,8 +16,8 @@
 cmake_minimum_required(VERSION 2.8)
 project(bp C)
 
-SET(SRC bp.c dr.c xplane.c)
-SET(HDR bp.h dr.h xplane.h)
+SET(SRC bp.c dr.c driving.c xplane.c)
+SET(HDR bp.h dr.h driving.c xplane.h)
 
 SET(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELEASE} -DDEBUG")
 SET(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DDEBUG -O0")
@@ -39,13 +39,10 @@ endif()
 include_directories(bp PUBLIC "${LIBACFUTILS}/src")
 
 #compiler flags
-if(WIN32)
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DCHECK_RESULT_USED=_Check_return_")
-else()
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -W -Wall -Wextra -Werror \
-	    --std=c99 \
-	    -DCHECK_RESULT_USED=\"__attribute__ ((warn_unused_result))\"")
-endif()
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Werror --std=c99")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} \
+    -DCHECK_RESULT_USED=\"__attribute__ ((warn_unused_result))\"")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64")
 
 #libraries
 if(UNIX)
@@ -100,8 +97,13 @@ elseif(WIN32)
 	    ${XPLM_LIBRARY} ${XPWIDGETS_LIBRARY})
 endif()
 
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} \
-    -L${LIBACFUTILS}/qmake/mac64 -lacfutils")
+if(APPLE)
+	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} \
+	    -L${LIBACFUTILS}/qmake/mac64 -lacfutils")
+else()
+	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} \
+	    -L${LIBACFUTILS}/qmake/lin64 -lacfutils")
+endif()
 
 SET_TARGET_PROPERTIES(bp PROPERTIES PREFIX "")
 SET_TARGET_PROPERTIES(bp PROPERTIES SUFFIX "")

@@ -55,7 +55,7 @@ win32 {
 
 win32:contains(CROSS_COMPILE, x86_64-w64-mingw32-) {
 	# This must go first for GCC to properly find dependent symbols
-	LIBS += -L $$[LIBACFUTILS]/qmake/win64 -lacfutils
+	LIBS += -L$$[LIBACFUTILS]/qmake/win64 -lacfutils
 	LIBS += -L../SDK/Libraries/Win -lXPLM_64
 	LIBS += -L../OpenAL/libs/Win64 -lOpenAL32
 	LIBS += -L../GL_for_Windows/lib -lopengl32
@@ -63,7 +63,7 @@ win32:contains(CROSS_COMPILE, x86_64-w64-mingw32-) {
 }
 
 win32:contains(CROSS_COMPILE, i686-w64-mingw32-) {
-	LIBS += -L $$[LIBACFUTILS]/qmake/win32 -lacfutils
+	LIBS += -L$$[LIBACFUTILS]/qmake/win32 -lacfutils
 	LIBS += -L../SDK/Libraries/Win -lXPLM
 	LIBS += -L../OpenAL/libs/Win32 -lOpenAL32
 	LIBS += -L../GL_for_Windows/lib -lopengl32
@@ -77,7 +77,7 @@ unix:!macx {
 }
 
 linux-g++-64 {
-	LIBS += -L $$[LIBACFUTILS]/qmake/lin64 -lacfutils
+	LIBS += -L$$[LIBACFUTILS]/qmake/lin64 -lacfutils
 }
 
 linux-g++-32 {
@@ -85,7 +85,7 @@ linux-g++-32 {
 	# but we'd prefer to be static.
 	QMAKE_CFLAGS += -fno-stack-protector
 	LIBS += -fno-stack-protector
-	LIBS += -L $$[LIBACFUTILS]/qmake/lin32 -lacfutils
+	LIBS += -L$$[LIBACFUTILS]/qmake/lin32 -lacfutils
 }
 
 macx {
@@ -97,7 +97,7 @@ macx {
 }
 
 macx-clang {
-	LIBS += -L $$[LIBACFUTILS]/qmake/mac64 -lacfutils
+	LIBS += -L$$[LIBACFUTILS]/qmake/mac64 -lacfutils
 }
 
 macx-clang-32 {

@@ -49,17 +49,14 @@
 
 #include "bp.h"
 #include "dr.h"
+#include "driving.h"
 #include "xplane.h"
 
 #define	PB_DEBUG_INTF
 
 #define	STRAIGHT_STEER_RATE	40	/* degrees per second */
 #define	TURN_STEER_RATE		10	/* degrees per second */
-#define	NORMAL_SPEED		1.11	/* m/s [4 km/h, "walking speed"] */
-#define	FAST_SPEED		4	/* m/s [~8 knots] */
-#define	CRAWL_SPEED		0.1	/* m/s */
 #define	NORMAL_ACCEL		0.25	/* m/s^2 */
-#define	NORMAL_DECEL		0.17	/* m/s^2 */
 #define	BRAKE_PEDAL_THRESH	0.1	/* brake pedal angle, 0..1 */
 #define	FORCE_PER_TON		5000	/* max push force per ton, Newtons */
 #define	BREAKAWAY_THRESH	0.1	/* m/s */
@@ -67,14 +64,6 @@
 #define	SPEED_COMPLETE_THRESH	0.05	/* m/s */
 #define	MAX_STEER_ANGLE		60	/* beyond this our push algos go nuts */
 #define	MAX_ANG_VEL		2.5	/* degrees per second */
-#define	MIN_TURN_RADIUS		1.5	/* in case the aircraft is tiny */
-#define	MIN_STEERING_ARM_LEN	2	/* meters */
-#define	HARD_STEER_ANGLE	10	/* degrees */
-#define	MAX_OFF_PATH_ANGLE	35	/* degrees */
-#define	STEERING_SENSITIVE	90	/* degrees */
-
-#define	STEER_GATE(x)	\
-	(MAX(MIN((x), bp.acf.max_nw_angle), -bp.acf.max_nw_angle))
 
 #ifdef	DEBUG
 static vect2_t	c_pt = NULL_VECT2, s_pt = NULL_VECT2;
@@ -86,58 +75,6 @@ typedef struct {
 	double		nw_z, main_z;
 	double		max_nw_angle;
 } acf_t;
-
-typedef enum {
-	SEG_TYPE_STRAIGHT,
-	SEG_TYPE_TURN
-} seg_type_t;
-
-typedef struct {
-	seg_type_t	type;
-
-	vect2_t		start_pos;
-	double		start_hdg;
-	vect2_t		end_pos;
-	double		end_hdg;
-
-	/*
-	 * A backward pushback segment looks like this:
-	 *         ^^  (start_hdg)
-	 *      ---++  (start_pos)
-	 *      ^  ||
-	 *      |  ||
-	 * (s1) |  ||
-	 *      |  ||
-	 *      v  || (r)
-	 *      ---||-----+
-	 *          \\    | (r)    (end_hdg)
-	 *            \\  |            |
-	 *              ``=============<+ (end_pos)
-	 *                |             |
-	 *                |<----------->|
-	 *                      (s2)
-	 *
-	 * A towing segment is similar, but the positions of the respective
-	 * segments is reversed.
-	 */
-	bool_t		backward;
-	union {
-		double		len;	/* straight segment length (meters) */
-		struct {
-			double	r;	/* turn radius (meters) */
-			bool_t	right;	/* turn center is right or left */
-		} turn;
-	};
-
-	/*
-	 * Flag indicating if the user placed this segment. Non-user-placed
-	 * segments (up to the last user-placed segment) are deleted from
-	 * the segment list.
-	 */
-	bool_t		user_placed;
-
-	list_node_t	node;
-} seg_t;
 
 typedef struct {
 	acf_t		acf;		/* our aircraft */
@@ -191,131 +128,7 @@ static struct {
 static bool_t inited = B_FALSE, cam_inited = B_FALSE, started = B_FALSE;
 static bp_state_t bp;
 
-
-static double straight_run_speed(double rmng_d, bool_t backward,
-    const seg_t *next);
-static double turn_run_speed(double rhdg, double radius, bool_t backward,
-    const seg_t *next);
-static double next_seg_speed(const seg_t *next, bool_t cur_backward);
 static float bp_run(void);
-
-static int
-compute_segs(const acf_t *acf, vect2_t start_pos, double start_hdg,
-    vect2_t end_pos, double end_hdg, list_t *segs)
-{
-	seg_t *s1, *s2;
-	vect2_t turn_edge, s1_v, s2_v, s2e_v;
-	double rhdg, min_radius, l1, l2, x, a, r;
-	bool_t backward;
-
-	/* If the start & end positions overlap, no operation is required */
-	if (VECT2_EQ(start_pos, end_pos))
-		return (start_hdg == end_hdg ? 0 : -1);
-	s2e_v = vect2_sub(end_pos, start_pos);
-	rhdg = rel_hdg(start_hdg, dir2hdg(s2e_v));
-	backward = (fabs(rhdg) > 90);
-
-	/*
-	 * If the amount of heading change is tiny, just project the desired
-	 * end point onto a straight vector from our starting position and
-	 * construct a single straight segment to reach that point.
-	 */
-	if (fabs(start_hdg - end_hdg) < 1) {
-		vect2_t dir_v = hdg2dir(start_hdg + (backward ? 180 : 0));
-		double len = vect2_dotprod(dir_v, s2e_v);
-
-		end_pos = vect2_add(vect2_set_abs(dir_v, len), start_pos);
-
-		s1 = calloc(1, sizeof (*s1));
-		s1->type = SEG_TYPE_STRAIGHT;
-		s1->start_pos = start_pos;
-		s1->start_hdg = start_hdg;
-		s1->end_pos = end_pos;
-		s1->end_hdg = end_hdg;
-		s1->backward = backward;
-		s1->len = len;
-
-		list_insert_tail(segs, s1);
-
-		return (1);
-	}
-
-	s1_v = vect2_set_abs(hdg2dir(start_hdg), 1e10);
-	if (backward)
-		s1_v = vect2_neg(s1_v);
-	s2_v = vect2_set_abs(hdg2dir(end_hdg), 1e10);
-	if (!backward)
-		s2_v = vect2_neg(s2_v);
-
-	turn_edge = vect2vect_isect(s1_v, start_pos, s2_v, end_pos, B_TRUE);
-	if (IS_NULL_VECT(turn_edge))
-		return (-1);
-
-	l1 = vect2_dist(turn_edge, start_pos);
-	l2 = vect2_dist(turn_edge, end_pos);
-	x = MIN(l1, l2);
-	l1 -= x;
-	l2 -= x;
-
-	/*
-	 * Compute minimum radius using less than max_nw_angle (hence
-	 * SEG_TURN_MULT), to allow for some oversteering correction.
-	 * Also limit the radius to something sensible (MIN_TURN_RADIUS).
-	 */
-	min_radius = MAX(tan(DEG2RAD(90 - (acf->max_nw_angle *
-	    SEG_TURN_MULT))) * acf->wheelbase, MIN_TURN_RADIUS);
-	a = (180 - ABS(rel_hdg(start_hdg, end_hdg)));
-	r = x * tan(DEG2RAD(a / 2));
-	if (r < min_radius)
-		return (-1);
-
-	if (l1 == 0) {
-		/* No initial straight segment */
-		s2 = calloc(1, sizeof (*s2));
-		s2->type = SEG_TYPE_STRAIGHT;
-		s2->start_pos = vect2_add(end_pos, vect2_set_abs(s2_v, l2));
-		s2->start_hdg = end_hdg;
-		s2->end_pos = end_pos;
-		s2->end_hdg = end_hdg;
-		s2->backward = backward;
-		s2->len = l2;
-
-		s1 = calloc(1, sizeof (*s1));
-		s1->type = SEG_TYPE_TURN;
-		s1->start_pos = start_pos;
-		s1->start_hdg = start_hdg;
-		s1->end_pos = s2->start_pos;
-		s1->end_hdg = s2->start_hdg;
-		s1->backward = backward;
-		s1->turn.r = r;
-		s1->turn.right = (rhdg >= 0);
-	} else {
-		/* No final straight segment */
-		s1 = calloc(1, sizeof (*s1));
-		s1->type = SEG_TYPE_STRAIGHT;
-		s1->start_pos = start_pos;
-		s1->start_hdg = start_hdg;
-		s1->end_pos = vect2_add(start_pos, vect2_set_abs(s1_v, l1));
-		s1->end_hdg = start_hdg;
-		s1->backward = backward;
-		s1->len = l1;
-
-		s2 = calloc(1, sizeof (*s2));
-		s2->type = SEG_TYPE_TURN;
-		s2->start_pos = s1->end_pos;
-		s2->start_hdg = s1->end_hdg;
-		s2->end_pos = end_pos;
-		s2->end_hdg = end_hdg;
-		s2->backward = backward;
-		s2->turn.r = r;
-		s2->turn.right = (rhdg >= 0);
-	}
-
-	list_insert_tail(segs, s1);
-	list_insert_tail(segs, s2);
-
-	return (2);
-}
 
 static void
 turn_nosewheel(double req_angle, double rate)
@@ -408,127 +221,15 @@ push_at_speed(double targ_speed, double max_accel)
 }
 
 static void
-track_line(vect2_t s, double hdg, double speed, double arm_len,
-    double steer_corr_amp, double steer_rate)
-{
-	vect2_t c, s2c, align_s, dir_v;
-	double s2c_hdg, mis_hdg, steering_arm, turn_radius, ang_vel, rhdg;
-	double steer, off_angle, d_mis_hdg;
-	double cur_hdg = (speed >= 0 ? bp.cur_hdg :
-	    normalize_hdg(bp.cur_hdg + 180));
-	bool_t overcorrecting = B_FALSE;
-
-	/* Neutralize steering until we're traveling in our direction */
-	if ((speed < 0 && bp.cur_spd > 0) || (speed > 0 && bp.cur_spd < 0)) {
-		turn_nosewheel(0, STRAIGHT_STEER_RATE);
-		push_at_speed(speed, NORMAL_ACCEL);
-		return;
-	}
-
-	/*
-	 * Here we implement trying to keep the aircraft stable in crosswinds.
-	 * We deflect the nosewheel, trying to keep an imaginary point `c'
-	 * along the aircraft's centerline axis and displaced from its origin
-	 * point one wheelbase back (or forward, if towing) on a straight line
-	 * from the start of the straight run along the run heading.
-	 * Nosewheel deflection is calculated using two parameters:
-	 * 1) displacement of the point from the line. The further this point
-	 *    is displaced, the further we counter-steer to get it back.
-	 * 2) rate of aircraft heading change (hdg_rate). We use this to dampen
-	 *    the step above, so we don't yo-yo through the center point.
-	 * Steering commands are given as increments to the currently commanded
-	 * nosewheel deflection, rather than the absolute value. This allows us
-	 * to settle into a deflected state once alignment is achieved to help
-	 * continuously counter a constant crosswind.
-	 */
-
-	/* this is the point we're tring to align */
-	steering_arm = MAX(arm_len, MIN_STEERING_ARM_LEN);
-	c = vect2_add(bp.cur_pos, vect2_scmul(hdg2dir(cur_hdg), steering_arm));
-
-	/*
-	 * We project our position onto the ideal straight line. Limit the
-	 * projection backwards to be at least 1m ahead, otherwise we might
-	 * steer in the opposite sense than we want.
-	 */
-	dir_v = hdg2dir(hdg);
-	align_s = vect2_add(s, vect2_scmul(dir_v, vect2_dotprod(vect2_sub(
-	    bp.cur_pos, s), dir_v)));
-
-#ifdef	DEBUG
-	c_pt = c;
-	s_pt = align_s;
-	line_hdg = hdg;
-#endif	/* DEBUG */
-
-	/*
-	 * Calculate a direction vector pointing from s to c (or
-	 * vice versa if pushing back) and transform into a heading.
-	 */
-	s2c = vect2_sub(c, align_s);
-	s2c_hdg = dir2hdg(s2c);
-
-	mis_hdg = rel_hdg(s2c_hdg, hdg);
-	d_mis_hdg = (mis_hdg - bp.last_mis_hdg) / bp.d_t;
-	rhdg = rel_hdg(cur_hdg, hdg);
-
-	/*
-	 * Calculate the required steering change. mis_hdg is the angle by
-	 * which point `c' is deflected from the ideal straight line. So
-	 * simply steer in the opposite direction to try and nullify it.
-	 */
-	steer = STEER_GATE(mis_hdg + 10 * d_mis_hdg);
-	/*
-	 * Watch out for overcorrecting. If our heading is too far in the
-	 * opposite direction, limit our relative angle to the desired path
-	 * angle to MAX_OFF_PATH_ANGLE and steer that way until we get back
-	 * on track.
-	 */
-	if (mis_hdg < 0 && rhdg > MAX_OFF_PATH_ANGLE) {
-		steer = STEER_GATE(rhdg - MAX_OFF_PATH_ANGLE);
-		overcorrecting = B_TRUE;
-	} else if (mis_hdg > 0 && rhdg < -MAX_OFF_PATH_ANGLE) {
-		steer = STEER_GATE(rhdg + MAX_OFF_PATH_ANGLE);
-		overcorrecting = B_TRUE;
-	}
-	/*
-	 * If we've come off the path even with overcorrection, slow down
-	 * until we're re-established again.
-	 */
-	if (overcorrecting)
-		speed = MAX(MIN(speed, NORMAL_SPEED), -NORMAL_SPEED);
-
-	/*
-	 * Limit our speed to not overstep maximum angular velocity for
-	 * a correction maneuver. This helps in case we get kicked off
-	 * from a straight line very far and need to correct a lot.
-	 */
-	turn_radius = tan(DEG2RAD(90 - ABS(steer))) * bp.acf.wheelbase;
-	ang_vel = RAD2DEG(ABS(speed) / turn_radius);
-	speed *= MIN(MAX_ANG_VEL / ang_vel, 1);
-
-	off_angle = MIN(ABS(rhdg), ABS(mis_hdg));
-	if (off_angle > 0.1) {
-		steer *= MAX(MIN(bp.acf.max_nw_angle / off_angle,
-		    steer_corr_amp), 1);
-		steer = STEER_GATE(steer);
-	}
-
-	/* Steering works in reverse when pushing back. */
-	if (speed < 0)
-		steer = -steer;
-
-	turn_nosewheel(steer, steer_rate);
-	push_at_speed(speed, NORMAL_ACCEL);
-
-	bp.last_mis_hdg = mis_hdg;
-}
-
-static void
 straight_run(vect2_t s, double hdg, double speed)
 {
-	track_line(s, hdg, speed, bp.acf.wheelbase / 2, 1.5,
-	    STRAIGHT_STEER_RATE);
+	double new_steer, new_speed;
+
+	drive_on_line(bp.cur_pos, bp.cur_hdg, bp.cur_spd, bp.acf.wheelbase,
+	    bp.acf.max_nw_angle, s, hdg, speed, bp.acf.wheelbase / 2, 1.5,
+	    &bp.last_mis_hdg, bp.d_t, &new_steer, &new_speed);
+	turn_nosewheel(new_steer, STRAIGHT_STEER_RATE);
+	push_at_speed(new_speed, NORMAL_ACCEL);
 }
 
 static void
@@ -537,6 +238,7 @@ turn_run(vect2_t c, double radius, double start_hdg, double end_hdg,
 {
 	vect2_t c2r, r, dir_v;
 	double hdg, cur_radial, start_radial, end_radial;
+	double new_steer, new_speed;
 	bool_t cw = ((right && speed >= 0) || (!right && speed <= 0));
 
 	c2r = vect2_set_abs(vect2_sub(bp.cur_pos, c), radius);
@@ -554,7 +256,11 @@ turn_run(vect2_t c, double radius, double start_hdg, double end_hdg,
 		hdg = end_hdg;
 	}
 
-	track_line(r, hdg, speed, bp.acf.wheelbase / 5, 2, TURN_STEER_RATE);
+	drive_on_line(bp.cur_pos, bp.cur_hdg, bp.cur_spd, bp.acf.wheelbase,
+	    bp.acf.max_nw_angle, r, hdg, speed, bp.acf.wheelbase / 5, 2,
+	    &bp.last_mis_hdg, bp.d_t, &new_steer, &new_speed);
+	turn_nosewheel(new_steer, TURN_STEER_RATE);
+	push_at_speed(new_speed, NORMAL_ACCEL);
 }
 
 static bool_t
@@ -768,110 +474,6 @@ bp_gather(void)
 	    VECT2(dr_getf(&drs.vx), -dr_getf(&drs.vz)));
 }
 
-static double
-next_seg_speed(const seg_t *next, bool_t cur_backward)
-{
-	if (next != NULL && next->backward == cur_backward) {
-		if (next->type == SEG_TYPE_STRAIGHT) {
-			return (straight_run_speed(next->len, next->backward,
-			    list_next(&bp.segs, next)));
-		} else {
-			return (turn_run_speed(rel_hdg(next->start_hdg,
-			    next->end_hdg), next->turn.r, next->backward,
-			    list_next(&bp.segs, next)));
-		}
-	} else {
-		/*
-		 * At the end of the operation or when reversing direction,
-		 * target a nearly stopped speed.
-		 */
-		return (CRAWL_SPEED);
-	}
-}
-
-/*
- * Estimates the speed we want to achieve during a turn run. This basically
- * treats the circle we're supposed to travel as if it were a straight line
- * (thus employing the straight_run_speed algorithm), but limits the maximum
- * angular velocity around the circle to MAX_ANG_VEL (2.5 deg/s) to limit
- * side-loading. This means the tighter the turn, the slower our speed.
- */
-static double
-turn_run_speed(double rhdg, double radius, bool_t backward, const seg_t *next)
-{
-	double rmng_d = (2 * M_PI * radius) * (rhdg / 360.0);
-	double spd = straight_run_speed(rmng_d, backward, next);
-	double rmng_t = rmng_d / spd;
-	double ang_vel = rhdg / rmng_t;
-
-	spd *= MIN(MAX_ANG_VEL / ang_vel, 1);
-
-	return (spd);
-}
-
-static double
-straight_run_speed(double rmng_d, bool_t backward, const seg_t *next)
-{
-	double next_spd, cruise_spd, spd;
-	double ts[2];
-
-	next_spd = next_seg_speed(next, backward);
-	cruise_spd = (backward ? NORMAL_SPEED : FAST_SPEED);
-
-	/*
-	 * This algorithm works as follows:
-	 * We know the remaining distance and the next segment's target
-	 * speed. So we work backwards to determine what maximum speed
-	 * we could be going in order to hit next_spd using NORMAL_DECEL.
-	 *
-	 *          (speed)
-	 *          ^
-	 * max ---> |
-	 * spd      |\       (NORMAL_DECEL slope)
-	 *          |  \    /
-	 *          |    \ V
-	 *          |      \
-	 *          |        \
-	 *          |          \
-	 *          |           + <--- next_spd
-	 *          |           |
-	 *          +-----------+------------->
-	 *          |   rmng_d  |    (distance)
-	 *          |<--------->|
-	 *
-	 * Here's the general equation for acceleration:
-	 *
-	 * d = 1/2at^2 + vt
-	 *
-	 * Where:
-	 *	'd' = rmng_d
-	 *	'a' = NORMAL_DECEL
-	 *	'v' = next_spd
-	 *	't' = <unknown>
-	 *
-	 * This is a simple quadratic equation (1/2at^2 + vt - d = 0), so
-	 * we can solve for the only unknown, time 't'. If we have two
-	 * results, taking greater value i.e. the one lying in the future,
-	 * we simply calculate the initial max_spd = next_spd + at. This
-	 * is our theoretical maximum. Taking the lesser of that and the
-	 * target cruise speed, we arrive at our final governed speed `spd'.
-	 */
-	switch (quadratic_solve(0.5 * NORMAL_DECEL, next_spd, -rmng_d, ts)) {
-	case 1:
-		spd = MIN(NORMAL_DECEL * ts[0] + next_spd, cruise_spd);
-		break;
-	case 2:
-		spd = MIN(NORMAL_DECEL * MAX(ts[0], ts[1]) + next_spd,
-		    cruise_spd);
-		break;
-	default:
-		spd = next_spd;
-		break;
-	}
-
-	return (spd);
-}
-
 static float
 bp_run(void)
 {
@@ -908,8 +510,9 @@ bp_run(void)
 			break;
 		if (seg->type == SEG_TYPE_STRAIGHT) {
 			double len = vect2_dist(bp.cur_pos, seg->start_pos);
-			double speed = straight_run_speed(seg->len - len,
-			    seg->backward, list_next(&bp.segs, seg));
+			double speed = straight_run_speed(&bp.segs,
+			    seg->len - len, seg->backward, MAX_ANG_VEL,
+			    list_next(&bp.segs, seg));
 			if (len >= seg->len) {
 				list_remove(&bp.segs, seg);
 				free(seg);
@@ -932,8 +535,9 @@ bp_run(void)
 			    normalize_hdg(seg->end_hdg + 180));
 			double end_brg = fabs(rel_hdg(end_hdg, dir2hdg(
 			    vect2_sub(bp.cur_pos, seg->end_pos))));
-			double speed = turn_run_speed(ABS(rhdg), seg->turn.r,
-			    seg->backward, list_next(&bp.segs, seg));
+			double speed = turn_run_speed(&bp.segs, ABS(rhdg),
+			    seg->turn.r, seg->backward, MAX_ANG_VEL,
+			    list_next(&bp.segs, seg));
 
 			/*
 			 * Segment complete when we are past the end_pos point
@@ -1167,8 +771,8 @@ cam_ctl(XPLMCameraPosition_t *pos, int losing_control, void *refcon)
 	    vect2_rot(VECT2(dx, dy), pos->heading));
 	cursor_world_pos = VECT2(end_pos.x, end_pos.y);
 
-	n = compute_segs(&bp.acf, start_pos, start_hdg, end_pos, cursor_hdg,
-	    &pred_segs);
+	n = compute_segs(bp.acf.wheelbase, bp.acf.max_nw_angle, start_pos,
+	    start_hdg, end_pos, cursor_hdg, &pred_segs);
 	if (n > 0) {
 		seg = list_tail(&pred_segs);
 		seg->user_placed = B_TRUE;
