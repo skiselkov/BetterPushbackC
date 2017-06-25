@@ -16,10 +16,8 @@
 cmake_minimum_required(VERSION 2.8)
 project(bp C)
 
-SET(SRC avl.c bp.c dr.c geom.c helpers.c list.c log.c math.c time.c
-    wav.c riff.c xplane.c)
-SET(HDR avl.h avl_impl.h bp.h dr.h geom.h helpers.h log.h list.h
-    math.h types.h time.h wav.h riff.h xplane.h)
+SET(SRC bp.c dr.c xplane.c)
+SET(HDR bp.h dr.h xplane.h)
 
 SET(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELEASE} -DDEBUG")
 SET(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DDEBUG -O0")
@@ -37,6 +35,8 @@ elseif(WIN32)
 	SET(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELEASE} /MD")
 	SET(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} /MDd")
 endif()
+
+include_directories(bp PUBLIC "${LIBACFUTILS}/src")
 
 #compiler flags
 if(WIN32)
@@ -99,6 +99,9 @@ elseif(WIN32)
 	target_link_libraries(bp ${OPENAL_LIBRARY}
 	    ${XPLM_LIBRARY} ${XPWIDGETS_LIBRARY})
 endif()
+
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} \
+    -L${LIBACFUTILS}/qmake/mac64 -lacfutils")
 
 SET_TARGET_PROPERTIES(bp PROPERTIES PREFIX "")
 SET_TARGET_PROPERTIES(bp PROPERTIES SUFFIX "")

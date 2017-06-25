@@ -41,22 +41,22 @@
 #include <XPLMUtilities.h>
 #include <XPLMProcessing.h>
 
-#include "assert.h"
-#include "geom.h"
-#include "math.h"
-#include "list.h"
-#include "dr.h"
-#include "time.h"
-#include "xplane.h"
+#include <acfutils/assert.h>
+#include <acfutils/geom.h>
+#include <acfutils/math.h>
+#include <acfutils/list.h>
+#include <acfutils/time.h>
 
 #include "bp.h"
+#include "dr.h"
+#include "xplane.h"
 
 #define	PB_DEBUG_INTF
 
 #define	STRAIGHT_STEER_RATE	40	/* degrees per second */
 #define	TURN_STEER_RATE		10	/* degrees per second */
 #define	NORMAL_SPEED		1.11	/* m/s [4 km/h, "walking speed"] */
-#define	FAST_SPEED		6	/* m/s [~12 knots] */
+#define	FAST_SPEED		4	/* m/s [~8 knots] */
 #define	CRAWL_SPEED		0.1	/* m/s */
 #define	NORMAL_ACCEL		0.25	/* m/s^2 */
 #define	NORMAL_DECEL		0.17	/* m/s^2 */
@@ -71,29 +71,10 @@
 #define	MIN_STEERING_ARM_LEN	2	/* meters */
 #define	HARD_STEER_ANGLE	10	/* degrees */
 #define	MAX_OFF_PATH_ANGLE	35	/* degrees */
+#define	STEERING_SENSITIVE	90	/* degrees */
 
 #define	STEER_GATE(x)	\
 	(MAX(MIN((x), bp.acf.max_nw_angle), -bp.acf.max_nw_angle))
-
-#define	DEBUG_PRINT_SEG(class, level, seg) \
-	do { \
-		if ((seg)->type == SEG_TYPE_STRAIGHT) { \
-			dbg_log(class, level, "%.1f/%.1f/%.1f " \
-			    "-(%s/%.1f)> %.1f/%.1f/%.1f", (seg)->start_pos.x, \
-			    (seg)->start_pos.y, (seg)->start_hdg, \
-			    (seg)->backward ? "B" : "S", (seg)->len, \
-			    (seg)->end_pos.x, (seg)->end_pos.y, \
-			    (seg)->end_hdg); \
-		} else { \
-			dbg_log(class, level, "%.1f/%.1f/%.1f " \
-			    "-(%s/%.1f/%s)> %.1f/%.1f/%.1f", \
-			    (seg)->start_pos.x, (seg)->start_pos.y, \
-			    (seg)->start_hdg, (seg)->backward ? "B" : "S", \
-			    (seg)->turn.r, (seg)->turn.right ? "R" : "L", \
-			    (seg)->end_pos.x, (seg)->end_pos.y, \
-			    (seg)->end_hdg); \
-		} \
-	} while (0)
 
 typedef struct {
 	double		wheelbase;
@@ -247,7 +228,6 @@ compute_segs(const acf_t *acf, vect2_t start_pos, double start_hdg,
 		s1->end_hdg = end_hdg;
 		s1->backward = backward;
 		s1->len = len;
-		DEBUG_PRINT_SEG(bp, 1, s1);
 
 		list_insert_tail(segs, s1);
 
@@ -262,10 +242,8 @@ compute_segs(const acf_t *acf, vect2_t start_pos, double start_hdg,
 		s2_v = vect2_neg(s2_v);
 
 	turn_edge = vect2vect_isect(s1_v, start_pos, s2_v, end_pos, B_TRUE);
-	if (IS_NULL_VECT(turn_edge)) {
-		dbg_log(bp, 1, "Turn edge undefined");
+	if (IS_NULL_VECT(turn_edge))
 		return (-1);
-	}
 
 	l1 = vect2_dist(turn_edge, start_pos);
 	l2 = vect2_dist(turn_edge, end_pos);
@@ -282,10 +260,8 @@ compute_segs(const acf_t *acf, vect2_t start_pos, double start_hdg,
 	    SEG_TURN_MULT))) * acf->wheelbase, MIN_TURN_RADIUS);
 	a = (180 - ABS(rel_hdg(start_hdg, end_hdg)));
 	r = x * tan(DEG2RAD(a / 2));
-	if (r < min_radius) {
-		dbg_log(bp, 1, "Turn too tight: %.2f < %.2f", r, min_radius);
+	if (r < min_radius)
 		return (-1);
-	}
 
 	if (l1 == 0) {
 		/* No initial straight segment */
@@ -328,9 +304,6 @@ compute_segs(const acf_t *acf, vect2_t start_pos, double start_hdg,
 		s2->turn.r = r;
 		s2->turn.right = (rhdg >= 0);
 	}
-
-	DEBUG_PRINT_SEG(bp, 1, s1);
-	DEBUG_PRINT_SEG(bp, 1, s2);
 
 	list_insert_tail(segs, s1);
 	list_insert_tail(segs, s2);
@@ -426,9 +399,6 @@ push_at_speed(double targ_speed, double max_accel)
 	force = MAX(-force_lim, force);
 
 	bp.last_force = force;
-	dbg_log(bp, 1, "cur_spd: %.2f  targ: %.2f  maccel: %.2f  "
-	    "accel_now: %.2f  d_v: %.2f force: %.3f",
-	    bp.cur_spd, targ_speed, max_accel, accel_now, d_v, force);
 }
 
 static void
@@ -437,7 +407,7 @@ track_line(vect2_t s, double hdg, double speed, double arm_len,
 {
 	vect2_t c, s2c, align_s, dir_v;
 	double s2c_hdg, mis_hdg, steering_arm, turn_radius, ang_vel, rhdg;
-	double steer, off_angle;
+	double steer, off_angle, arm_mult;
 	double cur_hdg = (speed >= 0 ? bp.cur_hdg :
 	    normalize_hdg(bp.cur_hdg + 180));
 	bool_t overcorrecting = B_FALSE;
@@ -468,6 +438,9 @@ track_line(vect2_t s, double hdg, double speed, double arm_len,
 
 	/* this is the point we're tring to align */
 	steering_arm = MAX(arm_len, MIN_STEERING_ARM_LEN);
+	arm_mult = fabs(rel_hdg(cur_hdg, hdg)) / STEERING_SENSITIVE;
+	if (arm_mult >= 0.01 && arm_mult <= 1.0)
+		steering_arm *= arm_mult;
 	c = vect2_add(bp.cur_pos, vect2_scmul(hdg2dir(cur_hdg), steering_arm));
 
 	/*
@@ -534,10 +507,6 @@ track_line(vect2_t s, double hdg, double speed, double arm_len,
 	/* Steering works in reverse when pushing back. */
 	if (speed < 0)
 		steer = -steer;
-
-	dbg_log(bp, 1, "mis_hdg: %.1f hdg:%.1f rhdg: %.1f steer: %.1f "
-	    "c2s_hdg: %.1f speed: %.1f off: %.1f", mis_hdg, hdg, rhdg, steer,
-	    s2c_hdg, speed, off_angle);
 
 	turn_nosewheel(steer, steer_rate);
 	push_at_speed(speed, NORMAL_ACCEL);
@@ -651,9 +620,6 @@ bp_init(void)
 
 	if (!bp_state_init())
 		return (B_FALSE);
-
-	dbg_log(bp, 1, "nw_z: %.1f main_z: %.1f wheelbase: %.1f nw_max: %.1f",
-	    bp.acf.nw_z, bp.acf.main_z, bp.acf.wheelbase, bp.acf.max_nw_angle);
 
 	inited = B_TRUE;
 
@@ -926,12 +892,8 @@ bp_run(void)
 		/* Pilot pressed brake pedals or set parking brake, stop */
 		if (dr_getf(&drs.lbrake) > BRAKE_PEDAL_THRESH ||
 		    dr_getf(&drs.rbrake) > BRAKE_PEDAL_THRESH ||
-		    dr_getf(&drs.pbrake) != 0) {
-			dbg_log(bp, 2, "Brakes ON, STOPPING! (%.3f/%.3f/%f)",
-			    dr_getf(&drs.lbrake), dr_getf(&drs.rbrake),
-			    dr_getf(&drs.pbrake));
+		    dr_getf(&drs.pbrake) != 0)
 			break;
-		}
 		if (seg->type == SEG_TYPE_STRAIGHT) {
 			double len = vect2_dist(bp.cur_pos, seg->start_pos);
 			double speed = straight_run_speed(seg->len - len,
@@ -1058,7 +1020,8 @@ static bool_t force_root_win_focus = B_TRUE;
 #define	CLICK_THRESHOLD_US	200000			/* microseconds */
 #define	US_PER_CLICK_ACCEL	60000			/* microseconds */
 #define	US_PER_CLICK_DEACCEL	120000			/* microseconds */
-#define	MAX_ACCEL_MULT		5
+#define	MAX_ACCEL_MULT		10
+#define	WHEEL_ANGLE_MULT	0.5
 
 #define	PREDICTION_DRAWING_PHASE	xplm_Phase_Airplanes
 
@@ -1481,7 +1444,8 @@ fake_win_wheel(XPLMWindowID inWindowID, int x, int y, int wheel, int clicks,
 		else if (us_per_click > US_PER_CLICK_DEACCEL)
 			accel = 1;
 
-		cursor_hdg = normalize_hdg(cursor_hdg + clicks * accel);
+		cursor_hdg = normalize_hdg(cursor_hdg +
+		    clicks * accel * WHEEL_ANGLE_MULT);
 		last_wheel_t = now;
 	}
 

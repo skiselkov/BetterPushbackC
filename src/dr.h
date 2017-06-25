@@ -22,7 +22,7 @@
 #include <XPLMDataAccess.h>
 
 #include "config.h"
-#include "types.h"
+#include <acfutils/types.h>
 
 #ifdef	__cplusplus
 extern "C" {

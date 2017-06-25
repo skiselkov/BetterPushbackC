@@ -26,6 +26,7 @@ INCLUDEPATH += ../SDK/CHeaders/XPLM
 # Always just use the shipped OpenAL headers for predictability.
 # The ABI is X-Plane-internal and stable anyway.
 INCLUDEPATH += ../OpenAL/include
+INCLUDEPATH += $$[LIBACFUTILS]/src
 
 QMAKE_CFLAGS += -std=c99 -g -W -Wall -Wextra -Werror -fvisibility=hidden
 QMAKE_CFLAGS += -Wunused-result
@@ -58,13 +59,14 @@ win32:contains(CROSS_COMPILE, x86_64-w64-mingw32-) {
 	LIBS += -lXPLM_64
 	LIBS += -L../OpenAL/libs/Win64 -lOpenAL32
 	LIBS += -L../GL_for_Windows/lib -lopengl32
+	LIBS += -L $$[LIBACFUTILS]/qmake/win64 -lacfutils
 }
 
 win32:contains(CROSS_COMPILE, i686-w64-mingw32-) {
 	LIBS += -lXPLM
 	LIBS += -L../OpenAL/libs/Win32 -lOpenAL32
 	LIBS += -L../GL_for_Windows/lib -lopengl32
-#	DEFINES += __MIDL_user_allocate_free_DEFINED__
+	LIBS += -L $$[LIBACFUTILS]/qmake/win32 -lacfutils
 }
 
 unix:!macx {
@@ -73,11 +75,16 @@ unix:!macx {
 	LIBS += -nodefaultlibs
 }
 
+linux-g++-64 {
+	LIBS += -L $$[LIBACFUTILS]/qmake/lin64 -lacfutils
+}
+
 linux-g++-32 {
 	# The stack protector forces us to depend on libc,
 	# but we'd prefer to be static.
 	QMAKE_CFLAGS += -fno-stack-protector
 	LIBS += -fno-stack-protector
+	LIBS += -L $$[LIBACFUTILS]/qmake/lin32 -lacfutils
 }
 
 macx {
@@ -86,15 +93,14 @@ macx {
 	INCLUDEPATH += ../OpenAL/include
 	LIBS += -F../SDK/Libraries/Mac
 	LIBS += -framework OpenGL -framework OpenAL -framework XPLM
+}
 
-	# To make sure we run on everything that X-Plane 10 ran on
-	QMAKE_MACOSX_DEPLOYMENT_TARGET=10.6
+macx-clang {
+	LIBS += -L $$[LIBACFUTILS]/qmake/mac64 -lacfutils
+}
 
-	# The default mac qmake rules insist on linking us as C++
-	# which limits us to OSX 10.7.
-	QMAKE_LINK = $$QMAKE_CC
-	QMAKE_LINK_SHLIB = $$QMAKE_CC
-	QMAKE_LFLAGS -= -stdlib=libc++
+macx-clang-32 {
+	LIBS += -L$$[LIBACFUTILS]/qmake/mac32 -lacfutils
 }
 
 HEADERS += ../src/*.h

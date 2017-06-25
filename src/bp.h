@@ -20,7 +20,7 @@
 #define	_BP_H_
 
 #include "config.h"
-#include "types.h"
+#include <acfutils/types.h>
 
 #ifdef	__cplusplus
 extern "C" {

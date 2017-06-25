@@ -24,9 +24,11 @@
 #include <XPLMUtilities.h>
 #include <XPLMPlugin.h>
 
+#include <acfutils/acfutils.h>
+#include <acfutils/helpers.h>
+#include <acfutils/log.h>
+
 #include "bp.h"
-#include "helpers.h"
-#include "log.h"
 #include "xplane.h"
 
 #define BP_PLUGIN_NAME		"BetterPushback 1.0"
@@ -140,6 +142,8 @@ bp_done_notify(void)
 PLUGIN_API int
 XPluginStart(char *name, char *sig, char *desc)
 {
+	acfutils_logfunc = XPLMDebugString;
+
 	strcpy(name, BP_PLUGIN_NAME);
 	strcpy(sig, BP_PLUGIN_SIG);
 	strcpy(desc, BP_PLUGIN_DESCRIPTION);

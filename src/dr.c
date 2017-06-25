@@ -19,7 +19,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-#include "assert.h"
+#include <acfutils/assert.h>
 
 #include "dr.h"
 

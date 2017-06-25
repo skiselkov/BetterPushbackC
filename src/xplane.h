@@ -24,9 +24,9 @@
 #include <XPLMDefs.h>
 
 #include "config.h"
-#include "avl.h"
-#include "geom.h"
-#include "list.h"
+#include <acfutils/avl.h>
+#include <acfutils/geom.h>
+#include <acfutils/list.h>
 
 #ifdef __cplusplus
 extern "C" {
