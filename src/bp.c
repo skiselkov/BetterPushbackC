@@ -76,6 +76,11 @@
 #define	STEER_GATE(x)	\
 	(MAX(MIN((x), bp.acf.max_nw_angle), -bp.acf.max_nw_angle))
 
+#ifdef	DEBUG
+static vect2_t	c_pt = NULL_VECT2, s_pt = NULL_VECT2;
+static double	line_hdg = NAN;
+#endif	/* DEBUG */
+
 typedef struct {
 	double		wheelbase;
 	double		nw_z, main_z;
@@ -146,6 +151,7 @@ typedef struct {
 	double		last_hdg;	/* cur_hdg from previous run */
 	double		last_spd;	/* cur_spd from previous run */
 	double		last_t;		/* cur_t from previous run */
+	double		last_mis_hdg;	/* previous steering misalignment */
 
 	/* deltas from last_* to cur_* */
 	vect2_t		d_pos;		/* delta from last_pos to cur_pos */
@@ -407,7 +413,7 @@ track_line(vect2_t s, double hdg, double speed, double arm_len,
 {
 	vect2_t c, s2c, align_s, dir_v;
 	double s2c_hdg, mis_hdg, steering_arm, turn_radius, ang_vel, rhdg;
-	double steer, off_angle, arm_mult;
+	double steer, off_angle, d_mis_hdg;
 	double cur_hdg = (speed >= 0 ? bp.cur_hdg :
 	    normalize_hdg(bp.cur_hdg + 180));
 	bool_t overcorrecting = B_FALSE;
@@ -438,9 +444,6 @@ track_line(vect2_t s, double hdg, double speed, double arm_len,
 
 	/* this is the point we're tring to align */
 	steering_arm = MAX(arm_len, MIN_STEERING_ARM_LEN);
-	arm_mult = fabs(rel_hdg(cur_hdg, hdg)) / STEERING_SENSITIVE;
-	if (arm_mult >= 0.01 && arm_mult <= 1.0)
-		steering_arm *= arm_mult;
 	c = vect2_add(bp.cur_pos, vect2_scmul(hdg2dir(cur_hdg), steering_arm));
 
 	/*
@@ -452,6 +455,12 @@ track_line(vect2_t s, double hdg, double speed, double arm_len,
 	align_s = vect2_add(s, vect2_scmul(dir_v, vect2_dotprod(vect2_sub(
 	    bp.cur_pos, s), dir_v)));
 
+#ifdef	DEBUG
+	c_pt = c;
+	s_pt = align_s;
+	line_hdg = hdg;
+#endif	/* DEBUG */
+
 	/*
 	 * Calculate a direction vector pointing from s to c (or
 	 * vice versa if pushing back) and transform into a heading.
@@ -460,6 +469,7 @@ track_line(vect2_t s, double hdg, double speed, double arm_len,
 	s2c_hdg = dir2hdg(s2c);
 
 	mis_hdg = rel_hdg(s2c_hdg, hdg);
+	d_mis_hdg = (mis_hdg - bp.last_mis_hdg) / bp.d_t;
 	rhdg = rel_hdg(cur_hdg, hdg);
 
 	/*
@@ -467,7 +477,7 @@ track_line(vect2_t s, double hdg, double speed, double arm_len,
 	 * which point `c' is deflected from the ideal straight line. So
 	 * simply steer in the opposite direction to try and nullify it.
 	 */
-	steer = STEER_GATE(mis_hdg);
+	steer = STEER_GATE(mis_hdg + 10 * d_mis_hdg);
 	/*
 	 * Watch out for overcorrecting. If our heading is too far in the
 	 * opposite direction, limit our relative angle to the desired path
@@ -510,12 +520,14 @@ track_line(vect2_t s, double hdg, double speed, double arm_len,
 
 	turn_nosewheel(steer, steer_rate);
 	push_at_speed(speed, NORMAL_ACCEL);
+
+	bp.last_mis_hdg = mis_hdg;
 }
 
 static void
 straight_run(vect2_t s, double hdg, double speed)
 {
-	track_line(s, hdg, speed, bp.acf.wheelbase / 2, 1.2,
+	track_line(s, hdg, speed, bp.acf.wheelbase / 2, 1.5,
 	    STRAIGHT_STEER_RATE);
 }
 
@@ -542,7 +554,7 @@ turn_run(vect2_t c, double radius, double start_hdg, double end_hdg,
 		hdg = end_hdg;
 	}
 
-	track_line(r, hdg, speed, bp.acf.wheelbase / 5, 1.4, TURN_STEER_RATE);
+	track_line(r, hdg, speed, bp.acf.wheelbase / 5, 2, TURN_STEER_RATE);
 }
 
 static bool_t
@@ -1255,6 +1267,28 @@ draw_acf_symbol(vect3_t pos, double hdg, double wheelbase, vect3_t color)
 	glEnd();
 }
 
+#ifdef	DEBUG
+static void
+draw_cross(vect2_t pos, double y)
+{
+	vect2_t v;
+
+	glLineWidth(4);
+	glColor3f(1, 0, 1);
+
+	glBegin(GL_LINES);
+	v = vect2_add(vect2_rot(VECT2(-1, 0), cam_hdg), pos);
+	glVertex3f(v.x, y, -v.y);
+	v = vect2_add(vect2_rot(VECT2(1, 0), cam_hdg), pos);
+	glVertex3f(v.x, y, -v.y);
+	v = vect2_add(vect2_rot(VECT2(0, 1), cam_hdg), pos);
+	glVertex3f(v.x, y, -v.y);
+	v = vect2_add(vect2_rot(VECT2(0, -1), cam_hdg), pos);
+	glVertex3f(v.x, y, -v.y);
+	glEnd();
+}
+#endif	/* DEBUG */
+
 static int
 draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 {
@@ -1316,7 +1350,6 @@ draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 		    bp.acf.wheelbase, RED_TUPLE);
 	}
 
-
 	if ((seg = list_tail(&bp.segs)) != NULL) {
 		VERIFY3U(XPLMProbeTerrainXYZ(probe, seg->end_pos.x, 0,
 		    -seg->end_pos.y, &info), ==, xplm_ProbeHitTerrain);
@@ -1324,6 +1357,36 @@ draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 		    ABV_TERR_HEIGHT, seg->end_pos.y), seg->end_hdg,
 		    bp.acf.wheelbase, GREEN_TUPLE);
 	}
+
+#ifdef	DEBUG
+	if (!IS_NULL_VECT(c_pt)) {
+		ASSERT(!IS_NULL_VECT(s_pt));
+		ASSERT(!isnan(line_hdg));
+		double c_pt_y, s_pt_y;
+		double l = vect2_dist(s_pt, c_pt);
+		vect2_t dir_p = vect2_add(vect2_scmul(hdg2dir(line_hdg), l),
+		    s_pt);
+
+		VERIFY3U(XPLMProbeTerrainXYZ(probe, c_pt.x, 0,
+		    -c_pt.y, &info), ==, xplm_ProbeHitTerrain);
+		c_pt_y = info.locationY;
+		VERIFY3U(XPLMProbeTerrainXYZ(probe, s_pt.x, 0,
+		    -s_pt.y, &info), ==, xplm_ProbeHitTerrain);
+		s_pt_y = info.locationY;
+
+		draw_cross(c_pt, c_pt_y);
+		draw_cross(s_pt, s_pt_y);
+
+		glLineWidth(2);
+		glColor3f(0.5, 0.5, 1);
+		glBegin(GL_LINES);
+		glVertex3f(s_pt.x, s_pt_y, -s_pt.y);
+		glVertex3f(c_pt.x, c_pt_y, -c_pt.y);
+		glVertex3f(s_pt.x, s_pt_y, -s_pt.y);
+		glVertex3f(dir_p.x, s_pt_y, -dir_p.y);
+		glEnd();
+	}
+#endif	/* DEBUG */
 
 	XPLMDestroyProbe(probe);
 
@@ -1501,6 +1564,10 @@ bp_cam_start(void)
 
 	if (cam_inited || !bp_init())
 		return (B_FALSE);
+
+	c_pt = NULL_VECT2;
+	s_pt = NULL_VECT2;
+	line_hdg = NAN;
 
 #ifndef	PB_DEBUG_INTF
 	if (vect3_abs(VECT3(dr_getf(&drs.vx), dr_getf(&drs.vy),
