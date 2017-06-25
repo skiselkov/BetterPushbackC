@@ -48,25 +48,26 @@ DEFINES += XPLM200 XPLM210
 win32 {
 	CONFIG += dll
 	DEFINES += APL=0 IBM=1 LIN=0 _WIN32_WINNT=0x0600
-	LIBS += -ldbghelp
-	LIBS += -L../SDK/Libraries/Win
 	TARGET = win.xpl
 	INCLUDEPATH += /usr/include/GL
 	QMAKE_DEL_FILE = rm -f
 }
 
 win32:contains(CROSS_COMPILE, x86_64-w64-mingw32-) {
-	LIBS += -lXPLM_64
+	# This must go first for GCC to properly find dependent symbols
+	LIBS += -L $$[LIBACFUTILS]/qmake/win64 -lacfutils
+	LIBS += -L../SDK/Libraries/Win -lXPLM_64
 	LIBS += -L../OpenAL/libs/Win64 -lOpenAL32
 	LIBS += -L../GL_for_Windows/lib -lopengl32
-	LIBS += -L $$[LIBACFUTILS]/qmake/win64 -lacfutils
+	LIBS += -ldbghelp
 }
 
 win32:contains(CROSS_COMPILE, i686-w64-mingw32-) {
-	LIBS += -lXPLM
+	LIBS += -L $$[LIBACFUTILS]/qmake/win32 -lacfutils
+	LIBS += -L../SDK/Libraries/Win -lXPLM
 	LIBS += -L../OpenAL/libs/Win32 -lOpenAL32
 	LIBS += -L../GL_for_Windows/lib -lopengl32
-	LIBS += -L $$[LIBACFUTILS]/qmake/win32 -lacfutils
+	LIBS += -ldbghelp
 }
 
 unix:!macx {
