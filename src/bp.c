@@ -71,28 +71,21 @@ static double	line_hdg = NAN;
 #endif	/* DEBUG */
 
 typedef struct {
-	double		wheelbase;
 	double		nw_z, main_z;
-	double		max_nw_angle;
 } acf_t;
-
 typedef struct {
+	vehicle_t	veh;
 	acf_t		acf;		/* our aircraft */
 
-	vect2_t		cur_pos;	/* current position in meters */
-	double		cur_hdg;	/* current heading in degrees */
-	double		cur_spd;	/* current speed in m/s */
-	double		cur_t;		/* current time in seconds */
+	vehicle_pos_t	cur_pos;
+	vehicle_pos_t	last_pos;
 
-	vect2_t		last_pos;	/* cur_pos from previous run */
-	double		last_hdg;	/* cur_hdg from previous run */
-	double		last_spd;	/* cur_spd from previous run */
+	double		cur_t;		/* current time in seconds */
 	double		last_t;		/* cur_t from previous run */
 	double		last_mis_hdg;	/* previous steering misalignment */
 
 	/* deltas from last_* to cur_* */
-	vect2_t		d_pos;		/* delta from last_pos to cur_pos */
-	double		d_hdg;		/* delta from last_hdg to cur_hdg */
+	vehicle_pos_t	d_pos;		/* delta from last_pos to cur_pos */
 	double		d_t;		/* delta time from last_t to cur_t */
 
 	double		last_force;
@@ -147,8 +140,8 @@ turn_nosewheel(double req_angle, double rate)
 	steer_incr = MIN(ABS(req_angle - cur_nw_angle), rate_of_turn);
 	cur_nw_angle += (cur_nw_angle < req_angle ? steer_incr : -steer_incr);
 	/* prevent excessive deflection */
-	cur_nw_angle = MIN(cur_nw_angle, bp.acf.max_nw_angle);
-	cur_nw_angle = MAX(cur_nw_angle, -bp.acf.max_nw_angle);
+	cur_nw_angle = MIN(cur_nw_angle, bp.veh.max_steer);
+	cur_nw_angle = MAX(cur_nw_angle, -bp.veh.max_steer);
 	dr_setf(&drs.tire_steer_cmd, cur_nw_angle);
 }
 
@@ -172,8 +165,8 @@ push_at_speed(double targ_speed, double max_accel)
 	force_incr = (force_lim / 10) * bp.d_t;
 
 	force = bp.last_force;
-	accel_now = (bp.cur_spd - bp.last_spd) / bp.d_t;
-	d_v = targ_speed - bp.cur_spd;
+	accel_now = (bp.cur_pos.spd - bp.last_pos.spd) / bp.d_t;
+	d_v = targ_speed - bp.cur_pos.spd;
 
 	/*
 	 * Calculate the vector components of our force on the aircraft
@@ -193,11 +186,11 @@ push_at_speed(double targ_speed, double max_accel)
 	 * going, otherwise we'll just jitter in-place due to thinking
 	 * we're overdoing acceleration.
 	 */
-	if (ABS(bp.cur_spd) < BREAKAWAY_THRESH)
+	if (ABS(bp.cur_pos.spd) < BREAKAWAY_THRESH)
 		max_accel *= 100;
 
 	if (d_v > 0) {
-		if (d_v < max_accel && ABS(bp.cur_spd) >= BREAKAWAY_THRESH)
+		if (d_v < max_accel && ABS(bp.cur_pos.spd) >= BREAKAWAY_THRESH)
 			max_accel = d_v;
 		if (accel_now > max_accel)
 			force += force_incr;
@@ -205,7 +198,7 @@ push_at_speed(double targ_speed, double max_accel)
 			force -= force_incr;
 	} else if (d_v < 0) {
 		max_accel *= -1;
-		if (d_v > max_accel && ABS(bp.cur_spd) >= BREAKAWAY_THRESH)
+		if (d_v > max_accel && ABS(bp.cur_pos.spd) >= BREAKAWAY_THRESH)
 			max_accel = d_v;
 		if (accel_now < max_accel)
 			force -= force_incr;
@@ -218,49 +211,6 @@ push_at_speed(double targ_speed, double max_accel)
 	force = MAX(-force_lim, force);
 
 	bp.last_force = force;
-}
-
-static void
-straight_run(vect2_t s, double hdg, double speed)
-{
-	double new_steer, new_speed;
-
-	drive_on_line(bp.cur_pos, bp.cur_hdg, bp.cur_spd, bp.acf.wheelbase,
-	    bp.acf.max_nw_angle, s, hdg, speed, bp.acf.wheelbase / 2, 1.5,
-	    &bp.last_mis_hdg, bp.d_t, &new_steer, &new_speed);
-	turn_nosewheel(new_steer, STRAIGHT_STEER_RATE);
-	push_at_speed(new_speed, NORMAL_ACCEL);
-}
-
-static void
-turn_run(vect2_t c, double radius, double start_hdg, double end_hdg,
-    bool_t right, double speed)
-{
-	vect2_t c2r, r, dir_v;
-	double hdg, cur_radial, start_radial, end_radial;
-	double new_steer, new_speed;
-	bool_t cw = ((right && speed >= 0) || (!right && speed <= 0));
-
-	c2r = vect2_set_abs(vect2_sub(bp.cur_pos, c), radius);
-	cur_radial = dir2hdg(c2r);
-	r = vect2_add(c, c2r);
-	dir_v = vect2_norm(c2r, cw);
-	start_radial = normalize_hdg(start_hdg + (cw ? -90 : 90));
-	end_radial = normalize_hdg(end_hdg + (cw ? -90 : 90));
-	if (is_on_arc(cur_radial, start_radial, end_radial, cw)) {
-		hdg = dir2hdg(dir_v);
-	} else if (fabs(rel_hdg(cur_radial, start_radial)) <
-	    fabs(rel_hdg(cur_radial, end_radial))) {
-		hdg = start_hdg;
-	} else {
-		hdg = end_hdg;
-	}
-
-	drive_on_line(bp.cur_pos, bp.cur_hdg, bp.cur_spd, bp.acf.wheelbase,
-	    bp.acf.max_nw_angle, r, hdg, speed, bp.acf.wheelbase / 5, 2,
-	    &bp.last_mis_hdg, bp.d_t, &new_steer, &new_speed);
-	turn_nosewheel(new_steer, TURN_STEER_RATE);
-	push_at_speed(new_speed, NORMAL_ACCEL);
 }
 
 static bool_t
@@ -284,13 +234,13 @@ bp_state_init(void)
 	for (int i = 0; i < n_main; i++)
 		bp.acf.main_z += tire_z_main[i];
 	bp.acf.main_z /= n_main;
-	bp.acf.wheelbase = bp.acf.main_z - bp.acf.nw_z;
-	if (bp.acf.wheelbase <= 0) {
+	bp.veh.wheelbase = bp.acf.main_z - bp.acf.nw_z;
+	if (bp.veh.wheelbase <= 0) {
 		XPLMSpeakString("Pushback failure: aircraft has non-positive "
 		    "wheelbase. Sorry, tail draggers aren't supported.");
 		return (B_FALSE);
 	}
-	bp.acf.max_nw_angle = MIN(MAX(dr_getf(&drs.nw_steerdeg1),
+	bp.veh.max_steer = MIN(MAX(dr_getf(&drs.nw_steerdeg1),
 	    dr_getf(&drs.nw_steerdeg2)), MAX_STEER_ANGLE);
 
 	return (B_TRUE);
@@ -466,12 +416,12 @@ bp_gather(void)
 	 * X-Plane's north-south axis (Z) is flipped to our understanding, so
 	 * whenever we access 'local_z' or 'vz', we need to flip it.
 	 */
-	bp.cur_pos = VECT2(dr_getf(&drs.local_x),
+	bp.cur_pos.pos = VECT2(dr_getf(&drs.local_x),
 	    -dr_getf(&drs.local_z));
-	bp.cur_hdg = dr_getf(&drs.hdg);
-	bp.cur_t = dr_getf(&drs.sim_time);
-	bp.cur_spd = vect2_dotprod(hdg2dir(bp.cur_hdg),
+	bp.cur_pos.hdg = dr_getf(&drs.hdg);
+	bp.cur_pos.spd = vect2_dotprod(hdg2dir(bp.cur_pos.hdg),
 	    VECT2(dr_getf(&drs.vx), -dr_getf(&drs.vz)));
+	bp.cur_t = dr_getf(&drs.sim_time);
 }
 
 static float
@@ -485,8 +435,9 @@ bp_run(void)
 	if (bp.cur_t <= bp.last_t)
 		return (B_TRUE);
 
-	bp.d_pos = vect2_sub(bp.cur_pos, bp.last_pos);
-	bp.d_hdg = bp.cur_hdg - bp.last_hdg;
+	bp.d_pos.pos = vect2_sub(bp.cur_pos.pos, bp.last_pos.pos);
+	bp.d_pos.hdg = bp.cur_pos.hdg - bp.last_pos.hdg;
+	bp.d_pos.spd = bp.cur_pos.spd - bp.last_pos.spd;
 	bp.d_t = bp.cur_t - bp.last_t;
 
 	dr_seti(&drs.override_steer, 1);
@@ -502,71 +453,26 @@ bp_run(void)
 	}
 
 	while ((seg = list_head(&bp.segs)) != NULL) {
+		double steer, speed;
+
 		last = B_TRUE;
 		/* Pilot pressed brake pedals or set parking brake, stop */
 		if (dr_getf(&drs.lbrake) > BRAKE_PEDAL_THRESH ||
 		    dr_getf(&drs.rbrake) > BRAKE_PEDAL_THRESH ||
 		    dr_getf(&drs.pbrake) != 0)
 			break;
-		if (seg->type == SEG_TYPE_STRAIGHT) {
-			double len = vect2_dist(bp.cur_pos, seg->start_pos);
-			double speed = straight_run_speed(&bp.segs,
-			    seg->len - len, seg->backward, MAX_ANG_VEL,
-			    list_next(&bp.segs, seg));
-			if (len >= seg->len) {
-				list_remove(&bp.segs, seg);
-				free(seg);
-				continue;
-			}
-			if (!seg->backward) {
-				straight_run(seg->start_pos, seg->start_hdg,
-				    speed);
-			} else {
-				straight_run(seg->start_pos,
-				    normalize_hdg(seg->start_hdg + 180),
-				    -speed);
-			}
-		} else {
-			vect2_t c;
-			double rhdg = fabs(rel_hdg(bp.cur_hdg, seg->end_hdg));
-			double start_hdg = (!seg->backward ? seg->start_hdg :
-			    normalize_hdg(seg->start_hdg + 180));
-			double end_hdg = (!seg->backward ? seg->end_hdg :
-			    normalize_hdg(seg->end_hdg + 180));
-			double end_brg = fabs(rel_hdg(end_hdg, dir2hdg(
-			    vect2_sub(bp.cur_pos, seg->end_pos))));
-			double speed = turn_run_speed(&bp.segs, ABS(rhdg),
-			    seg->turn.r, seg->backward, MAX_ANG_VEL,
-			    list_next(&bp.segs, seg));
-
-			/*
-			 * Segment complete when we are past the end_pos point
-			 * (delta between end_hdg and a vector from end_pos to
-			 * cur_pos is <= 90 degrees)
-			 */
-			if (end_brg <= 90) {
-				list_remove(&bp.segs, seg);
-				free(seg);
-				continue;
-			}
-			/*
-			 * `c' is the center of the turn. Displace it
-			 * at right angle to start_hdg at start_pos by
-			 * the turn radius.
-			 */
-			c = vect2_add(vect2_set_abs(vect2_norm(hdg2dir(
-			    seg->start_hdg), seg->turn.right), seg->turn.r),
-			    seg->start_pos);
-			turn_run(c, seg->turn.r, start_hdg, end_hdg,
-			    seg->turn.right, seg->backward ? -speed : speed);
+		if (drive_segs(&bp.cur_pos, &bp.veh, &bp.segs, MAX_ANG_VEL,
+		    &bp.last_mis_hdg, bp.d_t, &steer, &speed)) {
+			double steer_rate = (seg->type == SEG_TYPE_STRAIGHT ?
+			    STRAIGHT_STEER_RATE : TURN_STEER_RATE);
+			turn_nosewheel(steer, steer_rate);
+			push_at_speed(speed, NORMAL_ACCEL);
+			break;
 		}
-		break;
 	}
 
 	bp.last_pos = bp.cur_pos;
-	bp.last_hdg = bp.cur_hdg;
 	bp.last_t = bp.cur_t;
-	bp.last_spd = bp.cur_spd;
 
 	if (seg != NULL) {
 		return (-1);
@@ -575,7 +481,8 @@ bp_run(void)
 			bp.stopping = B_TRUE;
 		turn_nosewheel(0, STRAIGHT_STEER_RATE);
 		push_at_speed(0, NORMAL_ACCEL);
-		if (ABS(bp.cur_spd) < SPEED_COMPLETE_THRESH && !bp.stopped) {
+		if (ABS(bp.cur_pos.spd) < SPEED_COMPLETE_THRESH &&
+		    !bp.stopped) {
 			XPLMSpeakString("Operation complete, set parking "
 			    "brake.");
 			bp.stopped = B_TRUE;
@@ -771,8 +678,8 @@ cam_ctl(XPLMCameraPosition_t *pos, int losing_control, void *refcon)
 	    vect2_rot(VECT2(dx, dy), pos->heading));
 	cursor_world_pos = VECT2(end_pos.x, end_pos.y);
 
-	n = compute_segs(bp.acf.wheelbase, bp.acf.max_nw_angle, start_pos,
-	    start_hdg, end_pos, cursor_hdg, &pred_segs);
+	n = compute_segs(&bp.veh, start_pos, start_hdg, end_pos,
+	    cursor_hdg, &pred_segs);
 	if (n > 0) {
 		seg = list_tail(&pred_segs);
 		seg->user_placed = B_TRUE;
@@ -945,13 +852,13 @@ draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 		}
 		draw_acf_symbol(VECT3(seg->end_pos.x, info.locationY +
 		    ABV_TERR_HEIGHT, seg->end_pos.y), seg->end_hdg,
-		    bp.acf.wheelbase, AMBER_TUPLE);
+		    bp.veh.wheelbase, AMBER_TUPLE);
 	} else {
 		VERIFY3U(XPLMProbeTerrainXYZ(probe, cursor_world_pos.x, 0,
 		    -cursor_world_pos.y, &info), ==, xplm_ProbeHitTerrain);
 		draw_acf_symbol(VECT3(cursor_world_pos.x, info.locationY +
 		    ABV_TERR_HEIGHT, cursor_world_pos.y), cursor_hdg,
-		    bp.acf.wheelbase, RED_TUPLE);
+		    bp.veh.wheelbase, RED_TUPLE);
 	}
 
 	if ((seg = list_tail(&bp.segs)) != NULL) {
@@ -959,7 +866,7 @@ draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 		    -seg->end_pos.y, &info), ==, xplm_ProbeHitTerrain);
 		draw_acf_symbol(VECT3(seg->end_pos.x, info.locationY +
 		    ABV_TERR_HEIGHT, seg->end_pos.y), seg->end_hdg,
-		    bp.acf.wheelbase, GREEN_TUPLE);
+		    bp.veh.wheelbase, GREEN_TUPLE);
 	}
 
 #ifdef	DEBUG
@@ -1205,7 +1112,7 @@ bp_cam_start(void)
 
 	list_create(&pred_segs, sizeof (seg_t), offsetof(seg_t, node));
 	force_root_win_focus = B_TRUE;
-	cam_height = 15 * bp.acf.wheelbase;
+	cam_height = 15 * bp.veh.wheelbase;
 	/* We keep the camera position in our coordinates for ease of manip */
 	cam_pos = VECT3(dr_getf(&drs.local_x),
 	    dr_getf(&drs.local_y), -dr_getf(&drs.local_z));

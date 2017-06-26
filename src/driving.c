@@ -44,9 +44,13 @@
 
 #define	STEER_GATE(x, g)	MIN(MAX(x, -g), g)
 
+static double turn_run_speed(list_t *segs, double rhdg, double radius,
+    bool_t backward, double max_ang_vel, const seg_t *next);
+static double straight_run_speed(list_t *segs, double rmng_d, bool_t backward,
+    double max_ang_vel, const seg_t *next);
+
 int
-compute_segs(double wheelbase, double max_nw_angle,
-    vect2_t start_pos, double start_hdg,
+compute_segs(const vehicle_t *veh, vect2_t start_pos, double start_hdg,
     vect2_t end_pos, double end_hdg, list_t *segs)
 {
 	seg_t *s1, *s2;
@@ -104,12 +108,12 @@ compute_segs(double wheelbase, double max_nw_angle,
 	l2 -= x;
 
 	/*
-	 * Compute minimum radius using less than max_nw_angle (hence
+	 * Compute minimum radius using less than max_steer (hence
 	 * SEG_TURN_MULT), to allow for some oversteering correction.
 	 * Also limit the radius to something sensible (MIN_TURN_RADIUS).
 	 */
-	min_radius = MAX(tan(DEG2RAD(90 - (max_nw_angle * SEG_TURN_MULT))) *
-	    wheelbase, MIN_TURN_RADIUS);
+	min_radius = MAX(tan(DEG2RAD(90 - (veh->max_steer * SEG_TURN_MULT))) *
+	    veh->wheelbase, MIN_TURN_RADIUS);
 	a = (180 - ABS(rel_hdg(start_hdg, end_hdg)));
 	r = x * tan(DEG2RAD(a / 2));
 	if (r < min_radius)
@@ -162,21 +166,21 @@ compute_segs(double wheelbase, double max_nw_angle,
 	return (2);
 }
 
-void
-drive_on_line(vect2_t cur_pos, double cur_hdg, double cur_spd,
-    double wheelbase, double max_steer, vect2_t line_start,
-    double line_hdg, double speed, double arm_len, double steer_corr_amp,
-    double *last_mis_hdg, double d_t, double *steer_out, double *speed_out)
+static void
+drive_on_line(const vehicle_pos_t *pos, const vehicle_t *veh,
+    vect2_t line_start, double line_hdg, double speed, double arm_len,
+    double steer_corr_amp, double *last_mis_hdg, double d_t,
+    double *steer_out, double *speed_out)
 {
 	vect2_t c, s2c, align_s, dir_v;
 	double s2c_hdg, mis_hdg, steering_arm, turn_radius, ang_vel, rhdg;
-	double steer, d_mis_hdg;
+	double cur_hdg, steer, d_mis_hdg;
 	bool_t overcorrecting = B_FALSE;
 
-	cur_hdg = (speed >= 0 ? cur_hdg : normalize_hdg(cur_hdg + 180));
+	cur_hdg = (speed >= 0 ? pos->hdg : normalize_hdg(pos->hdg + 180));
 
 	/* Neutralize steering until we're traveling in our direction */
-	if ((speed < 0 && cur_spd > 0) || (speed > 0 && cur_spd < 0)) {
+	if ((speed < 0 && pos->spd > 0) || (speed > 0 && pos->spd < 0)) {
 		*steer_out = 0;
 		*speed_out = speed;
 		return;
@@ -184,7 +188,7 @@ drive_on_line(vect2_t cur_pos, double cur_hdg, double cur_spd,
 
 	/* this is the point we're tring to align */
 	steering_arm = MAX(arm_len, MIN_STEERING_ARM_LEN);
-	c = vect2_add(cur_pos, vect2_scmul(hdg2dir(cur_hdg), steering_arm));
+	c = vect2_add(pos->pos, vect2_scmul(hdg2dir(cur_hdg), steering_arm));
 
 	/*
 	 * We project our position onto the ideal straight line. Limit the
@@ -193,7 +197,7 @@ drive_on_line(vect2_t cur_pos, double cur_hdg, double cur_spd,
 	 */
 	dir_v = hdg2dir(line_hdg);
 	align_s = vect2_add(line_start, vect2_scmul(dir_v,
-	    vect2_dotprod(vect2_sub(cur_pos, line_start), dir_v)));
+	    vect2_dotprod(vect2_sub(pos->pos, line_start), dir_v)));
 
 	/*
 	 * Calculate a direction vector pointing from s to c (or
@@ -211,7 +215,8 @@ drive_on_line(vect2_t cur_pos, double cur_hdg, double cur_spd,
 	 * which point `c' is deflected from the ideal straight line. So
 	 * simply steer in the opposite direction to try and nullify it.
 	 */
-	steer = STEER_GATE(mis_hdg + d_mis_hdg * steer_corr_amp, max_steer);
+	steer = STEER_GATE(mis_hdg + d_mis_hdg * steer_corr_amp,
+	    veh->max_steer);
 
 	/*
 	 * Watch out for overcorrecting. If our heading is too far in the
@@ -220,10 +225,10 @@ drive_on_line(vect2_t cur_pos, double cur_hdg, double cur_spd,
 	 * on track.
 	 */
 	if (mis_hdg < 0 && rhdg > MAX_OFF_PATH_ANGLE) {
-		steer = STEER_GATE(rhdg - MAX_OFF_PATH_ANGLE, max_steer);
+		steer = STEER_GATE(rhdg - MAX_OFF_PATH_ANGLE, veh->max_steer);
 		overcorrecting = B_TRUE;
 	} else if (mis_hdg > 0 && rhdg < -MAX_OFF_PATH_ANGLE) {
-		steer = STEER_GATE(rhdg + MAX_OFF_PATH_ANGLE, max_steer);
+		steer = STEER_GATE(rhdg + MAX_OFF_PATH_ANGLE, veh->max_steer);
 		overcorrecting = B_TRUE;
 	}
 	/*
@@ -238,7 +243,7 @@ drive_on_line(vect2_t cur_pos, double cur_hdg, double cur_spd,
 	 * a correction maneuver. This helps in case we get kicked off
 	 * from a straight line very far and need to correct a lot.
 	 */
-	turn_radius = tan(DEG2RAD(90 - ABS(steer))) * wheelbase;
+	turn_radius = tan(DEG2RAD(90 - ABS(steer))) * veh->wheelbase;
 	ang_vel = RAD2DEG(ABS(speed) / turn_radius);
 	speed *= MIN(MAX_ANG_VEL / ang_vel, 1);
 
@@ -282,7 +287,7 @@ next_seg_speed(list_t *segs, const seg_t *next, bool_t cur_backward,
  * angular velocity around the circle to MAX_ANG_VEL (2.5 deg/s) to limit
  * side-loading. This means the tighter the turn, the slower our speed.
  */
-double
+static double
 turn_run_speed(list_t *segs, double rhdg, double radius, bool_t backward,
     double max_ang_vel, const seg_t *next)
 {
@@ -297,7 +302,7 @@ turn_run_speed(list_t *segs, double rhdg, double radius, bool_t backward,
 	return (spd);
 }
 
-double
+static double
 straight_run_speed(list_t *segs, double rmng_d, bool_t backward,
     double max_ang_vel, const seg_t *next)
 {
@@ -359,4 +364,94 @@ straight_run_speed(list_t *segs, double rmng_d, bool_t backward,
 	}
 
 	return (spd);
+}
+static void
+turn_run(const vehicle_pos_t *pos, const vehicle_t *veh, const seg_t *seg,
+    double *last_mis_hdg, double d_t, double speed, double *out_steer,
+    double *out_speed)
+{
+	double start_hdg = (!seg->backward ? seg->start_hdg :
+	    normalize_hdg(seg->start_hdg + 180));
+	double end_hdg = (!seg->backward ? seg->end_hdg :
+	    normalize_hdg(seg->end_hdg + 180));
+	vect2_t c2r, r, dir_v;
+	double hdg, cur_radial, start_radial, end_radial;
+	bool_t cw = ((seg->turn.right && !seg->backward) ||
+	    (!seg->turn.right && seg->backward));
+	/*
+	 * `c' is the center of the turn. Displace it at right angle to
+	 * start_hdg at start_pos by the turn radius.
+	 */
+	vect2_t c = vect2_add(vect2_set_abs(vect2_norm(hdg2dir(start_hdg),
+	    seg->turn.right), seg->turn.r), seg->start_pos);
+
+	c2r = vect2_set_abs(vect2_sub(pos->pos, c), seg->turn.r);
+	cur_radial = dir2hdg(c2r);
+	r = vect2_add(c, c2r);
+	dir_v = vect2_norm(c2r, cw);
+	start_radial = normalize_hdg(start_hdg + (cw ? -90 : 90));
+	end_radial = normalize_hdg(end_hdg + (cw ? -90 : 90));
+	if (is_on_arc(cur_radial, start_radial, end_radial, cw)) {
+		hdg = dir2hdg(dir_v);
+	} else if (fabs(rel_hdg(cur_radial, start_radial)) <
+	    fabs(rel_hdg(cur_radial, end_radial))) {
+		hdg = start_hdg;
+	} else {
+		hdg = end_hdg;
+	}
+
+	speed = (!seg->backward ? speed : -speed);
+	drive_on_line(pos, veh, r, hdg, speed, veh->wheelbase / 5,
+	    2, last_mis_hdg, d_t, out_steer, out_speed);
+}
+
+bool_t
+drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
+    double max_ang_vel, double *last_mis_hdg, double d_t, double *out_steer,
+    double *out_speed)
+{
+	seg_t *seg = list_head(segs);
+
+	ASSERT(seg != NULL);
+	if (seg->type == SEG_TYPE_STRAIGHT) {
+		double len = vect2_dist(pos->pos, seg->start_pos);
+		double speed = straight_run_speed(segs, seg->len - len,
+		    seg->backward, max_ang_vel, list_next(segs, seg));
+		double hdg = (!seg->backward ? seg->start_hdg :
+		    normalize_hdg(seg->start_hdg + 180));
+
+		if (len >= seg->len) {
+			list_remove(segs, seg);
+			free(seg);
+			return (B_FALSE);
+		}
+
+		speed = (!seg->backward ? speed : -speed);
+		drive_on_line(pos, veh, seg->start_pos, hdg, speed,
+		    veh->wheelbase / 2, 1.5, last_mis_hdg, d_t, out_steer,
+		    out_speed);
+	} else {
+		double rhdg = fabs(rel_hdg(pos->hdg, seg->end_hdg));
+		double end_hdg = (!seg->backward ? seg->end_hdg :
+		    normalize_hdg(seg->end_hdg + 180));
+		double end_brg = fabs(rel_hdg(end_hdg, dir2hdg(
+		    vect2_sub(pos->pos, seg->end_pos))));
+		double speed = turn_run_speed(segs, ABS(rhdg), seg->turn.r,
+		    seg->backward, max_ang_vel, list_next(segs, seg));
+
+		/*
+		 * Segment complete when we are past the end_pos point
+		 * (delta between end_hdg and a vector from end_pos to
+		 * cur_pos is <= 90 degrees)
+		 */
+		if (end_brg <= 90) {
+			list_remove(segs, seg);
+			free(seg);
+			return (B_FALSE);
+		}
+		turn_run(pos, veh, seg, last_mis_hdg, d_t, speed,
+		    out_steer, out_speed);
+	}
+
+	return (B_TRUE);
 }

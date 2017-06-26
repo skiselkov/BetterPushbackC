@@ -85,19 +85,22 @@ typedef struct {
 	list_node_t	node;
 } seg_t;
 
-int compute_segs(double wheelbase, double max_nw_angle,
-    vect2_t start_pos, double start_hdg,
+typedef struct {
+	vect2_t	pos;
+	double	hdg;
+	double	spd;
+} vehicle_pos_t;
+
+typedef struct {
+	double	wheelbase;
+	double	max_steer;
+} vehicle_t;
+
+int compute_segs(const vehicle_t *veh, vect2_t start_pos, double start_hdg,
     vect2_t end_pos, double end_hdg, list_t *segs);
-
-void drive_on_line(vect2_t cur_pos, double cur_hdg, double cur_spd,
-    double wheelbase, double max_steer, vect2_t line_start, double line_hdg,
-    double speed, double arm_len, double steer_corr_amp, double *last_mis_hdg,
-    double d_t, double *steer_out, double *speed_out);
-
-double turn_run_speed(list_t *segs, double rhdg, double radius,
-    bool_t backward, double max_ang_vel, const seg_t *next);
-double straight_run_speed(list_t *segs, double rmng_d, bool_t backward,
-    double max_ang_vel, const seg_t *next);
+bool_t drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
+    double max_ang_vel, double *last_mis_hdg, double d_t, double *out_steer,
+    double *out_speed);
 
 #ifdef	__cplusplus
 }
