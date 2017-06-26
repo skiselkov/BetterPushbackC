@@ -28,11 +28,11 @@
 #include "truck.h"
 #include "xplane.h"
 
-#define	TRUCK_HEIGHT		1
+#define	TRUCK_HEIGHT		0
 #define	TRUCK_WHEELBASE		5
 #define	TRUCK_FIXED_OFFSET	2.5
 #define	TRUCK_MAX_STEER		60
-#define	TRUCK_OBJ		"objects/White.obj"
+#define	TRUCK_OBJ		("objects" DIRSEP_S "White.obj")
 #define	TRUCK_ACCEL		0.5
 #define	TRUCK_STEER_RATE	40
 #define	TRUCK_MAX_ANG_VEL	20
@@ -47,6 +47,7 @@ truck_create(truck_t *truck, vect2_t pos, double hdg)
 	truck->pos.hdg = hdg;
 	truck->veh.wheelbase = TRUCK_WHEELBASE;
 	truck->veh.max_steer = TRUCK_MAX_STEER;
+	logMsg("truckpath: \"%s\"", truckpath);
 	truck->obj = XPLMLoadObject(truckpath);
 	VERIFY(truck->obj != NULL);
 	list_create(&truck->segs, sizeof (seg_t), offsetof(seg_t, node));
@@ -99,8 +100,12 @@ truck_run(truck_t *truck, double d_t)
 		(void) drive_segs(&truck->pos, &truck->veh, &truck->segs,
 		    TRUCK_MAX_ANG_VEL, &truck->last_mis_hdg, d_t, &steer,
 		    &speed);
-	} else if (ABS(truck->pos.spd) < 0.1)
+	} else if (truck->pos.spd == 0) {
+		logMsg("done");
 		return;
+	}
+
+	logMsg("run");
 
 	if (speed >= truck->pos.spd)
 		accel = MIN(speed - truck->pos.spd, TRUCK_ACCEL * d_t);
@@ -115,10 +120,6 @@ truck_run(truck_t *truck, double d_t)
 	truck->pos.spd += accel;
 	truck->cur_steer += turn;
 
-/*	logMsg("truck drive d_t: %.3f steer: %.2f speed: %.2f cur_spd: %.2f "
-	    "accel: %.2f turn: %.2f", d_t, steer, speed, truck->pos.spd, accel,
-	    turn);*/
-
 	radius = tan(DEG2RAD(90 - truck->cur_steer)) * truck->veh.wheelbase;
 	if (radius < 1e6)
 		d_hdg_rad = (truck->pos.spd / radius) * d_t;
@@ -129,13 +130,6 @@ truck_run(truck_t *truck, double d_t)
 	truck->pos.pos = vect2_add(truck->pos.pos,
 	    vect2_rot(pos_incr, truck->pos.hdg));
 	truck->pos.hdg += RAD2DEG(d_hdg_rad);
-
-/*	logMsg("radius: %.1f  posincr %.3fx%.3f  hdg: %.1f",
-	    radius, pos_incr.x, pos_incr.y, truck->pos.hdg);
-
-	logMsg("truck pos: %.1fx%.1f spd: %.1f hdg: %.1f",
-	    truck->pos.pos.x, truck->pos.pos.y, truck->pos.spd,
-	    truck->pos.hdg);*/
 }
 
 void

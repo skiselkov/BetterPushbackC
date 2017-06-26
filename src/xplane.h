@@ -31,6 +31,7 @@
 extern "C" {
 #endif
 
+extern const char *const bp_xpdir;
 extern const char *const bp_plugindir;
 
 /*

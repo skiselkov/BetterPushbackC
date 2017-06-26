@@ -380,7 +380,9 @@ bp_start(void)
 	truck_create(&bp.truck, VECT2(x, y), h);
 	for (seg_t *seg = list_head(&bp.segs); seg != NULL;
 	    seg = list_next(&bp.segs, seg)) {
-		truck_drive2point(&bp.truck, seg->end_pos, seg->end_hdg);
+		seg_t *seg2 = malloc(sizeof (*seg2));
+		memcpy(seg2, seg, sizeof (*seg));
+		list_insert_tail(&bp.truck.segs, seg2);
 	}
 	XPLMRegisterDrawCallback((XPLMDrawCallback_f)draw_trucks,
 	    xplm_Phase_Objects, 1, NULL);

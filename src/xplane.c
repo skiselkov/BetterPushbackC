@@ -48,7 +48,9 @@ static int stop_cam_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 
 static bool_t		start_after_cam = B_FALSE;
 
+static char		xpdir[512];
 static char		plugindir[512];
+const char *const	bp_xpdir = xpdir;
 const char *const	bp_plugindir = plugindir;
 
 static int
@@ -152,7 +154,14 @@ XPluginStart(char *name, char *sig, char *desc)
 	/* Always use Unix-native paths on the Mac! */
 	XPLMEnableFeature("XPLM_USE_NATIVE_PATHS", 1);
 
+	XPLMGetSystemPath(xpdir);
 	XPLMGetPluginInfo(XPLMGetMyID(), NULL, plugindir, NULL, NULL);
+
+#if	IBM
+	fix_pathsep(xpdir);
+	fix_pathsep(plugindir);
+#endif	/* IBM */
+
 	/* cut off the trailing path component (our filename) */
 	if ((p = strrchr(plugindir, DIRSEP)) != NULL)
 		*p = '\0';
@@ -160,6 +169,13 @@ XPluginStart(char *name, char *sig, char *desc)
 	if ((p = strrchr(plugindir, DIRSEP)) != NULL) {
 		if (strcmp(p + 1, "64") == 0 || strcmp(p + 1, "32") == 0)
 			*p = '\0';
+	}
+
+	if (strstr(plugindir, xpdir) == plugindir) {
+		int xpdir_len = strlen(xpdir);
+		int plugindir_len = strlen(plugindir);
+		memmove(plugindir, &plugindir[xpdir_len],
+		    plugindir_len - xpdir_len + 1);
 	}
 
 	strcpy(name, BP_PLUGIN_NAME);
