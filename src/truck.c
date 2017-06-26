@@ -19,18 +19,20 @@
 #include <string.h>
 #include <stddef.h>
 
+#include <XPLMPlugin.h>
+
 #include <acfutils/assert.h>
 #include <acfutils/helpers.h>
 
 #include "driving.h"
 #include "truck.h"
+#include "xplane.h"
 
 #define	TRUCK_HEIGHT		1
 #define	TRUCK_WHEELBASE		5
 #define	TRUCK_FIXED_OFFSET	2.5
 #define	TRUCK_MAX_STEER		60
-#define	TRUCK_OBJ	\
-	"MisterX_Library/Airport/Vehicles/Pushback_Trucks/Supertruck/White.obj"
+#define	TRUCK_OBJ		"objects/White.obj"
 #define	TRUCK_ACCEL		0.5
 #define	TRUCK_STEER_RATE	40
 #define	TRUCK_MAX_ANG_VEL	20
@@ -38,13 +40,17 @@
 void
 truck_create(truck_t *truck, vect2_t pos, double hdg)
 {
+	char *truckpath = mkpathname(bp_plugindir, TRUCK_OBJ, NULL);
+
 	memset(truck, 0, sizeof (*truck));
 	truck->pos.pos = pos;
 	truck->pos.hdg = hdg;
 	truck->veh.wheelbase = TRUCK_WHEELBASE;
 	truck->veh.max_steer = TRUCK_MAX_STEER;
-	truck->obj = XPLMLoadObject(TRUCK_OBJ);
+	truck->obj = XPLMLoadObject(truckpath);
+	VERIFY(truck->obj != NULL);
 	list_create(&truck->segs, sizeof (seg_t), offsetof(seg_t, node));
+	free(truckpath);
 }
 
 void
@@ -89,33 +95,47 @@ truck_run(truck_t *truck, double d_t)
 	double accel, turn, radius, d_hdg_rad;
 	vect2_t pos_incr;
 
-	(void) drive_segs(&truck->pos, &truck->veh, &truck->segs,
-	    TRUCK_MAX_ANG_VEL, &truck->last_mis_hdg, d_t, &steer, &speed);
+	if (list_head(&truck->segs) != NULL) {
+		(void) drive_segs(&truck->pos, &truck->veh, &truck->segs,
+		    TRUCK_MAX_ANG_VEL, &truck->last_mis_hdg, d_t, &steer,
+		    &speed);
+	} else if (ABS(truck->pos.spd) < 0.1)
+		return;
 
 	if (speed >= truck->pos.spd)
-		accel = MIN(speed - truck->pos.spd, TRUCK_ACCEL / d_t);
+		accel = MIN(speed - truck->pos.spd, TRUCK_ACCEL * d_t);
 	else
-		accel = MAX(speed - truck->pos.spd, -TRUCK_ACCEL / d_t);
+		accel = MAX(speed - truck->pos.spd, -TRUCK_ACCEL * d_t);
 
 	if (steer >= truck->cur_steer)
-		turn = MIN(steer - truck->cur_steer, TRUCK_STEER_RATE / d_t);
+		turn = MIN(steer - truck->cur_steer, TRUCK_STEER_RATE * d_t);
 	else
-		turn = MAX(steer - truck->cur_steer, -TRUCK_STEER_RATE / d_t);
+		turn = MAX(steer - truck->cur_steer, -TRUCK_STEER_RATE * d_t);
 
 	truck->pos.spd += accel;
 	truck->cur_steer += turn;
 
-	radius = MIN(tan(DEG2RAD(90 - truck->cur_steer)) * truck->veh.wheelbase,
-	    1e6);
-	d_hdg_rad = (truck->pos.spd / radius) * d_t;
-	pos_incr = VECT2(sin(d_hdg_rad) * radius, cos(d_hdg_rad) * radius);
+/*	logMsg("truck drive d_t: %.3f steer: %.2f speed: %.2f cur_spd: %.2f "
+	    "accel: %.2f turn: %.2f", d_t, steer, speed, truck->pos.spd, accel,
+	    turn);*/
+
+	radius = tan(DEG2RAD(90 - truck->cur_steer)) * truck->veh.wheelbase;
+	if (radius < 1e6)
+		d_hdg_rad = (truck->pos.spd / radius) * d_t;
+	else
+		d_hdg_rad = 0;
+	pos_incr = VECT2(sin(d_hdg_rad) * truck->pos.spd * d_t,
+	    cos(d_hdg_rad) * truck->pos.spd * d_t);
 	truck->pos.pos = vect2_add(truck->pos.pos,
 	    vect2_rot(pos_incr, truck->pos.hdg));
 	truck->pos.hdg += RAD2DEG(d_hdg_rad);
 
+/*	logMsg("radius: %.1f  posincr %.3fx%.3f  hdg: %.1f",
+	    radius, pos_incr.x, pos_incr.y, truck->pos.hdg);
+
 	logMsg("truck pos: %.1fx%.1f spd: %.1f hdg: %.1f",
 	    truck->pos.pos.x, truck->pos.pos.y, truck->pos.spd,
-	    truck->pos.hdg);
+	    truck->pos.hdg);*/
 }
 
 void

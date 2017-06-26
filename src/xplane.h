@@ -31,6 +31,8 @@
 extern "C" {
 #endif
 
+extern const char *const bp_plugindir;
+
 /*
  * X-Plane-specific plugin hooks.
  */

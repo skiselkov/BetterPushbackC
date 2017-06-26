@@ -378,8 +378,10 @@ bp_start(void)
 	y = -dr_getf(&drs.local_z);
 	h = dr_getf(&drs.hdg);
 	truck_create(&bp.truck, VECT2(x, y), h);
-	truck_drive2point(&bp.truck, vect2_add(VECT2(x, y),
-	    vect2_scmul(hdg2dir(h), 1000)), h);
+	for (seg_t *seg = list_head(&bp.segs); seg != NULL;
+	    seg = list_next(&bp.segs, seg)) {
+		truck_drive2point(&bp.truck, seg->end_pos, seg->end_hdg);
+	}
 	XPLMRegisterDrawCallback((XPLMDrawCallback_f)draw_trucks,
 	    xplm_Phase_Objects, 1, NULL);
 

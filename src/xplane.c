@@ -48,6 +48,9 @@ static int stop_cam_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 
 static bool_t		start_after_cam = B_FALSE;
 
+static char		plugindir[512];
+const char *const	bp_plugindir = plugindir;
+
 static int
 start_pb_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 {
@@ -142,7 +145,22 @@ bp_done_notify(void)
 PLUGIN_API int
 XPluginStart(char *name, char *sig, char *desc)
 {
+	char *p;
+
 	acfutils_logfunc = XPLMDebugString;
+
+	/* Always use Unix-native paths on the Mac! */
+	XPLMEnableFeature("XPLM_USE_NATIVE_PATHS", 1);
+
+	XPLMGetPluginInfo(XPLMGetMyID(), NULL, plugindir, NULL, NULL);
+	/* cut off the trailing path component (our filename) */
+	if ((p = strrchr(plugindir, DIRSEP)) != NULL)
+		*p = '\0';
+	/* cut off an optional '32' or '64' trailing component */
+	if ((p = strrchr(plugindir, DIRSEP)) != NULL) {
+		if (strcmp(p + 1, "64") == 0 || strcmp(p + 1, "32") == 0)
+			*p = '\0';
+	}
 
 	strcpy(name, BP_PLUGIN_NAME);
 	strcpy(sig, BP_PLUGIN_SIG);
