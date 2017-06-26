@@ -16,29 +16,37 @@
  * Copyright 2017 Saso Kiselkov. All rights reserved.
  */
 
-#ifndef	_BP_H_
-#define	_BP_H_
+#ifndef	_TRUCK_H_
+#define	_TRUCK_H_
 
-#include <acfutils/types.h>
+#include <XPLMScenery.h>
+#include <acfutils/geom.h>
+
+#include "driving.h"
 
 #ifdef	__cplusplus
 extern "C" {
 #endif
 
-bool_t bp_init(void);
-void bp_fini(void);
+typedef struct {
+	vehicle_pos_t	pos;
+	vehicle_t	veh;
+	double		cur_steer;
+	double		last_mis_hdg;
+	double		fixed_offset;	/* fixed wheel Z offset from CG */
+	XPLMObjectRef	obj;
+	list_t		segs;
+} truck_t;
 
-bool_t bp_start(void);
-bool_t bp_stop(void);
+void truck_create(truck_t *truck, vect2_t pos, double hdg);
+void truck_destroy(truck_t *truck);
 
-bool_t bp_can_start(char **reason);
-unsigned bp_num_segs(void);
-
-bool_t bp_cam_start(void);
-bool_t bp_cam_stop(void);
+bool_t truck_drive2point(truck_t *truck, vect2_t dst, double hdg);
+void truck_run(truck_t *truck, double d_t);
+void truck_draw(truck_t *truck);
 
 #ifdef	__cplusplus
 }
 #endif
 
-#endif	/* _BP_H_ */
+#endif	/* _TRUCK_H_ */

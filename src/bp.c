@@ -50,6 +50,7 @@
 #include "bp.h"
 #include "dr.h"
 #include "driving.h"
+#include "truck.h"
 #include "xplane.h"
 
 #define	PB_DEBUG_INTF
@@ -94,6 +95,8 @@ typedef struct {
 	bool_t		starting;	/* waiting for brake release */
 	bool_t		stopping;	/* stopping at end of operation */
 	bool_t		stopped;	/* stopped moving, waiting for pbrk */
+
+	truck_t		truck;
 
 	list_t		segs;
 } bp_state_t;
@@ -294,6 +297,12 @@ bp_init(void)
 	return (B_TRUE);
 }
 
+static void
+draw_trucks(void)
+{
+	truck_draw(&bp.truck);
+}
+
 bool_t
 bp_can_start(char **reason)
 {
@@ -341,6 +350,7 @@ bool_t
 bp_start(void)
 {
 	char *reason;
+	double x, y, h;
 
 	if (started)
 		return (B_TRUE);
@@ -363,6 +373,15 @@ bp_start(void)
 		XPLMSpeakString("Ground to cockpit. Tow is connected and "
 		    "bypass pin has been inserted. Release parking brake.");
 	}
+
+	x = dr_getf(&drs.local_x);
+	y = -dr_getf(&drs.local_z);
+	h = dr_getf(&drs.hdg);
+	truck_create(&bp.truck, VECT2(x, y), h);
+	truck_drive2point(&bp.truck, vect2_add(VECT2(x, y),
+	    vect2_scmul(hdg2dir(h), 1000)), h);
+	XPLMRegisterDrawCallback((XPLMDrawCallback_f)draw_trucks,
+	    xplm_Phase_Objects, 1, NULL);
 
 	return (B_TRUE);
 }
@@ -440,6 +459,8 @@ bp_run(void)
 	bp.d_pos.spd = bp.cur_pos.spd - bp.last_pos.spd;
 	bp.d_t = bp.cur_t - bp.last_t;
 
+	truck_run(&bp.truck, bp.d_t);
+
 	dr_seti(&drs.override_steer, 1);
 
 	if (bp.starting && dr_getf(&drs.pbrake) != 1) {
@@ -505,6 +526,10 @@ bp_run(void)
 		started = B_FALSE;
 		XPLMSpeakString("Tow is disconnected and steering pin has "
 		    "been removed. Have a nice day!");
+		truck_destroy(&bp.truck);
+		XPLMUnregisterDrawCallback((XPLMDrawCallback_f)draw_trucks,
+		    xplm_Phase_Objects, 1, NULL);
+
 		bp_done_notify();
 
 		/*
