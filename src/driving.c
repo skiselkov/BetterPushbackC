@@ -28,14 +28,10 @@
 
 #include "driving.h"
 
-#define	NORMAL_SPEED		1.11	/* m/s [4 km/h, "walking speed"] */
-#define	FAST_SPEED		4	/* m/s [~8 knots] */
 #define	CRAWL_SPEED		0.1	/* m/s */
-#define	NORMAL_ACCEL		0.25	/* m/s^2 */
-#define	NORMAL_DECEL		0.17	/* m/s^2 */
+
 #define	SEG_TURN_MULT		0.9	/* leave 10% for oversteer */
 #define	SPEED_COMPLETE_THRESH	0.05	/* m/s */
-#define	MAX_ANG_VEL		3	/* degrees per second */
 #define	MIN_TURN_RADIUS		1.5	/* in case the aircraft is tiny */
 #define	MIN_STEERING_ARM_LEN	2	/* meters */
 #define	HARD_STEER_ANGLE	10	/* degrees */
@@ -44,10 +40,10 @@
 
 #define	STEER_GATE(x, g)	MIN(MAX((x), -g), g)
 
-static double turn_run_speed(list_t *segs, double rhdg, double radius,
-    bool_t backward, double max_ang_vel, const seg_t *next);
-static double straight_run_speed(list_t *segs, double rmng_d, bool_t backward,
-    double max_ang_vel, const seg_t *next);
+static double turn_run_speed(const vehicle_t *veh, list_t *segs, double rhdg,
+    double radius, bool_t backward, const seg_t *next);
+static double straight_run_speed(const vehicle_t *veh, list_t *segs,
+    double rmng_d, bool_t backward, const seg_t *next);
 
 int
 compute_segs(const vehicle_t *veh, vect2_t start_pos, double start_hdg,
@@ -237,7 +233,7 @@ drive_on_line(const vehicle_pos_t *pos, const vehicle_t *veh,
 	 * until we're re-established again.
 	 */
 	if (overcorrecting)
-		speed = MAX(MIN(speed, NORMAL_SPEED), -NORMAL_SPEED);
+		speed = MAX(MIN(speed, veh->max_rev_spd), -veh->max_rev_spd);
 
 	/*
 	 * Limit our speed to not overstep maximum angular velocity for
@@ -246,7 +242,7 @@ drive_on_line(const vehicle_pos_t *pos, const vehicle_t *veh,
 	 */
 	turn_radius = tan(DEG2RAD(90 - ABS(steer))) * veh->wheelbase;
 	ang_vel = RAD2DEG(ABS(speed) / turn_radius);
-	speed *= MIN(MAX_ANG_VEL / ang_vel, 1);
+	speed *= MIN(veh->max_ang_vel / ang_vel, 1);
 
 	/* Steering works in reverse when pushing back. */
 	if (speed < 0)
@@ -259,18 +255,18 @@ drive_on_line(const vehicle_pos_t *pos, const vehicle_t *veh,
 }
 
 static double
-next_seg_speed(list_t *segs, const seg_t *next, bool_t cur_backward,
-    double max_ang_vel)
+next_seg_speed(const vehicle_t *veh, list_t *segs, const seg_t *next,
+    bool_t cur_backward)
 {
 	if (next != NULL && next->backward == cur_backward) {
 		if (next->type == SEG_TYPE_STRAIGHT) {
-			return (straight_run_speed(segs, next->len,
-			    next->backward, max_ang_vel,
-			    list_next(segs, next)));
+			return (straight_run_speed(veh, segs, next->len,
+			    next->backward,list_next(segs, next)));
 		} else {
-			return (turn_run_speed(segs, rel_hdg(next->start_hdg,
-			    next->end_hdg), next->turn.r, next->backward,
-			    max_ang_vel, list_next(segs, next)));
+			return (turn_run_speed(veh, segs,
+			    rel_hdg(next->start_hdg, next->end_hdg),
+			    next->turn.r, next->backward,
+			    list_next(segs, next)));
 		}
 	} else {
 		/*
@@ -289,29 +285,28 @@ next_seg_speed(list_t *segs, const seg_t *next, bool_t cur_backward,
  * side-loading. This means the tighter the turn, the slower our speed.
  */
 static double
-turn_run_speed(list_t *segs, double rhdg, double radius, bool_t backward,
-    double max_ang_vel, const seg_t *next)
+turn_run_speed(const vehicle_t *veh, list_t *segs, double rhdg,
+    double radius, bool_t backward, const seg_t *next)
 {
 	double rmng_d = (2 * M_PI * radius) * (rhdg / 360.0);
-	double spd = straight_run_speed(segs, rmng_d, backward, max_ang_vel,
-	    next);
+	double spd = straight_run_speed(veh, segs, rmng_d, backward, next);
 	double rmng_t = rmng_d / spd;
 	double ang_vel = rhdg / rmng_t;
 
-	spd *= MIN(max_ang_vel / ang_vel, 1);
+	spd *= MIN(veh->max_ang_vel / ang_vel, 1);
 
 	return (spd);
 }
 
 static double
-straight_run_speed(list_t *segs, double rmng_d, bool_t backward,
-    double max_ang_vel, const seg_t *next)
+straight_run_speed(const vehicle_t *veh, list_t *segs, double rmng_d,
+    bool_t backward, const seg_t *next)
 {
 	double next_spd, cruise_spd, spd;
 	double ts[2];
 
-	next_spd = next_seg_speed(segs, next, backward, max_ang_vel);
-	cruise_spd = (backward ? NORMAL_SPEED : FAST_SPEED);
+	next_spd = next_seg_speed(veh, segs, next, backward);
+	cruise_spd = (backward ? veh->max_rev_spd : veh->max_fwd_spd);
 
 	/*
 	 * This algorithm works as follows:
@@ -351,12 +346,12 @@ straight_run_speed(list_t *segs, double rmng_d, bool_t backward,
 	 * is our theoretical maximum. Taking the lesser of that and the
 	 * target cruise speed, we arrive at our final governed speed `spd'.
 	 */
-	switch (quadratic_solve(0.5 * NORMAL_DECEL, next_spd, -rmng_d, ts)) {
+	switch (quadratic_solve(0.5 * veh->max_decel, next_spd, -rmng_d, ts)) {
 	case 1:
-		spd = MIN(NORMAL_DECEL * ts[0] + next_spd, cruise_spd);
+		spd = MIN(veh->max_decel * ts[0] + next_spd, cruise_spd);
 		break;
 	case 2:
-		spd = MIN(NORMAL_DECEL * MAX(ts[0], ts[1]) + next_spd,
+		spd = MIN(veh->max_decel * MAX(ts[0], ts[1]) + next_spd,
 		    cruise_spd);
 		break;
 	default:
@@ -408,16 +403,15 @@ turn_run(const vehicle_pos_t *pos, const vehicle_t *veh, const seg_t *seg,
 
 bool_t
 drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
-    double max_ang_vel, double *last_mis_hdg, double d_t, double *out_steer,
-    double *out_speed)
+    double *last_mis_hdg, double d_t, double *out_steer, double *out_speed)
 {
 	seg_t *seg = list_head(segs);
 
 	ASSERT(seg != NULL);
 	if (seg->type == SEG_TYPE_STRAIGHT) {
 		double len = vect2_dist(pos->pos, seg->start_pos);
-		double speed = straight_run_speed(segs, seg->len - len,
-		    seg->backward, max_ang_vel, list_next(segs, seg));
+		double speed = straight_run_speed(veh, segs, seg->len - len,
+		    seg->backward, list_next(segs, seg));
 		double hdg = (!seg->backward ? seg->start_hdg :
 		    normalize_hdg(seg->start_hdg + 180));
 
@@ -437,8 +431,8 @@ drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
 		    normalize_hdg(seg->end_hdg + 180));
 		double end_brg = fabs(rel_hdg(end_hdg, dir2hdg(
 		    vect2_sub(pos->pos, seg->end_pos))));
-		double speed = turn_run_speed(segs, ABS(rhdg), seg->turn.r,
-		    seg->backward, max_ang_vel, list_next(segs, seg));
+		double speed = turn_run_speed(veh, segs, ABS(rhdg),
+		    seg->turn.r, seg->backward, list_next(segs, seg));
 
 		/*
 		 * Segment complete when we are past the end_pos point

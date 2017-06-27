@@ -57,7 +57,10 @@
 
 #define	STRAIGHT_STEER_RATE	20	/* degrees per second */
 #define	TURN_STEER_RATE		10	/* degrees per second */
+#define	MAX_FWD_SPEED		4	/* m/s [~8 knots] */
+#define	MAX_REV_SPEED		1.11	/* m/s [4 km/h, "walking speed"] */
 #define	NORMAL_ACCEL		0.25	/* m/s^2 */
+#define	NORMAL_DECEL		0.17	/* m/s^2 */
 #define	BRAKE_PEDAL_THRESH	0.1	/* brake pedal angle, 0..1 */
 #define	FORCE_PER_TON		5000	/* max push force per ton, Newtons */
 #define	BREAKAWAY_THRESH	0.1	/* m/s */
@@ -70,7 +73,10 @@
 
 typedef enum {
 	PB_STEP_OFF,
-	PB_STEP_DRIVING_UP,
+	PB_STEP_START,
+	PB_STEP_DRIVING_UP_CLOSE,
+	PB_STEP_WAITING_FOR_PBRAKE,
+	PB_STEP_DRIVING_UP_CONNECT,
 	PB_STEP_CONNECTING,
 	PB_STEP_CONNECTED,
 	PB_STEP_STARTING,
@@ -271,6 +277,11 @@ bp_state_init(void)
 	}
 	bp.veh.max_steer = MIN(MAX(dr_getf(&drs.nw_steerdeg1),
 	    dr_getf(&drs.nw_steerdeg2)), MAX_STEER_ANGLE);
+	bp.veh.max_fwd_spd = MAX_FWD_SPEED;
+	bp.veh.max_rev_spd = MAX_REV_SPEED;
+	bp.veh.max_ang_vel = MAX_ANG_VEL;
+	bp.veh.max_accel = NORMAL_ACCEL;
+	bp.veh.max_decel = NORMAL_DECEL;
 
 	bp.step = PB_STEP_OFF;
 	bp.step_start_t = 0;
@@ -379,18 +390,12 @@ bool_t
 bp_start(void)
 {
 	char *reason;
-	vect2_t p_start, p_end, dir;
+	vect2_t p_start, dir;
 
 	if (started)
 		return (B_TRUE);
 	if (!bp_can_start(&reason)) {
 		XPLMSpeakString(reason);
-		return (B_FALSE);
-	}
-
-	if (dr_getf(&drs.pbrake) == 0) {
-		XPLMSpeakString("Ground to cockpit. Cannot connect tow. "
-		    "Please set the parking brake first.");
 		return (B_FALSE);
 	}
 
@@ -401,18 +406,15 @@ bp_start(void)
 	bp.last_pos = bp.cur_pos;
 	bp.last_t = bp.cur_t;
 
+	bp.step = PB_STEP_START;
+	bp.step_start_t = bp.cur_t;
+
 	dir = hdg2dir(bp.cur_pos.hdg);
 	p_start = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-	    2.5 * bp.veh.wheelbase));
-	p_end = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-	    (-bp.acf.nw_z) + PB_TRUCK_CONN_OFFSET));
-
-	bp.step = PB_STEP_DRIVING_UP;
-	bp.step_start_t = bp.cur_t;
-	XPLMSpeakString("Ground to cockpit. Stand by for tow connection.");
-
-	truck_create(&bp.truck, p_start, bp.cur_pos.hdg);
-	truck_drive2point(&bp.truck, p_end, bp.cur_pos.hdg);
+	    3 * bp.veh.wheelbase));
+	p_start = vect2_add(p_start, vect2_scmul(vect2_norm(dir, B_TRUE),
+	    3 * bp.veh.wheelbase));
+	truck_create(&bp.truck, p_start, normalize_hdg(bp.cur_pos.hdg + 90));
 
 	XPLMRegisterDrawCallback((XPLMDrawCallback_f)draw_trucks,
 	    xplm_Phase_Objects, 1, NULL);
@@ -474,12 +476,12 @@ bp_run_push(void)
 		    dr_getf(&drs.rbrake) > BRAKE_PEDAL_THRESH ||
 		    dr_getf(&drs.pbrake) != 0)
 			break;
-		if (drive_segs(&bp.cur_pos, &bp.veh, &bp.segs, MAX_ANG_VEL,
+		if (drive_segs(&bp.cur_pos, &bp.veh, &bp.segs,
 		    &bp.last_mis_hdg, bp.d_t, &steer, &speed)) {
 			double steer_rate = (seg->type == SEG_TYPE_STRAIGHT ?
 			    STRAIGHT_STEER_RATE : TURN_STEER_RATE);
 			turn_nosewheel(steer, steer_rate);
-			push_at_speed(speed, NORMAL_ACCEL);
+			push_at_speed(speed, bp.veh.max_accel);
 			break;
 		}
 	}
@@ -523,10 +525,53 @@ bp_run(void)
 	switch (bp.step) {
 	case PB_STEP_OFF:
 		VERIFY(bp.step != PB_STEP_OFF);
-	case PB_STEP_DRIVING_UP:
-		dr_seti(&drs.pbrake, 1);
-		if (list_head(&bp.truck.segs) == NULL &&
-		    bp.truck.pos.spd == 0) {
+	case PB_STEP_START: {
+		vect2_t right_off, p_end, dir;
+
+		dir = hdg2dir(bp.cur_pos.hdg);
+
+		right_off = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
+		    3 * bp.veh.wheelbase));
+		right_off = vect2_add(right_off, vect2_scmul(vect2_norm(
+		    dir, B_TRUE), 10));
+		p_end = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
+		    (-bp.acf.nw_z) + 10));
+
+		VERIFY(truck_drive2point(&bp.truck, right_off,
+		    normalize_hdg(bp.cur_pos.hdg + 90)));
+		VERIFY(truck_drive2point(&bp.truck, p_end, bp.cur_pos.hdg));
+
+		XPLMSpeakString("Ground to cockpit. Tow is approaching.");
+		bp.step++;
+		bp.step_start_t = bp.cur_t;
+		break;
+	}
+	case PB_STEP_DRIVING_UP_CLOSE:
+		if (truck_is_stopped(&bp.truck)) {
+			if (dr_getf(&drs.pbrake) != 1) {
+				XPLMSpeakString("Ready to connect. Please "
+				    "set the parking braking.");
+			}
+			bp.step++;
+			bp.step_start_t = bp.cur_t;
+		}
+		break;
+	case PB_STEP_WAITING_FOR_PBRAKE:
+		if (dr_getf(&drs.pbrake) == 1) {
+			vect2_t p_end, dir;
+
+			dir = hdg2dir(bp.cur_pos.hdg);
+			p_end = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
+			    (-bp.acf.nw_z) + PB_TRUCK_CONN_OFFSET));
+			VERIFY(truck_drive2point(&bp.truck, p_end,
+			    bp.cur_pos.hdg));
+			bp.step++;
+			bp.step_start_t = bp.cur_t;
+		}
+		break;
+	case PB_STEP_DRIVING_UP_CONNECT:
+		dr_setf(&drs.pbrake, 1);
+		if (truck_is_stopped(&bp.truck)) {
 			XPLMSpeakString("Connecting.");
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
@@ -570,7 +615,7 @@ bp_run(void)
 		break;
 	case PB_STEP_STOPPING:
 		turn_nosewheel(0, STRAIGHT_STEER_RATE);
-		push_at_speed(0, NORMAL_ACCEL);
+		push_at_speed(0, bp.veh.max_accel);
 		if (ABS(bp.cur_pos.spd) < SPEED_COMPLETE_THRESH) {
 			XPLMSpeakString("Operation complete, set parking "
 			    "brake.");
@@ -631,7 +676,9 @@ bp_run(void)
 		}
 		break;
 	case PB_STEP_DRIVING_AWAY:
-		if (list_head(&bp.truck.segs) == NULL) {
+		dr_setf(&drs.lbrake, 0);
+		dr_setf(&drs.rbrake, 0);
+		if (truck_is_stopped(&bp.truck)) {
 			started = B_FALSE;
 			truck_destroy(&bp.truck);
 			XPLMUnregisterDrawCallback(

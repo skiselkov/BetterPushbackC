@@ -35,7 +35,11 @@
 #define	TRUCK_OBJ		("objects" DIRSEP_S "White.obj")
 #define	TRUCK_ACCEL		0.5
 #define	TRUCK_STEER_RATE	40
+
+#define	TRUCK_MAX_SPD		10
 #define	TRUCK_MAX_ANG_VEL	20
+#define	TRUCK_MAX_ACCEL		1
+#define	TRUCK_MAX_DECEL		0.5
 
 void
 truck_create(truck_t *truck, vect2_t pos, double hdg)
@@ -47,6 +51,11 @@ truck_create(truck_t *truck, vect2_t pos, double hdg)
 	truck->pos.hdg = hdg;
 	truck->veh.wheelbase = TRUCK_WHEELBASE;
 	truck->veh.max_steer = TRUCK_MAX_STEER;
+	truck->veh.max_fwd_spd = TRUCK_MAX_SPD;
+	truck->veh.max_rev_spd = TRUCK_MAX_SPD;
+	truck->veh.max_ang_vel = TRUCK_MAX_ANG_VEL;
+	truck->veh.max_accel = TRUCK_MAX_ACCEL;
+	truck->veh.max_decel = TRUCK_MAX_DECEL;
 	truck->obj = XPLMLoadObject(truckpath);
 	VERIFY(truck->obj != NULL);
 	list_create(&truck->segs, sizeof (seg_t), offsetof(seg_t, node));
@@ -97,8 +106,7 @@ truck_run(truck_t *truck, double d_t)
 
 	if (list_head(&truck->segs) != NULL) {
 		(void) drive_segs(&truck->pos, &truck->veh, &truck->segs,
-		    TRUCK_MAX_ANG_VEL, &truck->last_mis_hdg, d_t, &steer,
-		    &speed);
+		    &truck->last_mis_hdg, d_t, &steer, &speed);
 	} else if (truck->pos.spd == 0) {
 		return;
 	}
@@ -158,4 +166,10 @@ truck_draw(truck_t *truck)
 	di.pitch = -RAD2DEG(asin(v.y / norm.y));
 
 	XPLMDrawObjects(truck->obj, 1, &di, 1, 1);
+}
+
+bool_t
+truck_is_stopped(const truck_t *truck)
+{
+	return (list_head(&truck->segs) == NULL && truck->pos.spd == 0);
 }

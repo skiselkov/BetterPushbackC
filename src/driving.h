@@ -94,13 +94,17 @@ typedef struct {
 typedef struct {
 	double	wheelbase;
 	double	max_steer;
+	double	max_fwd_spd;
+	double	max_rev_spd;
+	double	max_ang_vel;
+	double	max_accel;
+	double	max_decel;
 } vehicle_t;
 
 int compute_segs(const vehicle_t *veh, vect2_t start_pos, double start_hdg,
     vect2_t end_pos, double end_hdg, list_t *segs);
 bool_t drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
-    double max_ang_vel, double *last_mis_hdg, double d_t, double *out_steer,
-    double *out_speed);
+    double *last_mis_hdg, double d_t, double *out_steer, double *out_speed);
 
 #ifdef	__cplusplus
 }

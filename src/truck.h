@@ -47,6 +47,8 @@ bool_t truck_drive2point(truck_t *truck, vect2_t dst, double hdg);
 void truck_run(truck_t *truck, double d_t);
 void truck_draw(truck_t *truck);
 
+bool_t truck_is_stopped(const truck_t *truck);
+
 #ifdef	__cplusplus
 }
 #endif
