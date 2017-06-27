@@ -48,7 +48,7 @@
 #define	VOLUME_INSIDE_MODIFIER	0.2
 
 #define	TRUCK_CRADLE_CHG_D_T	0.5
-#define	TRUCK_CRADLE_AIR_MOD	0.2
+#define	TRUCK_CRADLE_AIR_MOD	0.5
 
 void
 truck_create(truck_t *truck, vect2_t pos, double hdg)
