@@ -42,7 +42,7 @@
 #define	MAX_OFF_PATH_ANGLE	35	/* degrees */
 #define	STEERING_SENSITIVE	90	/* degrees */
 
-#define	STEER_GATE(x, g)	MIN(MAX(x, -g), g)
+#define	STEER_GATE(x, g)	MIN(MAX((x), -g), g)
 
 static double turn_run_speed(list_t *segs, double rhdg, double radius,
     bool_t backward, double max_ang_vel, const seg_t *next);
@@ -209,13 +209,14 @@ drive_on_line(const vehicle_pos_t *pos, const vehicle_t *veh,
 	mis_hdg = rel_hdg(s2c_hdg, line_hdg);
 	rhdg = rel_hdg(cur_hdg, line_hdg);
 	d_mis_hdg = (mis_hdg - (*last_mis_hdg)) / d_t;
+	UNUSED(d_mis_hdg);
 
 	/*
 	 * Calculate the required steering change. mis_hdg is the angle by
 	 * which point `c' is deflected from the ideal straight line. So
 	 * simply steer in the opposite direction to try and nullify it.
 	 */
-	steer = STEER_GATE(mis_hdg + d_mis_hdg * steer_corr_amp,
+	steer = STEER_GATE(mis_hdg/* + d_mis_hdg * steer_corr_amp*/,
 	    veh->max_steer);
 
 	/*
@@ -370,10 +371,8 @@ turn_run(const vehicle_pos_t *pos, const vehicle_t *veh, const seg_t *seg,
     double *last_mis_hdg, double d_t, double speed, double *out_steer,
     double *out_speed)
 {
-	double start_hdg = (!seg->backward ? seg->start_hdg :
-	    normalize_hdg(seg->start_hdg + 180));
-	double end_hdg = (!seg->backward ? seg->end_hdg :
-	    normalize_hdg(seg->end_hdg + 180));
+	double start_hdg = seg->start_hdg;
+	double end_hdg = seg->end_hdg;
 	vect2_t c2r, r, dir_v;
 	double hdg, cur_radial, start_radial, end_radial;
 	bool_t cw = ((seg->turn.right && !seg->backward) ||
@@ -388,9 +387,9 @@ turn_run(const vehicle_pos_t *pos, const vehicle_t *veh, const seg_t *seg,
 	c2r = vect2_set_abs(vect2_sub(pos->pos, c), seg->turn.r);
 	cur_radial = dir2hdg(c2r);
 	r = vect2_add(c, c2r);
-	dir_v = vect2_norm(c2r, cw);
-	start_radial = normalize_hdg(start_hdg + (cw ? -90 : 90));
-	end_radial = normalize_hdg(end_hdg + (cw ? -90 : 90));
+	dir_v = vect2_norm(c2r, seg->turn.right);
+	start_radial = normalize_hdg(start_hdg + (seg->turn.right ? -90 : 90));
+	end_radial = normalize_hdg(end_hdg + (seg->turn.right ? -90 : 90));
 	if (is_on_arc(cur_radial, start_radial, end_radial, cw)) {
 		hdg = dir2hdg(dir_v);
 	} else if (fabs(rel_hdg(cur_radial, start_radial)) <
@@ -399,6 +398,8 @@ turn_run(const vehicle_pos_t *pos, const vehicle_t *veh, const seg_t *seg,
 	} else {
 		hdg = end_hdg;
 	}
+	if (seg->backward)
+		hdg = normalize_hdg(hdg + 180);
 
 	speed = (!seg->backward ? speed : -speed);
 	drive_on_line(pos, veh, r, hdg, speed, veh->wheelbase / 5,
@@ -452,6 +453,9 @@ drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
 		turn_run(pos, veh, seg, last_mis_hdg, d_t, speed,
 		    out_steer, out_speed);
 	}
+
+	/* limit desired steering */
+	*out_steer = STEER_GATE(*out_steer, veh->max_steer);
 
 	return (B_TRUE);
 }

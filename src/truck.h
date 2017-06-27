@@ -28,6 +28,8 @@
 extern "C" {
 #endif
 
+#define	PB_TRUCK_CONN_OFFSET	2
+
 typedef struct {
 	vehicle_pos_t	pos;
 	vehicle_t	veh;

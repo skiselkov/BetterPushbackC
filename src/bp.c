@@ -55,7 +55,7 @@
 
 #define	PB_DEBUG_INTF
 
-#define	STRAIGHT_STEER_RATE	40	/* degrees per second */
+#define	STRAIGHT_STEER_RATE	20	/* degrees per second */
 #define	TURN_STEER_RATE		10	/* degrees per second */
 #define	NORMAL_ACCEL		0.25	/* m/s^2 */
 #define	BRAKE_PEDAL_THRESH	0.1	/* brake pedal angle, 0..1 */
@@ -65,15 +65,26 @@
 #define	SPEED_COMPLETE_THRESH	0.05	/* m/s */
 #define	MAX_STEER_ANGLE		60	/* beyond this our push algos go nuts */
 #define	MAX_ANG_VEL		2.5	/* degrees per second */
+#define	PB_CONN_DELAY		5	/* seconds */
+#define	PB_START_DELAY		2	/* seconds */
 
-#ifdef	DEBUG
-static vect2_t	c_pt = NULL_VECT2, s_pt = NULL_VECT2;
-static double	line_hdg = NAN;
-#endif	/* DEBUG */
+typedef enum {
+	PB_STEP_OFF,
+	PB_STEP_DRIVING_UP,
+	PB_STEP_CONNECTING,
+	PB_STEP_CONNECTED,
+	PB_STEP_STARTING,
+	PB_STEP_PUSHING,
+	PB_STEP_STOPPING,
+	PB_STEP_STOPPED,
+	PB_STEP_DISCONNECTING,
+	PB_STEP_DRIVING_AWAY
+} pushback_step_t;
 
 typedef struct {
 	double		nw_z, main_z;
 } acf_t;
+
 typedef struct {
 	vehicle_t	veh;
 	acf_t		acf;		/* our aircraft */
@@ -92,9 +103,8 @@ typedef struct {
 	double		last_force;
 	vect2_t		turn_c_pos;
 
-	bool_t		starting;	/* waiting for brake release */
-	bool_t		stopping;	/* stopping at end of operation */
-	bool_t		stopped;	/* stopped moving, waiting for pbrk */
+	pushback_step_t	step;
+	double		step_start_t;
 
 	truck_t		truck;
 
@@ -125,6 +135,22 @@ static bool_t inited = B_FALSE, cam_inited = B_FALSE, started = B_FALSE;
 static bp_state_t bp;
 
 static float bp_run(void);
+
+static void
+bp_gather(void)
+{
+	/*
+	 * CAREFUL!
+	 * X-Plane's north-south axis (Z) is flipped to our understanding, so
+	 * whenever we access 'local_z' or 'vz', we need to flip it.
+	 */
+	bp.cur_pos.pos = VECT2(dr_getf(&drs.local_x),
+	    -dr_getf(&drs.local_z));
+	bp.cur_pos.hdg = dr_getf(&drs.hdg);
+	bp.cur_pos.spd = vect2_dotprod(hdg2dir(bp.cur_pos.hdg),
+	    VECT2(dr_getf(&drs.vx), -dr_getf(&drs.vz)));
+	bp.cur_t = dr_getf(&drs.sim_time);
+}
 
 static void
 turn_nosewheel(double req_angle, double rate)
@@ -246,6 +272,9 @@ bp_state_init(void)
 	bp.veh.max_steer = MIN(MAX(dr_getf(&drs.nw_steerdeg1),
 	    dr_getf(&drs.nw_steerdeg2)), MAX_STEER_ANGLE);
 
+	bp.step = PB_STEP_OFF;
+	bp.step_start_t = 0;
+
 	return (B_TRUE);
 }
 
@@ -350,7 +379,7 @@ bool_t
 bp_start(void)
 {
 	char *reason;
-	double x, y, h;
+	vect2_t p_start, p_end, dir;
 
 	if (started)
 		return (B_TRUE);
@@ -368,22 +397,23 @@ bp_start(void)
 	XPLMRegisterFlightLoopCallback((XPLMFlightLoop_f)bp_run, -1, NULL);
 	started = B_TRUE;
 
-	if (dr_getf(&drs.pbrake) == 1) {
-		bp.starting = B_TRUE;
-		XPLMSpeakString("Ground to cockpit. Tow is connected and "
-		    "bypass pin has been inserted. Release parking brake.");
-	}
+	bp_gather();
+	bp.last_pos = bp.cur_pos;
+	bp.last_t = bp.cur_t;
 
-	x = dr_getf(&drs.local_x);
-	y = -dr_getf(&drs.local_z);
-	h = dr_getf(&drs.hdg);
-	truck_create(&bp.truck, VECT2(x, y), h);
-	for (seg_t *seg = list_head(&bp.segs); seg != NULL;
-	    seg = list_next(&bp.segs, seg)) {
-		seg_t *seg2 = malloc(sizeof (*seg2));
-		memcpy(seg2, seg, sizeof (*seg));
-		list_insert_tail(&bp.truck.segs, seg2);
-	}
+	dir = hdg2dir(bp.cur_pos.hdg);
+	p_start = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
+	    2.5 * bp.veh.wheelbase));
+	p_end = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
+	    (-bp.acf.nw_z) + PB_TRUCK_CONN_OFFSET));
+
+	bp.step = PB_STEP_DRIVING_UP;
+	bp.step_start_t = bp.cur_t;
+	XPLMSpeakString("Ground to cockpit. Stand by for tow connection.");
+
+	truck_create(&bp.truck, p_start, bp.cur_pos.hdg);
+	truck_drive2point(&bp.truck, p_end, bp.cur_pos.hdg);
+
 	XPLMRegisterDrawCallback((XPLMDrawCallback_f)draw_trucks,
 	    xplm_Phase_Objects, 1, NULL);
 
@@ -431,56 +461,14 @@ bp_fini(void)
 	inited = B_FALSE;
 }
 
-static void
-bp_gather(void)
-{
-	/*
-	 * CAREFUL!
-	 * X-Plane's north-south axis (Z) is flipped to our understanding, so
-	 * whenever we access 'local_z' or 'vz', we need to flip it.
-	 */
-	bp.cur_pos.pos = VECT2(dr_getf(&drs.local_x),
-	    -dr_getf(&drs.local_z));
-	bp.cur_pos.hdg = dr_getf(&drs.hdg);
-	bp.cur_pos.spd = vect2_dotprod(hdg2dir(bp.cur_pos.hdg),
-	    VECT2(dr_getf(&drs.vx), -dr_getf(&drs.vz)));
-	bp.cur_t = dr_getf(&drs.sim_time);
-}
-
-static float
-bp_run(void)
+static bool_t
+bp_run_push(void)
 {
 	seg_t *seg;
-	bool_t last = B_FALSE;
-
-	bp_gather();
-
-	if (bp.cur_t <= bp.last_t)
-		return (B_TRUE);
-
-	bp.d_pos.pos = vect2_sub(bp.cur_pos.pos, bp.last_pos.pos);
-	bp.d_pos.hdg = bp.cur_pos.hdg - bp.last_pos.hdg;
-	bp.d_pos.spd = bp.cur_pos.spd - bp.last_pos.spd;
-	bp.d_t = bp.cur_t - bp.last_t;
-
-	truck_run(&bp.truck, bp.d_t);
-
-	dr_seti(&drs.override_steer, 1);
-
-	if (bp.starting && dr_getf(&drs.pbrake) != 1) {
-		seg = list_head(&bp.segs);
-		ASSERT(seg != NULL);
-		if (seg->backward)
-			XPLMSpeakString("Starting pushback!");
-		else
-			XPLMSpeakString("Starting tow!");
-		bp.starting = B_FALSE;
-	}
 
 	while ((seg = list_head(&bp.segs)) != NULL) {
 		double steer, speed;
 
-		last = B_TRUE;
 		/* Pilot pressed brake pedals or set parking brake, stop */
 		if (dr_getf(&drs.lbrake) > BRAKE_PEDAL_THRESH ||
 		    dr_getf(&drs.rbrake) > BRAKE_PEDAL_THRESH ||
@@ -496,54 +484,176 @@ bp_run(void)
 		}
 	}
 
+	return (seg != NULL);
+}
+
+static float
+bp_run(void)
+{
+	bp_gather();
+
+	if (bp.cur_t <= bp.last_t)
+		return (-1);
+
+	bp.d_pos.pos = vect2_sub(bp.cur_pos.pos, bp.last_pos.pos);
+	bp.d_pos.hdg = bp.cur_pos.hdg - bp.last_pos.hdg;
+	bp.d_pos.spd = bp.cur_pos.spd - bp.last_pos.spd;
+	bp.d_t = bp.cur_t - bp.last_t;
+
+	if (list_head(&bp.truck.segs) == NULL &&
+	    bp.step >= PB_STEP_CONNECTING && bp.step <= PB_STEP_DISCONNECTING) {
+		double truck_hdg = normalize_hdg(bp.cur_pos.hdg +
+		    dr_getf(&drs.tire_steer_cmd));
+		vect2_t dir = hdg2dir(bp.cur_pos.hdg);
+		vect2_t off_v = vect2_rot(vect2_scmul(dir,
+		    PB_TRUCK_CONN_OFFSET), dr_getf(&drs.tire_steer_cmd));
+
+		bp.truck.pos.pos = vect2_add(vect2_add(bp.cur_pos.pos,
+		    vect2_scmul(dir, -bp.acf.nw_z)), off_v);
+		bp.truck.pos.hdg = truck_hdg;
+	}
+
+	truck_run(&bp.truck, bp.d_t);
+
+	if (bp.step >= PB_STEP_CONNECTING && bp.step <= PB_STEP_DISCONNECTING)
+		dr_seti(&drs.override_steer, 1);
+	else
+		dr_seti(&drs.override_steer, 0);
+
+	switch (bp.step) {
+	case PB_STEP_OFF:
+		VERIFY(bp.step != PB_STEP_OFF);
+	case PB_STEP_DRIVING_UP:
+		dr_seti(&drs.pbrake, 1);
+		if (list_head(&bp.truck.segs) == NULL &&
+		    bp.truck.pos.spd == 0) {
+			XPLMSpeakString("Connecting.");
+			bp.step++;
+			bp.step_start_t = bp.cur_t;
+		}
+		break;
+	case PB_STEP_CONNECTING:
+		dr_setf(&drs.tire_steer_cmd, 0);
+		dr_seti(&drs.pbrake, 1);
+		if (bp.cur_t - bp.step_start_t > PB_CONN_DELAY) {
+			XPLMSpeakString("Tow connected and bypass pin "
+			    "inserted. Please release parking brake.");
+			bp.step++;
+			bp.step_start_t = bp.cur_t;
+		}
+		break;
+	case PB_STEP_CONNECTED:
+		dr_seti(&drs.override_steer, 1);
+		if (dr_geti(&drs.pbrake) != 1) {
+			bp.step++;
+			bp.step_start_t = bp.cur_t;
+		}
+		break;
+	case PB_STEP_STARTING:
+		dr_seti(&drs.override_steer, 1);
+		if (bp.cur_t - bp.step_start_t > PB_START_DELAY) {
+			seg_t *seg = list_head(&bp.segs);
+			ASSERT(seg != NULL);
+			if (seg->backward)
+				XPLMSpeakString("Starting pushback!");
+			else
+				XPLMSpeakString("Starting tow!");
+			bp.step++;
+			bp.step_start_t = bp.cur_t;
+		}
+		break;
+	case PB_STEP_PUSHING:
+		if (!bp_run_push()) {
+			bp.step++;
+			bp.step_start_t = bp.cur_t;
+		}
+		break;
+	case PB_STEP_STOPPING:
+		turn_nosewheel(0, STRAIGHT_STEER_RATE);
+		push_at_speed(0, NORMAL_ACCEL);
+		if (ABS(bp.cur_pos.spd) < SPEED_COMPLETE_THRESH) {
+			XPLMSpeakString("Operation complete, set parking "
+			    "brake.");
+			bp.step++;
+			bp.step_start_t = bp.cur_t;
+		}
+		break;
+	case PB_STEP_STOPPED:
+		dr_setf(&drs.lbrake, 1);
+		dr_setf(&drs.rbrake, 1);
+		if (dr_geti(&drs.pbrake) == 1) {
+			XPLMSpeakString("Disconnecting tow, stand by.");
+			bp.step++;
+			bp.step_start_t = bp.cur_t;
+		}
+		break;
+	case PB_STEP_DISCONNECTING:
+		dr_setf(&drs.lbrake, 1);
+		dr_setf(&drs.rbrake, 1);
+		if (bp.cur_t - bp.step_start_t > PB_CONN_DELAY) {
+			vect2_t turn_p, abeam_p, end_p;
+			double turn_hdg, back_hdg;
+			vect2_t dir, norm_dir;
+
+			dir = hdg2dir(bp.cur_pos.hdg);
+			norm_dir = vect2_norm(dir, B_TRUE);
+
+			/*
+			 * turn_p is offset 2x wheelbase forward and
+			 * 1x wheelbase to the right
+			 */
+			turn_p = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
+			    2 * bp.veh.wheelbase));
+			turn_p = vect2_add(turn_p, vect2_scmul(norm_dir,
+			    bp.veh.wheelbase));
+			turn_hdg = normalize_hdg(bp.cur_pos.hdg + 90);
+
+			/* abeam_p is on right wing, 3x wheelbase away */
+			abeam_p = vect2_add(bp.cur_pos.pos,
+			    vect2_scmul(norm_dir, 3 * bp.veh.wheelbase));
+			back_hdg = normalize_hdg(bp.cur_pos.hdg + 180);
+
+			/*
+			 * end_p is 3x wheelbase behind and 3x wheelbase to
+			 * the right.
+			 */
+			end_p = vect2_add(abeam_p, vect2_scmul(dir,
+			    -3 * bp.veh.wheelbase));
+
+			VERIFY(truck_drive2point(&bp.truck, turn_p, turn_hdg));
+			VERIFY(truck_drive2point(&bp.truck, abeam_p, back_hdg));
+			VERIFY(truck_drive2point(&bp.truck, end_p, back_hdg));
+
+			XPLMSpeakString("Tow is disconnected and bypass pin "
+			    "has been removed. Have a nice day!");
+			bp.step++;
+			bp.step_start_t = bp.cur_t;
+		}
+		break;
+	case PB_STEP_DRIVING_AWAY:
+		if (list_head(&bp.truck.segs) == NULL) {
+			started = B_FALSE;
+			truck_destroy(&bp.truck);
+			XPLMUnregisterDrawCallback(
+			    (XPLMDrawCallback_f) draw_trucks,
+			    xplm_Phase_Objects, 1, NULL);
+
+			bp_done_notify();
+
+			/*
+			 * Reinitialize our state so we're starting with a
+			 * clean slate next time.
+			 */
+			bp_state_init();
+			return (0);
+		}
+		break;
+	}
+
 	bp.last_pos = bp.cur_pos;
 	bp.last_t = bp.cur_t;
 
-	if (seg != NULL) {
-		return (-1);
-	} else {
-		if (last)
-			bp.stopping = B_TRUE;
-		turn_nosewheel(0, STRAIGHT_STEER_RATE);
-		push_at_speed(0, NORMAL_ACCEL);
-		if (ABS(bp.cur_pos.spd) < SPEED_COMPLETE_THRESH &&
-		    !bp.stopped) {
-			XPLMSpeakString("Operation complete, set parking "
-			    "brake.");
-			bp.stopped = B_TRUE;
-		}
-		if (bp.stopped) {
-			/*
-			 * Apply the brakes to prevent the aircraft from
-			 * attempting to move while we're waiting for the
-			 * parking brake to be set.
-			 */
-			dr_setf(&drs.lbrake, 1);
-			dr_setf(&drs.rbrake, 1);
-		}
-		if (dr_getf(&drs.pbrake) == 0) {
-			return (-1);
-		}
-		dr_setf(&drs.lbrake, 0);
-		dr_setf(&drs.rbrake, 0);
-		dr_seti(&drs.override_steer, 0);
-		started = B_FALSE;
-		XPLMSpeakString("Tow is disconnected and steering pin has "
-		    "been removed. Have a nice day!");
-		truck_destroy(&bp.truck);
-		XPLMUnregisterDrawCallback((XPLMDrawCallback_f)draw_trucks,
-		    xplm_Phase_Objects, 1, NULL);
-
-		bp_done_notify();
-
-		/*
-		 * Reinitialize our state so we're starting with a clean
-		 * slate next time.
-		 */
-		bp_state_init();
-
-		return (0);
-	}
+	return (-1);
 }
 
 static vect3_t cam_pos;
@@ -807,7 +917,7 @@ draw_acf_symbol(vect3_t pos, double hdg, double wheelbase, vect3_t color)
 	glEnd();
 }
 
-#ifdef	DEBUG
+#if	0
 static void
 draw_cross(vect2_t pos, double y)
 {
@@ -897,36 +1007,6 @@ draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 		    ABV_TERR_HEIGHT, seg->end_pos.y), seg->end_hdg,
 		    bp.veh.wheelbase, GREEN_TUPLE);
 	}
-
-#ifdef	DEBUG
-	if (!IS_NULL_VECT(c_pt)) {
-		ASSERT(!IS_NULL_VECT(s_pt));
-		ASSERT(!isnan(line_hdg));
-		double c_pt_y, s_pt_y;
-		double l = vect2_dist(s_pt, c_pt);
-		vect2_t dir_p = vect2_add(vect2_scmul(hdg2dir(line_hdg), l),
-		    s_pt);
-
-		VERIFY3U(XPLMProbeTerrainXYZ(probe, c_pt.x, 0,
-		    -c_pt.y, &info), ==, xplm_ProbeHitTerrain);
-		c_pt_y = info.locationY;
-		VERIFY3U(XPLMProbeTerrainXYZ(probe, s_pt.x, 0,
-		    -s_pt.y, &info), ==, xplm_ProbeHitTerrain);
-		s_pt_y = info.locationY;
-
-		draw_cross(c_pt, c_pt_y);
-		draw_cross(s_pt, s_pt_y);
-
-		glLineWidth(2);
-		glColor3f(0.5, 0.5, 1);
-		glBegin(GL_LINES);
-		glVertex3f(s_pt.x, s_pt_y, -s_pt.y);
-		glVertex3f(c_pt.x, c_pt_y, -c_pt.y);
-		glVertex3f(s_pt.x, s_pt_y, -s_pt.y);
-		glVertex3f(dir_p.x, s_pt_y, -dir_p.y);
-		glEnd();
-	}
-#endif	/* DEBUG */
 
 	XPLMDestroyProbe(probe);
 
@@ -1104,10 +1184,6 @@ bp_cam_start(void)
 
 	if (cam_inited || !bp_init())
 		return (B_FALSE);
-
-	c_pt = NULL_VECT2;
-	s_pt = NULL_VECT2;
-	line_hdg = NAN;
 
 #ifndef	PB_DEBUG_INTF
 	if (vect3_abs(VECT3(dr_getf(&drs.vx), dr_getf(&drs.vy),

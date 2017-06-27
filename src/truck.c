@@ -47,7 +47,6 @@ truck_create(truck_t *truck, vect2_t pos, double hdg)
 	truck->pos.hdg = hdg;
 	truck->veh.wheelbase = TRUCK_WHEELBASE;
 	truck->veh.max_steer = TRUCK_MAX_STEER;
-	logMsg("truckpath: \"%s\"", truckpath);
 	truck->obj = XPLMLoadObject(truckpath);
 	VERIFY(truck->obj != NULL);
 	list_create(&truck->segs, sizeof (seg_t), offsetof(seg_t, node));
@@ -101,11 +100,8 @@ truck_run(truck_t *truck, double d_t)
 		    TRUCK_MAX_ANG_VEL, &truck->last_mis_hdg, d_t, &steer,
 		    &speed);
 	} else if (truck->pos.spd == 0) {
-		logMsg("done");
 		return;
 	}
-
-	logMsg("run");
 
 	if (speed >= truck->pos.spd)
 		accel = MIN(speed - truck->pos.spd, TRUCK_ACCEL * d_t);
@@ -130,6 +126,7 @@ truck_run(truck_t *truck, double d_t)
 	truck->pos.pos = vect2_add(truck->pos.pos,
 	    vect2_rot(pos_incr, truck->pos.hdg));
 	truck->pos.hdg += RAD2DEG(d_hdg_rad);
+	truck->pos.hdg = normalize_hdg(truck->pos.hdg);
 }
 
 void
@@ -157,8 +154,8 @@ truck_draw(truck_t *truck)
 	di.y = pos.y;
 	di.z = pos.z;
 	di.heading = truck->pos.hdg;
-	di.pitch = acos(v.x / norm.y);
-	di.roll = asin(v.x / norm.y);
+	di.roll = -RAD2DEG(asin(v.x / norm.y));
+	di.pitch = -RAD2DEG(asin(v.y / norm.y));
 
 	XPLMDrawObjects(truck->obj, 1, &di, 1, 1);
 }
