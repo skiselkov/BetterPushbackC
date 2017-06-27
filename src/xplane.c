@@ -24,16 +24,21 @@
 #include <XPLMUtilities.h>
 #include <XPLMPlugin.h>
 
+#include <acfutils/assert.h>
 #include <acfutils/acfutils.h>
 #include <acfutils/helpers.h>
 #include <acfutils/log.h>
+#include <acfutils/wav.h>
 
 #include "bp.h"
+#include "msg.h"
 #include "xplane.h"
 
 #define BP_PLUGIN_NAME		"BetterPushback 1.0"
 #define BP_PLUGIN_SIG		"skiselkov.BetterPushback1.0"
 #define BP_PLUGIN_DESCRIPTION	"Generic automated pushback plugin"
+
+static bool_t		inited = B_FALSE;
 
 static XPLMCommandRef	start_pb, stop_pb, start_cam, stop_cam;
 static XPLMMenuID	root_menu;
@@ -64,8 +69,7 @@ start_pb_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	if (!bp_init())
 		return (1);
 	if (bp_num_segs() == 0) {
-		XPLMSpeakString("Ground to cockpit. Please show me where "
-		    "you want to go.");
+		msg_play(MSG_PLAN_START);
 		start_after_cam = B_TRUE;
 		XPLMCommandOnce(start_cam);
 		return (1);
@@ -122,8 +126,7 @@ stop_cam_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 			XPLMCommandOnce(start_pb);
 		start_after_cam = B_FALSE;
 	} else if (bp_can_start(NULL)) {
-		XPLMSpeakString("Ground to cockpit. Plan acknowledged, "
-		    "call me through the menu when you are ready.");
+		msg_play(MSG_PLAN_END);
 	}
 	return (1);
 }
@@ -203,6 +206,15 @@ XPluginStop(void)
 PLUGIN_API void
 XPluginEnable(void)
 {
+	ASSERT(!inited);
+
+	if (!openal_init())
+		return;
+	if (!msg_init()) {
+		openal_fini();
+		return;
+	}
+
 	XPLMRegisterCommandHandler(start_pb, start_pb_handler, 1, NULL);
 	XPLMRegisterCommandHandler(stop_pb, stop_pb_handler, 1, NULL);
 	XPLMRegisterCommandHandler(start_cam, start_cam_handler, 1, NULL);
@@ -226,11 +238,18 @@ XPluginEnable(void)
 	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
 	XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_TRUE);
 	XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
+
+	inited = B_TRUE;
 }
 
 PLUGIN_API void
 XPluginDisable(void)
 {
+	if (!inited)
+		return;
+
+	msg_fini();
+	openal_fini();
 	XPLMUnregisterCommandHandler(start_pb, start_pb_handler, 1, NULL);
 	XPLMUnregisterCommandHandler(stop_pb, stop_pb_handler, 1, NULL);
 	XPLMUnregisterCommandHandler(start_cam, start_pb_handler, 1, NULL);
@@ -239,6 +258,8 @@ XPluginDisable(void)
 
 	XPLMDestroyMenu(root_menu);
 	XPLMRemoveMenuItem(XPLMFindPluginsMenu(), plugins_menu_item);
+
+	inited = B_FALSE;
 }
 
 PLUGIN_API void

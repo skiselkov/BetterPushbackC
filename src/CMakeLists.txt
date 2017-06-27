@@ -16,8 +16,8 @@
 cmake_minimum_required(VERSION 2.8)
 project(bp C)
 
-SET(SRC bp.c dr.c driving.c truck.c xplane.c)
-SET(HDR bp.h dr.h driving.c truck.h xplane.h)
+SET(SRC bp.c dr.c driving.c msg.c truck.c xplane.c)
+SET(HDR bp.h dr.h driving.c msg.h truck.h xplane.h)
 
 SET(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELEASE} -DDEBUG")
 SET(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DDEBUG -O0")
