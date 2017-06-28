@@ -79,7 +79,7 @@
 #define	PB_DRIVING_TURN_OFFSET	15	/* meters */
 #define	PB_DRIVE_UP_OFFSET	5.25	/* meters */
 #define	PB_LIFT_TE_RAMP_UP	0.5	/* seconds */
-#define	PB_LIFT_TE		0.2	/* fraction */
+#define	PB_LIFT_TE		0.075	/* fraction */
 
 typedef enum {
 	PB_STEP_OFF,
@@ -262,7 +262,11 @@ push_at_speed(double targ_speed, double max_accel)
 
 	bp.last_force = force;
 
-	truck_set_TE_snd(&bp.truck, fabs(force / force_lim));
+	if ((bp.cur_pos.spd > 0 && force < 0) ||
+	    (bp.cur_pos.spd < 0 && force > 0))
+		truck_set_TE_snd(&bp.truck, fabs(force / force_lim));
+	else
+		truck_set_TE_snd(&bp.truck, 0);
 }
 
 static bool_t
@@ -623,8 +627,8 @@ bp_run(void)
 			dir = hdg2dir(bp.cur_pos.hdg);
 			p_end = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
 			    (-bp.acf.nw_z) + PB_TRUCK_CONN_OFFSET));
-			VERIFY(truck_drive2point(&bp.truck, p_end,
-			    bp.cur_pos.hdg));
+			(void) truck_drive2point(&bp.truck, p_end,
+			    bp.cur_pos.hdg);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
 		}
@@ -703,6 +707,9 @@ bp_run(void)
 		if (bp.cur_t - bp.step_start_t > PB_START_DELAY) {
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
+		} else {
+			turn_nosewheel(0, STRAIGHT_STEER_RATE);
+			push_at_speed(0, bp.veh.max_accel);
 		}
 		break;
 	case PB_STEP_PUSHING:
@@ -715,12 +722,15 @@ bp_run(void)
 		turn_nosewheel(0, STRAIGHT_STEER_RATE);
 		push_at_speed(0, bp.veh.max_accel);
 		if (ABS(bp.cur_pos.spd) < SPEED_COMPLETE_THRESH) {
-			msg_play(MSG_OP_COMPLETE);
+			if (dr_getf(&drs.pbrake) == 0)
+				msg_play(MSG_OP_COMPLETE);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
 		}
 		break;
 	case PB_STEP_STOPPED:
+		turn_nosewheel(0, STRAIGHT_STEER_RATE);
+		push_at_speed(0, bp.veh.max_accel);
 		dr_setf(&drs.lbrake, 0.9);
 		dr_setf(&drs.rbrake, 0.9);
 		if (dr_geti(&drs.pbrake) == 1) {
@@ -769,7 +779,7 @@ bp_run(void)
 			p = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
 			    -bp.acf.nw_z + PB_DRIVE_UP_OFFSET));
 
-			VERIFY(truck_drive2point(&bp.truck, p, bp.cur_pos.hdg));
+			(void) truck_drive2point(&bp.truck, p, bp.cur_pos.hdg);
 
 			bp.step++;
 			bp.step_start_t = bp.cur_t;

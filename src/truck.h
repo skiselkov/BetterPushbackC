@@ -61,6 +61,8 @@ typedef struct {
 	dr_t		sound_on;
 	dr_t		ext_vol;
 
+	unsigned	num_cockpit_window_drs;
+	dr_t		*cockpit_window_drs;
 
 	list_t		segs;
 } truck_t;

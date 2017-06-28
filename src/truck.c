@@ -44,7 +44,7 @@
 #define	TRUCK_MAX_ACCEL		1	/* m/s^2 */
 #define	TRUCK_MAX_DECEL		0.5	/* m/s^2 */
 
-#define	TRUCK_SND_MAX_DIST	10	/* meters */
+#define	TRUCK_SND_MAX_DIST	15	/* meters */
 #define	VOLUME_INSIDE_MODIFIER	0.2
 
 #define	TRUCK_CRADLE_CHG_D_T	0.5
@@ -100,6 +100,16 @@ truck_create(truck_t *truck, vect2_t pos, double hdg)
 	dr_init(&truck->sound_on, "sim/operation/sound/sound_on");
 	dr_init(&truck->ext_vol, "sim/operation/sound/exterior_volume_ratio");
 
+	/* Flight Factor A320 integration */
+	if (XPLMFindDataRef("model/controls/window_l") != NULL) {
+		truck->num_cockpit_window_drs = 2;
+		truck->cockpit_window_drs = calloc(2, sizeof (dr_t));
+		dr_init(&truck->cockpit_window_drs[0],
+		    "model/controls/window_l");
+		dr_init(&truck->cockpit_window_drs[1],
+		    "model/controls/window_r");
+	}
+
 	list_create(&truck->segs, sizeof (seg_t), offsetof(seg_t, node));
 }
 
@@ -114,6 +124,7 @@ truck_destroy(truck_t *truck)
 		free(seg);
 	}
 	list_destroy(&truck->segs);
+	free(truck->cockpit_window_drs);
 
 	wav_stop(truck->engine_snd);
 	wav_stop(truck->air_snd);
@@ -228,12 +239,23 @@ truck_draw(truck_t *truck, double cur_t)
 		vect3_t cam_pos_xp = VECT3(dr_getf(&truck->cam_x),
 		    dr_getf(&truck->cam_y), dr_getf(&truck->cam_z));
 		double cam_dist = vect3_abs(vect3_sub(cam_pos_xp, pos));
+		double window = 0;
+
+		/* Camera distance modifier */
 		cam_dist = MAX(cam_dist, 1);
 		gain = POW2(TRUCK_SND_MAX_DIST / cam_dist);
 		gain = MIN(gain, 1.0);
 		gain *= dr_getf(&truck->ext_vol);
+
+		/* Cockpit-window-open modifier */
+		for (unsigned i = 0; i < truck->num_cockpit_window_drs; i++) {
+			window = MAX(dr_getf(&truck->cockpit_window_drs[i]),
+			    window);
+		}
+		/* We're only interested in the first 1/4 of the window range */
+		window = MIN(1, window * 4);
 		if (dr_geti(&truck->cam_is_ext) == 0)
-			gain *= VOLUME_INSIDE_MODIFIER;
+			gain *= wavg(VOLUME_INSIDE_MODIFIER, 1, window);
 		if (gain < 0.001)
 			gain = 0;
 	} else {
@@ -267,8 +289,13 @@ truck_draw(truck_t *truck, double cur_t)
 void
 truck_set_TE_snd(truck_t *truck, double TE_fract)
 {
-	double pitch = 0.5 + log((TE_fract * (M_E - 1)) + 1);
-	wav_set_pitch(truck->engine_snd, pitch);
+	/*
+	 * We do a double log of the linear TE fraction to obtain a more
+	 * obvious engine note of the engine being under load.
+	 */
+	for (int i = 0; i < 2; i++)
+		TE_fract = log((TE_fract * (M_E - 1)) + 1);
+	wav_set_pitch(truck->engine_snd, 0.5 + TE_fract);
 }
 
 void
