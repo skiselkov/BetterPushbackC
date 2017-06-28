@@ -72,7 +72,7 @@
 #define	MAX_ANG_VEL		2.5	/* degrees per second */
 #define	PB_CRADLE_DELAY		10	/* seconds */
 #define	PB_CONN_DELAY		25.0	/* seconds */
-#define	PB_CONN_LIFT_DELAY	14.0	/* seconds */
+#define	PB_CONN_LIFT_DELAY	13.0	/* seconds */
 #define	PB_CONN_LIFT_DURATION	9.0	/* seconds */
 #define	PB_CONN_LIFT_LEN	0.3	/* meters */
 #define	PB_START_DELAY		5	/* seconds */

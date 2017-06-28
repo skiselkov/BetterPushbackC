@@ -108,6 +108,14 @@ truck_create(truck_t *truck, vect2_t pos, double hdg)
 		    "model/controls/window_l");
 		dr_init(&truck->cockpit_window_drs[1],
 		    "model/controls/window_r");
+	/* IXEG 737 integration */
+	} else if (XPLMFindDataRef("ixeg/733/misc/pilot_window") != NULL) {
+		truck->num_cockpit_window_drs = 2;
+		truck->cockpit_window_drs = calloc(2, sizeof (dr_t));
+		dr_init(&truck->cockpit_window_drs[0],
+		    "ixeg/733/misc/pilot_window");
+		dr_init(&truck->cockpit_window_drs[1],
+		    "ixeg/733/misc/copilot_window");
 	}
 
 	list_create(&truck->segs, sizeof (seg_t), offsetof(seg_t, node));
