@@ -42,6 +42,7 @@
 #include <XPLMProcessing.h>
 
 #include <acfutils/assert.h>
+#include <acfutils/dr.h>
 #include <acfutils/geom.h>
 #include <acfutils/math.h>
 #include <acfutils/list.h>
@@ -49,13 +50,13 @@
 #include <acfutils/wav.h>
 
 #include "bp.h"
-#include "dr.h"
 #include "driving.h"
 #include "msg.h"
-#include "truck.h"
+#include "tug.h"
 #include "xplane.h"
 
 #define	PB_DEBUG_INTF
+#define	TUG_DRIVING_DEBUG
 
 #define	STRAIGHT_STEER_RATE	20	/* degrees per second */
 #define	TURN_STEER_RATE		10	/* degrees per second */
@@ -127,7 +128,7 @@ typedef struct {
 	pushback_step_t	step;
 	double		step_start_t;
 
-	truck_t		truck;
+	tug_t	tug;
 
 	list_t		segs;
 } bp_state_t;
@@ -142,6 +143,7 @@ static struct {
 	dr_t	vx, vy, vz;
 	dr_t	sim_time;
 	dr_t	acf_mass;
+	dr_t	mtow;
 	dr_t	tire_z, leg_len;
 	dr_t	nw_steerdeg1, nw_steerdeg2;
 	dr_t	tire_steer_cmd;
@@ -264,9 +266,9 @@ push_at_speed(double targ_speed, double max_accel)
 
 	if ((bp.cur_pos.spd > 0 && force < 0) ||
 	    (bp.cur_pos.spd < 0 && force > 0))
-		truck_set_TE_snd(&bp.truck, fabs(force / force_lim));
+		tug_set_TE_snd(&bp.tug, fabs(force / force_lim));
 	else
-		truck_set_TE_snd(&bp.truck, 0);
+		tug_set_TE_snd(&bp.tug, 0);
 }
 
 static bool_t
@@ -292,6 +294,7 @@ bp_state_init(void)
 		bp.acf.main_z += tire_z_main[i];
 	bp.acf.main_z /= n_main;
 	bp.veh.wheelbase = bp.acf.main_z - bp.acf.nw_z;
+	bp.veh.fixed_z_off = -bp.acf.main_z;	/* X-Plane's Z is negative */
 	if (bp.veh.wheelbase <= 0) {
 		XPLMSpeakString("Pushback failure: aircraft has non-positive "
 		    "wheelbase. Sorry, tail draggers aren't supported.");
@@ -319,38 +322,37 @@ bp_init(void)
 
 	memset(&drs, 0, sizeof (drs));
 
-	dr_init(&drs.lbrake, "sim/cockpit2/controls/left_brake_ratio");
-	dr_init(&drs.rbrake, "sim/cockpit2/controls/right_brake_ratio");
-	if (XPLMFindDataRef("model/controls/park_break") != NULL)
-		dr_init(&drs.pbrake, "model/controls/park_break");
-	else
-		dr_init(&drs.pbrake, "sim/flightmodel/controls/parkbrake");
-	dr_init(&drs.rot_force_N, "sim/flightmodel/forces/N_plug_acf");
-	dr_init(&drs.axial_force, "sim/flightmodel/forces/faxil_plug_acf");
-	dr_init(&drs.local_x, "sim/flightmodel/position/local_x");
-	dr_init(&drs.local_y, "sim/flightmodel/position/local_y");
-	dr_init(&drs.local_z, "sim/flightmodel/position/local_z");
-	dr_init(&drs.hdg, "sim/flightmodel/position/psi");
-	dr_init(&drs.vx, "sim/flightmodel/position/local_vx");
-	dr_init(&drs.vy, "sim/flightmodel/position/local_vy");
-	dr_init(&drs.vz, "sim/flightmodel/position/local_vz");
-	dr_init(&drs.sim_time, "sim/time/total_running_time_sec");
-	dr_init(&drs.acf_mass, "sim/flightmodel/weight/m_total");
-	dr_init(&drs.tire_z, "sim/flightmodel/parts/tire_z_no_deflection");
-	dr_init(&drs.leg_len, "sim/aircraft/parts/acf_gear_leglen");
-	dr_init(&drs.nw_steerdeg1, "sim/aircraft/gear/acf_nw_steerdeg1");
-	dr_init(&drs.nw_steerdeg2, "sim/aircraft/gear/acf_nw_steerdeg2");
-	dr_init(&drs.tire_steer_cmd,
+	fdr_find(&drs.lbrake, "sim/cockpit2/controls/left_brake_ratio");
+	fdr_find(&drs.rbrake, "sim/cockpit2/controls/right_brake_ratio");
+	if (!dr_find(&drs.pbrake, "model/controls/park_break"))
+		fdr_find(&drs.pbrake, "sim/flightmodel/controls/parkbrake");
+	fdr_find(&drs.rot_force_N, "sim/flightmodel/forces/N_plug_acf");
+	fdr_find(&drs.axial_force, "sim/flightmodel/forces/faxil_plug_acf");
+	fdr_find(&drs.local_x, "sim/flightmodel/position/local_x");
+	fdr_find(&drs.local_y, "sim/flightmodel/position/local_y");
+	fdr_find(&drs.local_z, "sim/flightmodel/position/local_z");
+	fdr_find(&drs.hdg, "sim/flightmodel/position/psi");
+	fdr_find(&drs.vx, "sim/flightmodel/position/local_vx");
+	fdr_find(&drs.vy, "sim/flightmodel/position/local_vy");
+	fdr_find(&drs.vz, "sim/flightmodel/position/local_vz");
+	fdr_find(&drs.sim_time, "sim/time/total_running_time_sec");
+	fdr_find(&drs.acf_mass, "sim/flightmodel/weight/m_total");
+	fdr_find(&drs.tire_z, "sim/flightmodel/parts/tire_z_no_deflection");
+	fdr_find(&drs.mtow, "sim/aircraft/weight/acf_m_max");
+	fdr_find(&drs.leg_len, "sim/aircraft/parts/acf_gear_leglen");
+	fdr_find(&drs.nw_steerdeg1, "sim/aircraft/gear/acf_nw_steerdeg1");
+	fdr_find(&drs.nw_steerdeg2, "sim/aircraft/gear/acf_nw_steerdeg2");
+	fdr_find(&drs.tire_steer_cmd,
 	    "sim/flightmodel/parts/tire_steer_cmd");
-	dr_init(&drs.override_steer,
+	fdr_find(&drs.override_steer,
 	    "sim/operation/override/override_wheel_steer");
-	dr_init(&drs.gear_deploy, "sim/aircraft/parts/acf_gear_deploy");
+	fdr_find(&drs.gear_deploy, "sim/aircraft/parts/acf_gear_deploy");
 
-	dr_init(&drs.camera_fov_h,
+	fdr_find(&drs.camera_fov_h,
 	    "sim/graphics/view/field_of_view_deg");
-	dr_init(&drs.camera_fov_v,
+	fdr_find(&drs.camera_fov_v,
 	    "sim/graphics/view/vertical_field_of_view_deg");
-	dr_init(&drs.view_is_ext, "sim/graphics/view/view_is_external");
+	fdr_find(&drs.view_is_ext, "sim/graphics/view/view_is_external");
 
 	if (!bp_state_init())
 		return (B_FALSE);
@@ -361,27 +363,27 @@ bp_init(void)
 }
 
 static void
-draw_trucks(void)
+draw_tugs(void)
 {
 	vect2_t pos = VECT2(dr_getf(&drs.local_x), -dr_getf(&drs.local_z));
 	double hdg = dr_getf(&drs.hdg);
 
-	truck_run(&bp.truck, bp.d_t);
+	tug_run(&bp.tug, bp.d_t);
 
-	if (list_head(&bp.truck.segs) == NULL &&
+	if (list_head(&bp.tug.segs) == NULL &&
 	    bp.step >= PB_STEP_CONNECTING && bp.step <= PB_STEP_DISCONNECTING) {
-		double truck_hdg = normalize_hdg(hdg +
+		double tug_hdg = normalize_hdg(hdg +
 		    dr_getf(&drs.tire_steer_cmd));
 		vect2_t dir = hdg2dir(hdg);
 		vect2_t off_v = vect2_rot(vect2_scmul(dir,
-		    PB_TRUCK_CONN_OFFSET), dr_getf(&drs.tire_steer_cmd));
+		    PB_TUG_CONN_OFFSET), dr_getf(&drs.tire_steer_cmd));
 
-		bp.truck.pos.pos = vect2_add(vect2_add(pos, vect2_scmul(dir,
+		bp.tug.pos.pos = vect2_add(vect2_add(pos, vect2_scmul(dir,
 		    -bp.acf.nw_z)), off_v);
-		bp.truck.pos.hdg = truck_hdg;
+		bp.tug.pos.hdg = tug_hdg;
 	}
 
-	truck_draw(&bp.truck, bp.cur_t);
+	tug_draw(&bp.tug, bp.cur_t, bp.d_t);
 }
 
 bool_t
@@ -431,7 +433,9 @@ bool_t
 bp_start(void)
 {
 	char *reason;
+#ifndef	TUG_DRIVING_DEBUG
 	vect2_t p_start, dir;
+#endif
 
 	if (started)
 		return (B_TRUE);
@@ -440,9 +444,6 @@ bp_start(void)
 		return (B_FALSE);
 	}
 
-	XPLMRegisterFlightLoopCallback((XPLMFlightLoop_f)bp_run, -1, NULL);
-	started = B_TRUE;
-
 	bp_gather();
 	bp.last_pos = bp.cur_pos;
 	bp.last_t = bp.cur_t;
@@ -450,15 +451,33 @@ bp_start(void)
 	bp.step = PB_STEP_START;
 	bp.step_start_t = bp.cur_t;
 
+#ifndef	TUG_DRIVING_DEBUG
 	dir = hdg2dir(bp.cur_pos.hdg);
 	p_start = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
 	    3 * bp.veh.wheelbase));
 	p_start = vect2_add(p_start, vect2_scmul(vect2_norm(dir, B_TRUE),
 	    3 * bp.veh.wheelbase));
-	truck_create(&bp.truck, p_start, normalize_hdg(bp.cur_pos.hdg + 90));
 
-	XPLMRegisterDrawCallback((XPLMDrawCallback_f)draw_trucks,
+	if (!tug_create(&bp.tug, dr_getf(&drs.mtow), dr_getf(&drs.leg_len),
+	    NULL, p_start, normalize_hdg(bp.cur_pos.hdg + 90))) {
+		XPLMSpeakString("Pushback failure: no suitable tug for your "
+		    "aircraft.");
+		return (B_FALSE);
+	}
+#else	/* TUG_DRIVING_DEBUG */
+	if (!tug_create(&bp.tug, dr_getf(&drs.mtow), dr_getf(&drs.leg_len),
+	    NULL, bp.cur_pos.pos, bp.cur_pos.hdg)) {
+		XPLMSpeakString("Pushback failure: no suitable tug for your "
+		    "aircraft.");
+		return (B_FALSE);
+	}
+#endif	/* TUG_DRIVING_DEBUG */
+
+	XPLMRegisterFlightLoopCallback((XPLMFlightLoop_f)bp_run, -1, NULL);
+	XPLMRegisterDrawCallback((XPLMDrawCallback_f)draw_tugs,
 	    xplm_Phase_Objects, 1, NULL);
+
+	started = B_TRUE;
 
 	return (B_TRUE);
 }
@@ -516,7 +535,7 @@ bp_run_push(void)
 		if (dr_getf(&drs.lbrake) > BRAKE_PEDAL_THRESH ||
 		    dr_getf(&drs.rbrake) > BRAKE_PEDAL_THRESH ||
 		    dr_getf(&drs.pbrake) != 0) {
-			truck_set_TE_snd(&bp.truck, 0);
+			tug_set_TE_snd(&bp.tug, 0);
 			break;
 		}
 		if (drive_segs(&bp.cur_pos, &bp.veh, &bp.segs,
@@ -536,8 +555,8 @@ static void
 bp_complete(void)
 {
 	started = B_FALSE;
-	truck_destroy(&bp.truck);
-	XPLMUnregisterDrawCallback((XPLMDrawCallback_f) draw_trucks,
+	tug_destroy(&bp.tug);
+	XPLMUnregisterDrawCallback((XPLMDrawCallback_f) draw_tugs,
 	    xplm_Phase_Objects, 1, NULL);
 
 	dr_seti(&drs.override_steer, 0);
@@ -584,6 +603,7 @@ bp_run(void)
 	case PB_STEP_OFF:
 		VERIFY(bp.step != PB_STEP_OFF);
 	case PB_STEP_START: {
+#ifndef	TUG_DRIVING_DEBUG
 		vect2_t right_off, p_end, dir;
 
 		dir = hdg2dir(bp.cur_pos.hdg);
@@ -595,9 +615,17 @@ bp_run(void)
 		p_end = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
 		    (-bp.acf.nw_z) + PB_DRIVE_UP_OFFSET));
 
-		VERIFY(truck_drive2point(&bp.truck, right_off,
+		VERIFY(tug_drive2point(&bp.tug, right_off,
 		    normalize_hdg(bp.cur_pos.hdg + 90)));
-		VERIFY(truck_drive2point(&bp.truck, p_end, bp.cur_pos.hdg));
+		VERIFY(tug_drive2point(&bp.tug, p_end, bp.cur_pos.hdg));
+#else	/* TUG_DRIVING_DEBUG */
+		for (seg_t *seg = list_head(&bp.segs); seg != NULL;
+		    seg = list_next(&bp.segs, seg)) {
+			seg_t *seg2 = calloc(1, sizeof (*seg2));
+			memcpy(seg2, seg, sizeof (*seg2));
+			list_insert_tail(&bp.tug.segs, seg2);
+		}
+#endif	/* TUG_DRIVING_DEBUG */
 
 		msg_play(MSG_DRIVING_UP);
 		bp.step++;
@@ -605,17 +633,17 @@ bp_run(void)
 		break;
 	}
 	case PB_STEP_DRIVING_UP_CLOSE:
-		if (truck_is_stopped(&bp.truck)) {
+		if (tug_is_stopped(&bp.tug)) {
 			if (dr_getf(&drs.pbrake) != 1)
 				msg_play(MSG_RDY2CONN);
-			truck_set_cradle_beeper_on(&bp.truck, B_TRUE);
+			tug_set_cradle_beeper_on(&bp.tug, B_TRUE);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
 		}
 		break;
 	case PB_STEP_OPENING_CRADLE:
 		if (bp.cur_t - bp.step_start_t > PB_CRADLE_DELAY) {
-			truck_set_cradle_beeper_on(&bp.truck, B_FALSE);
+			tug_set_cradle_beeper_on(&bp.tug, B_FALSE);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
 		}
@@ -626,8 +654,8 @@ bp_run(void)
 
 			dir = hdg2dir(bp.cur_pos.hdg);
 			p_end = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-			    (-bp.acf.nw_z) + PB_TRUCK_CONN_OFFSET));
-			(void) truck_drive2point(&bp.truck, p_end,
+			    (-bp.acf.nw_z) + PB_TUG_CONN_OFFSET));
+			(void) tug_drive2point(&bp.tug, p_end,
 			    bp.cur_pos.hdg);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
@@ -636,8 +664,8 @@ bp_run(void)
 	case PB_STEP_DRIVING_UP_CONNECT:
 		dr_setf(&drs.lbrake, 0.9);
 		dr_setf(&drs.rbrake, 0.9);
-		if (truck_is_stopped(&bp.truck)) {
-			truck_set_cradle_beeper_on(&bp.truck, B_TRUE);
+		if (tug_is_stopped(&bp.tug)) {
+			tug_set_cradle_beeper_on(&bp.tug, B_TRUE);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
 		}
@@ -660,7 +688,7 @@ bp_run(void)
 
 		/*
 		 * While lifting, we iterate a ramp-up and ramp-down of the
-		 * truck's Tractive Effort to simulate that the engine is
+		 * tug's Tractive Effort to simulate that the engine is
 		 * being used to pressurize a pneumatic piston.
 		 */
 		if (d_t >= PB_CONN_LIFT_DELAY &&
@@ -668,15 +696,15 @@ bp_run(void)
 			double TE_fract = ((d_t - PB_CONN_LIFT_DELAY) /
 			    PB_LIFT_TE_RAMP_UP) * PB_LIFT_TE;
 			TE_fract = MIN(TE_fract, PB_LIFT_TE);
-			truck_set_TE_snd(&bp.truck, TE_fract);
+			tug_set_TE_snd(&bp.tug, TE_fract);
 		}
 		if (d_t >= PB_CONN_LIFT_DELAY + PB_CONN_LIFT_DURATION) {
 			double TE_fract = (((PB_CONN_LIFT_DELAY +
 			    PB_CONN_LIFT_DURATION + PB_LIFT_TE_RAMP_UP) - d_t) /
 			    PB_LIFT_TE_RAMP_UP) * PB_LIFT_TE;
 			TE_fract = MAX(TE_fract, 0);
-			truck_set_TE_snd(&bp.truck, TE_fract);
-			truck_set_cradle_beeper_on(&bp.truck, B_FALSE);
+			tug_set_TE_snd(&bp.tug, TE_fract);
+			tug_set_cradle_beeper_on(&bp.tug, B_FALSE);
 		}
 
 		if (d_t >= PB_CONN_DELAY) {
@@ -748,10 +776,10 @@ bp_run(void)
 
 		if (rmng_t < PB_CONN_LIFT_DURATION + PB_CONN_LIFT_DELAY &&
 		    rmng_t > PB_CONN_LIFT_DELAY) {
-			truck_set_cradle_air_on(&bp.truck, B_TRUE, bp.cur_t);
-			truck_set_cradle_beeper_on(&bp.truck, B_TRUE);
+			tug_set_cradle_air_on(&bp.tug, B_TRUE, bp.cur_t);
+			tug_set_cradle_beeper_on(&bp.tug, B_TRUE);
 		} else if (rmng_t < PB_CONN_LIFT_DELAY) {
-			truck_set_cradle_air_on(&bp.truck, B_FALSE, bp.cur_t);
+			tug_set_cradle_air_on(&bp.tug, B_FALSE, bp.cur_t);
 		}
 
 		/* Iterate the lift */
@@ -765,7 +793,7 @@ bp_run(void)
 		if (rmng_t <= 0) {
 			vect2_t dir, p;
 
-			truck_set_cradle_beeper_on(&bp.truck, B_FALSE);
+			tug_set_cradle_beeper_on(&bp.tug, B_FALSE);
 
 			dir = hdg2dir(bp.cur_pos.hdg);
 
@@ -779,7 +807,7 @@ bp_run(void)
 			p = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
 			    -bp.acf.nw_z + PB_DRIVE_UP_OFFSET));
 
-			(void) truck_drive2point(&bp.truck, p, bp.cur_pos.hdg);
+			(void) tug_drive2point(&bp.tug, p, bp.cur_pos.hdg);
 
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
@@ -787,8 +815,8 @@ bp_run(void)
 		break;
 	}
 	case PB_STEP_MOVING_AWAY:
-		if (truck_is_stopped(&bp.truck)) {
-			truck_set_cradle_beeper_on(&bp.truck, B_TRUE);
+		if (tug_is_stopped(&bp.tug)) {
+			tug_set_cradle_beeper_on(&bp.tug, B_TRUE);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
 		}
@@ -799,7 +827,7 @@ bp_run(void)
 			double turn_hdg, back_hdg;
 			vect2_t dir, norm_dir;
 
-			truck_set_cradle_beeper_on(&bp.truck, B_FALSE);
+			tug_set_cradle_beeper_on(&bp.tug, B_FALSE);
 
 			dir = hdg2dir(bp.cur_pos.hdg);
 			norm_dir = vect2_norm(dir, B_TRUE);
@@ -828,16 +856,16 @@ bp_run(void)
 
 			msg_play(MSG_DONE);
 
-			VERIFY(truck_drive2point(&bp.truck, turn_p, turn_hdg));
-			VERIFY(truck_drive2point(&bp.truck, abeam_p, back_hdg));
-			VERIFY(truck_drive2point(&bp.truck, end_p, back_hdg));
+			VERIFY(tug_drive2point(&bp.tug, turn_p, turn_hdg));
+			VERIFY(tug_drive2point(&bp.tug, abeam_p, back_hdg));
+			VERIFY(tug_drive2point(&bp.tug, end_p, back_hdg));
 
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
 		}
 		break;
 	case PB_STEP_DRIVING_AWAY:
-		if (truck_is_stopped(&bp.truck)) {
+		if (tug_is_stopped(&bp.tug)) {
 			bp_complete();
 			return (0);
 		}

@@ -162,18 +162,30 @@ compute_segs(const vehicle_t *veh, vect2_t start_pos, double start_hdg,
 	return (2);
 }
 
+/*
+ * Computes the absolute position where the vehicle's fixed (rear) axle
+ * crosses its longitudinal axis. This is the starting point for all steering.
+ */
+static vect2_t
+veh_pos2fixed_axle(const vehicle_pos_t *pos, const vehicle_t *veh)
+{
+	return (vect2_add(pos->pos, vect2_scmul(hdg2dir(pos->hdg),
+	    veh->fixed_z_off)));
+}
+
 static void
 drive_on_line(const vehicle_pos_t *pos, const vehicle_t *veh,
     vect2_t line_start, double line_hdg, double speed, double arm_len,
     double steer_corr_amp, double *last_mis_hdg, double d_t,
     double *steer_out, double *speed_out)
 {
-	vect2_t c, s2c, align_s, dir_v;
+	vect2_t c, s2c, align_s, dir_v, fixed_pos;
 	double s2c_hdg, mis_hdg, steering_arm, turn_radius, ang_vel, rhdg;
 	double cur_hdg, steer, d_mis_hdg;
 	bool_t overcorrecting = B_FALSE;
 
 	cur_hdg = (speed >= 0 ? pos->hdg : normalize_hdg(pos->hdg + 180));
+	fixed_pos = veh_pos2fixed_axle(pos, veh);
 
 	/* Neutralize steering until we're traveling in our direction */
 	if ((speed < 0 && pos->spd > 0) || (speed > 0 && pos->spd < 0)) {
@@ -184,7 +196,7 @@ drive_on_line(const vehicle_pos_t *pos, const vehicle_t *veh,
 
 	/* this is the point we're tring to align */
 	steering_arm = MAX(arm_len, MIN_STEERING_ARM_LEN);
-	c = vect2_add(pos->pos, vect2_scmul(hdg2dir(cur_hdg), steering_arm));
+	c = vect2_add(fixed_pos, vect2_scmul(hdg2dir(cur_hdg), steering_arm));
 
 	/*
 	 * We project our position onto the ideal straight line. Limit the
@@ -193,7 +205,7 @@ drive_on_line(const vehicle_pos_t *pos, const vehicle_t *veh,
 	 */
 	dir_v = hdg2dir(line_hdg);
 	align_s = vect2_add(line_start, vect2_scmul(dir_v,
-	    vect2_dotprod(vect2_sub(pos->pos, line_start), dir_v)));
+	    vect2_dotprod(vect2_sub(fixed_pos, line_start), dir_v)));
 
 	/*
 	 * Calculate a direction vector pointing from s to c (or
@@ -361,6 +373,7 @@ straight_run_speed(const vehicle_t *veh, list_t *segs, double rmng_d,
 
 	return (spd);
 }
+
 static void
 turn_run(const vehicle_pos_t *pos, const vehicle_t *veh, const seg_t *seg,
     double *last_mis_hdg, double d_t, double speed, double *out_steer,
@@ -372,6 +385,8 @@ turn_run(const vehicle_pos_t *pos, const vehicle_t *veh, const seg_t *seg,
 	double hdg, cur_radial, start_radial, end_radial;
 	bool_t cw = ((seg->turn.right && !seg->backward) ||
 	    (!seg->turn.right && seg->backward));
+	vect2_t fixed_pos = veh_pos2fixed_axle(pos, veh);
+
 	/*
 	 * `c' is the center of the turn. Displace it at right angle to
 	 * start_hdg at start_pos by the turn radius.
@@ -379,7 +394,7 @@ turn_run(const vehicle_pos_t *pos, const vehicle_t *veh, const seg_t *seg,
 	vect2_t c = vect2_add(vect2_set_abs(vect2_norm(hdg2dir(start_hdg),
 	    seg->turn.right), seg->turn.r), seg->start_pos);
 
-	c2r = vect2_set_abs(vect2_sub(pos->pos, c), seg->turn.r);
+	c2r = vect2_set_abs(vect2_sub(fixed_pos, c), seg->turn.r);
 	cur_radial = dir2hdg(c2r);
 	r = vect2_add(c, c2r);
 	dir_v = vect2_norm(c2r, seg->turn.right);

@@ -32,6 +32,7 @@
 
 #include "bp.h"
 #include "msg.h"
+#include "tug.h"
 #include "xplane.h"
 
 #define BP_PLUGIN_NAME		"BetterPushback 1.0"
@@ -195,12 +196,15 @@ XPluginStart(char *name, char *sig, char *desc)
 	stop_cam = XPLMCreateCommand("BetterPushback/stop_planner",
 	    "Stop BetterPushback planner");
 
+	tug_glob_init();
+
 	return (1);
 }
 
 PLUGIN_API void
 XPluginStop(void)
 {
+	tug_glob_fini();
 }
 
 PLUGIN_API void

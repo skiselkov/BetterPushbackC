@@ -16,29 +16,35 @@
  * Copyright 2017 Saso Kiselkov. All rights reserved.
  */
 
-#ifndef	_TRUCK_H_
-#define	_TRUCK_H_
+#ifndef	_TUG_H_
+#define	_TUG_H_
 
 #include <XPLMScenery.h>
+
+#include <acfutils/dr.h>
 #include <acfutils/geom.h>
 #include <acfutils/wav.h>
 
-#include "dr.h"
 #include "driving.h"
 
 #ifdef	__cplusplus
 extern "C" {
 #endif
 
-#define	PB_TRUCK_CONN_OFFSET	2
+#define	PB_TUG_CONN_OFFSET	2
+
+typedef struct tug_info_s tug_info_t;
 
 typedef struct {
 	vehicle_pos_t	pos;
 	vehicle_t	veh;
 	double		cur_steer;
 	double		last_mis_hdg;
-	double		fixed_offset;	/* fixed wheel Z offset from CG */
-	XPLMObjectRef	obj;
+
+	XPLMObjectRef	tug, front, rear;
+	double		front_phi, rear_phi;	/* tire roll angle, degrees */
+
+	tug_info_t	*info;
 
 	bool_t		engine_snd_playing;
 	float		pitch;
@@ -62,25 +68,29 @@ typedef struct {
 	dr_t		ext_vol;
 
 	unsigned	num_cockpit_window_drs;
-	dr_t		*cockpit_window_drs;
+	dr_t		cockpit_window_drs[2];
 
 	list_t		segs;
-} truck_t;
+} tug_t;
 
-void truck_create(truck_t *truck, vect2_t pos, double hdg);
-void truck_destroy(truck_t *truck);
+void tug_glob_init(void);
+void tug_glob_fini(void);
 
-bool_t truck_drive2point(truck_t *truck, vect2_t dst, double hdg);
-void truck_run(truck_t *truck, double d_t);
-void truck_draw(truck_t *truck, double cur_t);
-void truck_set_TE_snd(truck_t *truck, double TE_fract);
-void truck_set_cradle_air_on(truck_t *truck, bool_t flag, double cur_t);
-void truck_set_cradle_beeper_on(truck_t *truck, bool_t flag);
+bool_t tug_create(tug_t *tug, double mtow, double ng_len, const char *arpt,
+    vect2_t pos, double hdg);
+void tug_destroy(tug_t *tug);
 
-bool_t truck_is_stopped(const truck_t *truck);
+bool_t tug_drive2point(tug_t *tug, vect2_t dst, double hdg);
+void tug_run(tug_t *tug, double d_t);
+void tug_draw(tug_t *tug, double cur_t, double d_t);
+void tug_set_TE_snd(tug_t *tug, double TE_fract);
+void tug_set_cradle_air_on(tug_t *tug, bool_t flag, double cur_t);
+void tug_set_cradle_beeper_on(tug_t *tug, bool_t flag);
+
+bool_t tug_is_stopped(const tug_t *tug);
 
 #ifdef	__cplusplus
 }
 #endif
 
-#endif	/* _TRUCK_H_ */
+#endif	/* _TUG_H_ */

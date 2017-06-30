@@ -17,11 +17,11 @@
  */
 
 #include <acfutils/assert.h>
+#include <acfutils/dr.h>
 #include <acfutils/helpers.h>
 #include <acfutils/log.h>
 #include <acfutils/wav.h>
 
-#include "dr.h"
 #include "msg.h"
 #include "xplane.h"
 
@@ -67,8 +67,8 @@ msg_init(void)
 		free(path);
 	}
 
-	dr_init(&sound_on, "sim/operation/sound/sound_on");
-	dr_init(&radio_vol, "sim/operation/sound/radio_volume_ratio");
+	fdr_find(&sound_on, "sim/operation/sound/sound_on");
+	fdr_find(&radio_vol, "sim/operation/sound/radio_volume_ratio");
 
 	inited = B_TRUE;
 

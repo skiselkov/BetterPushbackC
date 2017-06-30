@@ -85,20 +85,27 @@ typedef struct {
 	list_node_t	node;
 } seg_t;
 
+/*
+ * Current position, orientation & velocity of vehicle.
+ */
 typedef struct {
-	vect2_t	pos;
-	double	hdg;
-	double	spd;
+	vect2_t	pos;		/* centerpoint position, world coords, meters */
+	double	hdg;		/* true heading, world coords, degrees */
+	double	spd;		/* forward speed, m/s, neg when reversing */
 } vehicle_pos_t;
 
+/*
+ * Vehicle capability description. Used when determining steering commands.
+ */
 typedef struct {
-	double	wheelbase;
-	double	max_steer;
-	double	max_fwd_spd;
-	double	max_rev_spd;
-	double	max_ang_vel;
-	double	max_accel;
-	double	max_decel;
+	double	wheelbase;	/* distance from front to rear axle, meters */
+	double	fixed_z_off;	/* long offset of rear axle from pos, meters */
+	double	max_steer;	/* max steer angle, degrees */
+	double	max_fwd_spd;	/* max forward speed, m/s */
+	double	max_rev_spd;	/* max rev speed, m/s */
+	double	max_ang_vel;	/* max turn angular velocity, deg/s */
+	double	max_accel;	/* max acceleration, m/s^2 */
+	double	max_decel;	/* max deceleration, m/s^2 */
 } vehicle_t;
 
 int compute_segs(const vehicle_t *veh, vect2_t start_pos, double start_hdg,
