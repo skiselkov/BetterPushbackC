@@ -22,7 +22,6 @@
 
 #include <XPLMPlugin.h>
 
-#include <acfutils/avl.h>
 #include <acfutils/assert.h>
 #include <acfutils/helpers.h>
 #include <acfutils/math.h>
@@ -31,11 +30,12 @@
 #include "tug.h"
 #include "xplane.h"
 
-#define	TUG_MAX_STEER		60
-#define	TUG_STEER_RATE		60	/* deg/s */
+#define	TUG_STEER_RATE		20	/* deg/s */
 
-#define	TUG_MAX_SPD		1	/* m/s */
-#define	TUG_MAX_ANG_VEL	20	/* deg/s */
+#define	TUG_MAX_ANG_VEL		20	/* deg/s */
+
+#define	TUG_MAX_FWD_SPD		6	/* m/s */
+#define	TUG_MAX_REV_SPD		3	/* m/s */
 #define	TUG_MAX_ACCEL		1	/* m/s^2 */
 #define	TUG_MAX_DECEL		0.5	/* m/s^2 */
 
@@ -51,27 +51,6 @@ static dr_t front_drive_anim_dr, front_steer_anim_dr;
 static dr_t rear_drive_anim_dr;
 
 static bool_t inited = B_FALSE;
-
-struct tug_info_s {
-	char	*tug;		/* main OBJ */
-	char	*front_wheel;	/* front wheels OBJ */
-	vect3_t	front_pos;	/* meters */
-	double	front_radius;	/* meters */
-	char	*rear_wheel;	/* rear wheels OBJ */
-	vect3_t	rear_pos;	/* meters */
-	double	rear_radius;	/* meters */
-	double	height;		/* meters */
-	double	min_mtow;	/* kg */
-	double	max_mtow;	/* kg */
-	double	min_ng_len;	/* meters */
-	char	*arpt;		/* airport ICAO */
-	char	*engine_snd;	/* engine noise WAV */
-	char	*air_snd;	/* air release sound WAV */
-	char	*beeper_snd;	/* bepper sound WAV */
-	int	sort_rand;	/* random sorting number */
-
-	avl_node_t	node;
-};
 
 /*
  * Tug info ordering function for avl_tree_t.
@@ -100,8 +79,6 @@ static void
 tug_info_free(tug_info_t *ti)
 {
 	free(ti->tug);
-	free(ti->front_wheel);
-	free(ti->rear_wheel);
 	free(ti->arpt);
 	free(ti->engine_snd);
 	free(ti->air_snd);
@@ -125,8 +102,15 @@ tug_info_read(const char *tugdir)
 	}
 
 	ti = calloc(1, sizeof (*ti));
-	ti->front_pos = NULL_VECT3;
-	ti->rear_pos = NULL_VECT3;
+	ti->front_z = NAN;
+	ti->rear_z = NAN;
+	ti->lift_z = NAN;
+
+	/* set some defaults */
+	ti->max_fwd_speed = TUG_MAX_FWD_SPD;
+	ti->max_rev_speed = TUG_MAX_REV_SPD;
+	ti->max_accel = TUG_MAX_ACCEL;
+	ti->max_decel = TUG_MAX_DECEL;
 
 	while (!feof(fp)) {
 		if (fscanf(fp, "%255s", option) != 1)
@@ -137,6 +121,12 @@ tug_info_read(const char *tugdir)
 			continue;
 		}
 
+#if	IBM
+#define	FIX_PATHSEP(x)	fix_pathsep(x)
+#else	/* !IBM */
+#define	FIX_PATHSEP(x)
+#endif	/* !IBM */
+
 #define	READ_FILENAME(optname, result) \
 	do { \
 		bool_t isdir; \
@@ -145,6 +135,8 @@ tug_info_read(const char *tugdir)
 			    "string following '" optname "'", cfgfilename); \
 			goto errout; \
 		} \
+		FIX_PATHSEP(arg); \
+		unescape_percent(arg); \
 		(result) = mkpathname(tugdir, arg, NULL); \
 		if (!file_exists((result), &isdir) || isdir) { \
 			logMsg("Malformed tug config file %s: '%s' not " \
@@ -164,34 +156,36 @@ tug_info_read(const char *tugdir)
 
 		if (strcmp(option, "tug_obj") == 0) {
 			READ_FILENAME("tug_obj", ti->tug);
-		} else if (strcmp(option, "front_wheel_obj") == 0) {
-			READ_FILENAME("front_wheel_obj", ti->front_wheel);
-		} else if (strcmp(option, "front_x") == 0) {
-			READ_REAL("front_x", &ti->front_pos.x);
-		} else if (strcmp(option, "front_y") == 0) {
-			READ_REAL("front_y", &ti->front_pos.y);
+		} else if (strcmp(option, "max_steer") == 0) {
+			READ_REAL("max_steer", &ti->max_steer);
+		} else if (strcmp(option, "max_fwd_speed") == 0) {
+			READ_REAL("max_fwd_speed", &ti->max_fwd_speed);
+		} else if (strcmp(option, "max_rev_speed") == 0) {
+			READ_REAL("max_rev_speed", &ti->max_rev_speed);
+		} else if (strcmp(option, "max_accel") == 0) {
+			READ_REAL("max_accel", &ti->max_accel);
+		} else if (strcmp(option, "max_decel") == 0) {
+			READ_REAL("max_decel", &ti->max_decel);
 		} else if (strcmp(option, "front_z") == 0) {
-			READ_REAL("front_z", &ti->front_pos.z);
+			READ_REAL("front_z", &ti->front_z);
 		} else if (strcmp(option, "front_r") == 0) {
 			READ_REAL("front_r", &ti->front_radius);
-		} else if (strcmp(option, "rear_wheel_obj") == 0) {
-			READ_FILENAME("rear_wheel_obj", ti->rear_wheel);
-		} else if (strcmp(option, "rear_x") == 0) {
-			READ_REAL("rear_x", &ti->rear_pos.x);
-		} else if (strcmp(option, "rear_y") == 0) {
-			READ_REAL("rear_y", &ti->rear_pos.y);
 		} else if (strcmp(option, "rear_z") == 0) {
-			READ_REAL("rear_z", &ti->rear_pos.z);
+			READ_REAL("rear_z", &ti->rear_z);
 		} else if (strcmp(option, "rear_r") == 0) {
 			READ_REAL("rear_r", &ti->rear_radius);
+		} else if (strcmp(option, "lift_z") == 0) {
+			READ_REAL("lift_z", &ti->lift_z);
 		} else if (strcmp(option, "height") == 0) {
 			READ_REAL("height", &ti->height);
 		} else if (strcmp(option, "min_mtow") == 0) {
 			READ_REAL("min_mtow", &ti->min_mtow);
 		} else if (strcmp(option, "max_mtow") == 0) {
 			READ_REAL("max_mtow", &ti->max_mtow);
-		} else if (strcmp(option, "min_ng_len") == 0) {
-			READ_REAL("min_ng_len", &ti->min_ng_len);
+		} else if (strcmp(option, "min_nlg_len") == 0) {
+			READ_REAL("min_nlg_len", &ti->min_nlg_len);
+		} else if (strcmp(option, "lift_height") == 0) {
+			READ_REAL("lift_height", &ti->lift_height);
 		} else if (strcmp(option, "arpt") == 0) {
 			READ_FILENAME("arpt", ti->arpt);
 		} else if (strcmp(option, "engine_snd") == 0) {
@@ -207,6 +201,7 @@ tug_info_read(const char *tugdir)
 		}
 #undef	READ_REAL
 #undef	READ_FILENAME
+#undef	FIX_PATHSEP
 	}
 
 #define	VALIDATE_TUG(cond, optname) \
@@ -226,23 +221,24 @@ tug_info_read(const char *tugdir)
 	VALIDATE_TUG(isnan(field), (optname))
 
 	VALIDATE_TUG_STR(ti->tug, "tug_obj");
-	VALIDATE_TUG_STR(ti->front_wheel, "front_wheel_obj");
-	VALIDATE_TUG_REAL_NAN(ti->front_pos.x, "front_x");
-	VALIDATE_TUG_REAL_NAN(ti->front_pos.y, "front_y");
-	VALIDATE_TUG_REAL_NAN(ti->front_pos.z, "front_z");
+	VALIDATE_TUG_REAL(ti->max_fwd_speed, "max_fwd_speed");
+	VALIDATE_TUG_REAL(ti->max_rev_speed, "max_rev_speed");
+	VALIDATE_TUG_REAL(ti->max_accel, "max_accel");
+	VALIDATE_TUG_REAL(ti->max_decel, "max_decel");
+	VALIDATE_TUG_REAL(ti->max_steer, "max_steer");
+	VALIDATE_TUG_REAL_NAN(ti->front_z, "front_z");
 	VALIDATE_TUG_REAL(ti->front_radius, "front_r");
-	VALIDATE_TUG_STR(ti->rear_wheel, "rear_wheel_obj");
-	VALIDATE_TUG_REAL_NAN(ti->rear_pos.x, "rear_x");
-	VALIDATE_TUG_REAL_NAN(ti->rear_pos.y, "rear_y");
-	VALIDATE_TUG_REAL_NAN(ti->rear_pos.z, "rear_z");
+	VALIDATE_TUG_REAL_NAN(ti->rear_z, "rear_z");
 	VALIDATE_TUG_REAL(ti->rear_radius, "rear_r");
+	VALIDATE_TUG_REAL_NAN(ti->lift_z, "lift_z");
 	VALIDATE_TUG_REAL(ti->max_mtow, "max_mtow");
 	if (ti->min_mtow >= ti->max_mtow) {
 		logMsg("Malformed tug config file %s: min_mtow >= max_mtow",
 		    cfgfilename);
 		goto errout;
 	}
-	VALIDATE_TUG_REAL(ti->min_ng_len, "min_ng_len");
+	VALIDATE_TUG_REAL(ti->min_nlg_len, "min_nlg_len");
+	VALIDATE_TUG_REAL(ti->lift_height, "lift_height");
 	VALIDATE_TUG_STR(ti->engine_snd, "engine_snd");
 
 #undef	VALIDATE_TUG_STR
@@ -302,13 +298,8 @@ tug_info_select(double mtow, double ng_len, const char *arpt)
 		 * 5) if the caller provided an airport identifier and the
 		 *	tug is airport-specific, then the airport ID matches
 		 */
-		if (ti != NULL) {
-			logMsg("max_mtow: %.0f min_mtow: %.0f min_ng: %.2f "
-			    "mtow: %.0f ng: %.2f", ti->max_mtow, ti->min_mtow,
-			    ti->min_ng_len, mtow, ng_len);
-		}
 		if (ti != NULL && ti->min_mtow <= mtow &&
-		    mtow <= ti->max_mtow && ti->min_ng_len <= ng_len &&
+		    mtow <= ti->max_mtow && ti->min_nlg_len <= ng_len &&
 		    (arpt == NULL || ti->arpt == NULL ||
 		    strcmp(arpt, ti->arpt) == 0)) {
 			avl_add(&tis, ti);
@@ -372,32 +363,20 @@ tug_create(tug_t *tug, double mtow, double ng_len, const char *arpt,
 	tug->pos.pos = pos;
 	tug->pos.hdg = hdg;
 
-	tug->veh.wheelbase = fabs(tug->info->front_pos.z -
-	    tug->info->rear_pos.z);
-	tug->veh.fixed_z_off = tug->info->rear_pos.z;
-	tug->veh.max_steer = TUG_MAX_STEER;
-	tug->veh.max_fwd_spd = TUG_MAX_SPD;
-	tug->veh.max_rev_spd = TUG_MAX_SPD;
+	tug->veh.wheelbase = fabs(tug->info->front_z - tug->info->rear_z);
+	tug->veh.fixed_z_off = tug->info->rear_z;
+	tug->veh.max_steer = tug->info->max_steer;
+	tug->veh.max_fwd_spd = tug->info->max_fwd_speed;
+	tug->veh.max_rev_spd = tug->info->max_rev_speed;
 	tug->veh.max_ang_vel = TUG_MAX_ANG_VEL;
-	tug->veh.max_accel = TUG_MAX_ACCEL;
-	tug->veh.max_decel = TUG_MAX_DECEL;
+	tug->veh.max_accel = tug->info->max_accel;
+	tug->veh.max_decel = tug->info->max_decel;
 
 	tug->tug = XPLMLoadObject(tug->info->tug);
 	if (tug->tug == NULL) {
 		logMsg("Error loading tug object %s", tug->info->tug);
 		goto errout;
 	}
-
-/*	tug->front = XPLMLoadObject(tug->info->front_wheel);
-	if (tug->front == NULL) {
-		logMsg("Error loading tug object %s", tug->info->front_wheel);
-		goto errout;
-	}
-	tug->rear = XPLMLoadObject(tug->info->rear_wheel);
-	if (tug->rear == NULL) {
-		logMsg("Error loading tug object %s", tug->info->rear_wheel);
-		goto errout;
-	}*/
 
 	tug->engine_snd = wav_load(tug->info->engine_snd, "tug_engine");
 	if (tug->engine_snd == NULL) {
@@ -544,7 +523,7 @@ tug_run(tug_t *tug, double d_t)
 	radius = tan(DEG2RAD(90 - tug->cur_steer)) * tug->veh.wheelbase;
 	if (radius > -1e3 && radius < 1e3) {
 		double d_hdg = RAD2DEG((tug->pos.spd / radius) * d_t);
-		vect2_t p2c = VECT2(radius, tug->info->rear_pos.z);
+		vect2_t p2c = VECT2(radius, tug->info->rear_z);
 		vect2_t c2np = vect2_rot(vect2_neg(p2c), d_hdg);
 		vect2_t d_pos = vect2_rot(vect2_add(p2c, c2np), tug->pos.hdg);
 		tug->pos.pos = vect2_add(tug->pos.pos, d_pos);
@@ -555,7 +534,7 @@ tug_run(tug_t *tug, double d_t)
 		    tug->pos.spd * d_t));
 	}
 
-	tug_set_TE_snd(tug, (ABS(tug->pos.spd) / TUG_MAX_SPD) / 2);
+	tug_set_TE_snd(tug, (ABS(tug->pos.spd) / tug->info->max_fwd_speed) / 2);
 
 	front_steer_anim = (tug->cur_steer / (2 * tug->veh.max_steer)) + 0.5;
 }

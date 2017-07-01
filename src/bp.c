@@ -75,10 +75,8 @@
 #define	PB_CONN_DELAY		25.0	/* seconds */
 #define	PB_CONN_LIFT_DELAY	13.0	/* seconds */
 #define	PB_CONN_LIFT_DURATION	9.0	/* seconds */
-#define	PB_CONN_LIFT_LEN	0.3	/* meters */
 #define	PB_START_DELAY		5	/* seconds */
 #define	PB_DRIVING_TURN_OFFSET	15	/* meters */
-#define	PB_DRIVE_UP_OFFSET	5.25	/* meters */
 #define	PB_LIFT_TE_RAMP_UP	0.5	/* seconds */
 #define	PB_LIFT_TE		0.075	/* fraction */
 
@@ -613,7 +611,7 @@ bp_run(void)
 		right_off = vect2_add(right_off, vect2_scmul(vect2_norm(
 		    dir, B_TRUE), PB_DRIVING_TURN_OFFSET));
 		p_end = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-		    (-bp.acf.nw_z) + PB_DRIVE_UP_OFFSET));
+		    (-bp.acf.nw_z) - bp.tug.info->lift_z));
 
 		VERIFY(tug_drive2point(&bp.tug, right_off,
 		    normalize_hdg(bp.cur_pos.hdg + 90)));
@@ -679,10 +677,10 @@ bp_run(void)
 		dr_setf(&drs.rbrake, 0.9);
 
 		/* Iterate the lift */
-		lift = PB_CONN_LIFT_LEN * ((d_t - PB_CONN_LIFT_DELAY) /
+		lift = bp.tug.info->lift_height * ((d_t - PB_CONN_LIFT_DELAY) /
 		    PB_CONN_LIFT_DURATION);
 		lift = MAX(lift, 0);
-		lift = MIN(lift, PB_CONN_LIFT_LEN);
+		lift = MIN(lift, bp.tug.info->lift_height);
 		lift += bp.acf.nw_len;
 		dr_setvf(&drs.leg_len, &lift, 0, 1);
 
@@ -783,10 +781,10 @@ bp_run(void)
 		}
 
 		/* Iterate the lift */
-		lift = PB_CONN_LIFT_LEN * ((rmng_t - PB_CONN_LIFT_DELAY) /
-		    PB_CONN_LIFT_DURATION);
+		lift = bp.tug.info->lift_height * ((rmng_t -
+		    PB_CONN_LIFT_DELAY) / PB_CONN_LIFT_DURATION);
 		lift = MAX(lift, 0);
-		lift = MIN(lift, PB_CONN_LIFT_LEN);
+		lift = MIN(lift, bp.tug.info->lift_height);
 		lift += bp.acf.nw_len;
 		dr_setvf(&drs.leg_len, &lift, 0, 1);
 
@@ -805,7 +803,7 @@ bp_run(void)
 			 * 1x wheelbase to the right
 			 */
 			p = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-			    -bp.acf.nw_z + PB_DRIVE_UP_OFFSET));
+			    -bp.acf.nw_z - bp.tug.info->lift_z));
 
 			(void) tug_drive2point(&bp.tug, p, bp.cur_pos.hdg);
 

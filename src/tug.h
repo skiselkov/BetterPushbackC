@@ -21,6 +21,7 @@
 
 #include <XPLMScenery.h>
 
+#include <acfutils/avl.h>
 #include <acfutils/dr.h>
 #include <acfutils/geom.h>
 #include <acfutils/wav.h>
@@ -33,7 +34,42 @@ extern "C" {
 
 #define	PB_TUG_CONN_OFFSET	2
 
-typedef struct tug_info_s tug_info_t;
+typedef struct {
+	char	*tug;		/* main OBJ */
+
+	double	max_steer;	/* max steering deflection, degrees */
+	double	max_fwd_speed;	/* m/s */
+	double	max_rev_speed;	/* m/s */
+	double	max_accel;	/* m/s^2 */
+	double	max_decel;	/* m/s^2 */
+
+	/*
+	 * Axle & wheel parameters. 'z' is the offset from the origin point
+	 * along the vehicle's long axis in meters, forward being positive.
+	 * 'radius' is the wheel radius in meters.
+	 */
+	double	front_z;	/* meters */
+	double	front_radius;	/* meters */
+	double	rear_z;		/* meters */
+	double	rear_radius;	/* meters */
+	double	lift_z;
+
+	double	lift_height;	/* how high we lift the acf nose gear, meters */
+
+	double	height;		/* origin point height above ground, meters */
+	double	min_mtow;	/* min allowable acf MTOW, kg */
+	double	max_mtow;	/* max allowable acf MTOW, kg */
+	double	min_nlg_len;	/* min acf nose landing gear length, meters */
+	char	*arpt;		/* airport ICAO */
+
+	char	*engine_snd;	/* engine noise WAV */
+	char	*air_snd;	/* air release sound WAV */
+	char	*beeper_snd;	/* bepper sound WAV */
+
+	int	sort_rand;	/* random sorting number */
+
+	avl_node_t	node;
+} tug_info_t;
 
 typedef struct {
 	vehicle_pos_t	pos;

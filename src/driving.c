@@ -33,7 +33,7 @@
 #define	SEG_TURN_MULT		0.9	/* leave 10% for oversteer */
 #define	SPEED_COMPLETE_THRESH	0.05	/* m/s */
 #define	MIN_TURN_RADIUS		1.5	/* in case the aircraft is tiny */
-#define	MIN_STEERING_ARM_LEN	2	/* meters */
+#define	MIN_STEERING_ARM_LEN	4	/* meters */
 #define	HARD_STEER_ANGLE	10	/* degrees */
 #define	MAX_OFF_PATH_ANGLE	35	/* degrees */
 #define	STEERING_SENSITIVE	90	/* degrees */
