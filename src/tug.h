@@ -32,8 +32,6 @@
 extern "C" {
 #endif
 
-#define	PB_TUG_CONN_OFFSET	2
-
 typedef struct {
 	char	*tug;		/* main OBJ */
 
@@ -52,7 +50,7 @@ typedef struct {
 	double	front_radius;	/* meters */
 	double	rear_z;		/* meters */
 	double	rear_radius;	/* meters */
-	double	lift_z;
+	double	lift_z;		/* lift position long offset, meters */
 
 	double	lift_height;	/* how high we lift the acf nose gear, meters */
 
@@ -68,6 +66,9 @@ typedef struct {
 
 	int	sort_rand;	/* random sorting number */
 
+	bool_t	anim_debug;	/* animation debugging active */
+	bool_t	drive_debug;	/* driving debugging active */
+
 	avl_node_t	node;
 } tug_info_t;
 
@@ -77,7 +78,7 @@ typedef struct {
 	double		cur_steer;
 	double		last_mis_hdg;
 
-	XPLMObjectRef	tug, front, rear;
+	XPLMObjectRef	tug;
 	double		front_phi, rear_phi;	/* tire roll angle, degrees */
 
 	tug_info_t	*info;
@@ -112,18 +113,25 @@ typedef struct {
 void tug_glob_init(void);
 void tug_glob_fini(void);
 
-bool_t tug_create(tug_t *tug, double mtow, double ng_len, const char *arpt,
-    vect2_t pos, double hdg);
-void tug_destroy(tug_t *tug);
+tug_t *tug_alloc(double mtow, double ng_len, const char *arpt);
+void tug_free(tug_t *tug);
 
+void tug_set_pos(tug_t *tug, vect2_t pos, double hdg, double spd);
 bool_t tug_drive2point(tug_t *tug, vect2_t dst, double hdg);
 void tug_run(tug_t *tug, double d_t);
 void tug_draw(tug_t *tug, double cur_t, double d_t);
 void tug_set_TE_snd(tug_t *tug, double TE_fract);
 void tug_set_cradle_air_on(tug_t *tug, bool_t flag, double cur_t);
 void tug_set_cradle_beeper_on(tug_t *tug, bool_t flag);
+void tug_set_steering(tug_t *tug, double steer, double d_t);
 
 bool_t tug_is_stopped(const tug_t *tug);
+
+void tug_set_lift_pos(float x);
+void tug_set_lift_arm_pos(float x);
+void tug_set_lift_bowl_pos(float x);
+void tug_set_cradle_lights_on(bool_t flag);
+void tug_set_hazard_lights_on(bool_t flag);
 
 #ifdef	__cplusplus
 }

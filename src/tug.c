@@ -20,6 +20,7 @@
 #include <string.h>
 #include <stddef.h>
 
+#include <XPLMUtilities.h>
 #include <XPLMPlugin.h>
 
 #include <acfutils/assert.h>
@@ -39,18 +40,31 @@
 #define	TUG_MAX_ACCEL		1	/* m/s^2 */
 #define	TUG_MAX_DECEL		0.5	/* m/s^2 */
 
+#define	TUG_MIN_WHEELBASE	5	/* meters */
+
 #define	TUG_SND_MAX_DIST	15	/* meters */
 #define	VOLUME_INSIDE_MODIFIER	0.2
 
 #define	TUG_CRADLE_CHG_D_T	0.5
 #define	TUG_CRADLE_AIR_MOD	0.5
+#define	TUG_HAZARD_REV_PER_SEC	2	/* revolutions per second of beacon */
 
 static float front_drive_anim = 0, front_steer_anim = 0.5;
 static float rear_drive_anim = 0;
+static float lift_anim = 0, lift_arm_anim = 0, lift_bowl_anim = 0;
+static float cradle_lights = 0, reverse_lights = 0;
+static float hazard_lights_anim = 0, hazard_lights = 0;
+
 static dr_t front_drive_anim_dr, front_steer_anim_dr;
 static dr_t rear_drive_anim_dr;
+static dr_t lift_anim_dr, lift_arm_anim_dr, lift_bowl_anim_dr;
+static dr_t cradle_lights_dr, reverse_lights_dr;
+static dr_t hazard_lights_anim_dr, hazard_lights_dr;
 
 static bool_t inited = B_FALSE;
+
+static tug_t *glob_tug = NULL;
+static XPLMCommandRef tug_reload_cmd;
 
 /*
  * Tug info ordering function for avl_tree_t.
@@ -194,6 +208,12 @@ tug_info_read(const char *tugdir)
 			READ_FILENAME("air_snd", ti->air_snd);
 		} else if (strcmp(option, "beeper_snd") == 0) {
 			READ_FILENAME("beeper_snd", ti->beeper_snd);
+		} else if (strcmp(option, "anim_debug") == 0) {
+			logMsg("Animation debugging active on %s", tugdir);
+			ti->anim_debug = B_TRUE;
+		} else if (strcmp(option, "drive_debug") == 0) {
+			logMsg("Driving debugging active on %s", tugdir);
+			ti->drive_debug = B_TRUE;
 		} else {
 			logMsg("Malformed tug config file %s: unknown "
 			    "option '%s'", cfgfilename, option);
@@ -281,7 +301,6 @@ tug_info_select(double mtow, double ng_len, const char *arpt)
 	while ((de = readdir(dirp)) != NULL) {
 		const char *dot;
 		char *tugpath;
-		tug_info_t *ti;
 
 		if ((dot = strrchr(de->d_name, '.')) == NULL ||
 		    strcmp(&dot[1], "tug") != 0)
@@ -289,6 +308,11 @@ tug_info_select(double mtow, double ng_len, const char *arpt)
 
 		tugpath = mkpathname(tugdir, de->d_name, NULL);
 		ti = tug_info_read(tugpath);
+		/* The animation debug flag means we always pick this tug. */
+		if (ti->anim_debug) {
+			free(tugpath);
+			goto out;
+		}
 		/*
 		 * A tug matches our selection criteria iff:
 		 * 1) it could be read AND
@@ -311,12 +335,29 @@ tug_info_select(double mtow, double ng_len, const char *arpt)
 	ti = avl_first(&tis);
 	if (ti != NULL)
 		avl_remove(&tis, ti);
-
+out:
 	while ((ti_oth = avl_destroy_nodes(&tis, &cookie)) != NULL)
 		tug_info_free(ti_oth);
 	avl_destroy(&tis);
 
 	return (ti);
+}
+
+static int
+reload_tug_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
+{
+	UNUSED(cmd);
+	UNUSED(refcon);
+	if (phase != xplm_CommandEnd)
+		return (1);
+
+	if (glob_tug != NULL) {
+		XPLMUnloadObject(glob_tug->tug);
+		glob_tug->tug = XPLMLoadObject(glob_tug->info->tug);
+		VERIFY(glob_tug->tug != NULL);
+	}
+
+	return (1);
 }
 
 void
@@ -329,6 +370,24 @@ tug_glob_init(void)
 	    "bp/anim/front_steer");
 	dr_create_f(&rear_drive_anim_dr, &rear_drive_anim, B_FALSE,
 	    "bp/anim/rear_drive");
+	dr_create_f(&lift_anim_dr, &lift_anim, B_FALSE, "bp/anim/lift");
+	dr_create_f(&lift_arm_anim_dr, &lift_arm_anim, B_FALSE,
+	    "bp/anim/lift_arm");
+	dr_create_f(&lift_bowl_anim_dr, &lift_bowl_anim, B_FALSE,
+	    "bp/anim/lift_bowl");
+	dr_create_f(&cradle_lights_dr, &cradle_lights, B_FALSE,
+	    "bp/anim/cradle_lights");
+	dr_create_f(&reverse_lights_dr, &reverse_lights, B_FALSE,
+	    "bp/anim/reverse_lights");
+	dr_create_f(&hazard_lights_anim_dr, &hazard_lights_anim, B_FALSE,
+	    "bp/anim/hazard_lights_anim");
+	dr_create_f(&hazard_lights_dr, &hazard_lights, B_FALSE,
+	    "bp/anim/hazard_lights");
+
+	tug_reload_cmd = XPLMCreateCommand("BetterPushback/reload_tug",
+            "Reload tug");
+	XPLMRegisterCommandHandler(tug_reload_cmd, reload_tug_handler, 1, NULL);
+
 	inited = B_TRUE;
 }
 
@@ -340,17 +399,25 @@ tug_glob_fini(void)
 	dr_delete(&front_drive_anim_dr);
 	dr_delete(&front_steer_anim_dr);
 	dr_delete(&rear_drive_anim_dr);
+	dr_delete(&lift_anim_dr);
+	dr_delete(&lift_arm_anim_dr);
+	dr_delete(&lift_bowl_anim_dr);
+	dr_delete(&cradle_lights_dr);
+	dr_delete(&reverse_lights_dr);
+	dr_delete(&hazard_lights_anim_dr);
+	dr_delete(&hazard_lights_dr);
+
 	inited = B_FALSE;
 }
 
-bool_t
-tug_create(tug_t *tug, double mtow, double ng_len, const char *arpt,
-    vect2_t pos, double hdg)
+tug_t *
+tug_alloc(double mtow, double ng_len, const char *arpt)
 {
+	tug_t *tug;
+
 	VERIFY(inited);
 
-	memset(tug, 0, sizeof (*tug));
-
+	tug = calloc(1, sizeof (*tug));
 	list_create(&tug->segs, sizeof (seg_t), offsetof(seg_t, node));
 
 	/* Select a matching tug from our repertoire */
@@ -360,10 +427,8 @@ tug_create(tug_t *tug, double mtow, double ng_len, const char *arpt,
 
 	tug->info = tug->info;
 
-	tug->pos.pos = pos;
-	tug->pos.hdg = hdg;
-
 	tug->veh.wheelbase = fabs(tug->info->front_z - tug->info->rear_z);
+	tug->veh.wheelbase = MIN(tug->veh.wheelbase, TUG_MIN_WHEELBASE);
 	tug->veh.fixed_z_off = tug->info->rear_z;
 	tug->veh.max_steer = tug->info->max_steer;
 	tug->veh.max_fwd_spd = tug->info->max_fwd_speed;
@@ -386,7 +451,7 @@ tug_create(tug_t *tug, double mtow, double ng_len, const char *arpt,
 	wav_set_loop(tug->engine_snd, B_TRUE);
 
 	if (tug->info->engine_snd != NULL) {
-		tug->air_snd = wav_load(tug->info->engine_snd, "tug_air");
+		tug->air_snd = wav_load(tug->info->air_snd, "tug_air");
 		if (tug->air_snd == NULL) {
 			logMsg("Error loading tug sound %s",
 			    tug->info->engine_snd);
@@ -425,22 +490,31 @@ tug_create(tug_t *tug, double mtow, double ng_len, const char *arpt,
 		tug->num_cockpit_window_drs = 2;
 	}
 
-	return (B_TRUE);
+	/*
+	 * Initial lift position is:
+	 * 1) lift in bottom position
+	 * 2) arms fully closed
+	 * 3) bowl in the upper position
+	 */
+	lift_anim = 0;
+	lift_arm_anim = 1;
+	lift_bowl_anim = 0;
 
+	glob_tug = tug;
+
+	return (tug);
 errout:
-	tug_destroy(tug);
-	return (B_FALSE);
+	tug_free(tug);
+	return (NULL);
 }
 
 void
-tug_destroy(tug_t *tug)
+tug_free(tug_t *tug)
 {
 	seg_t *seg;
 
-	while ((seg = list_head(&tug->segs)) != NULL) {
-		list_remove_head(&tug->segs);
+	while ((seg = list_remove_head(&tug->segs)) != NULL)
 		free(seg);
-	}
 	list_destroy(&tug->segs);
 
 	if (tug->info != NULL)
@@ -448,10 +522,6 @@ tug_destroy(tug_t *tug)
 
 	if (tug->tug != NULL)
 		XPLMUnloadObject(tug->tug);
-	if (tug->front != NULL)
-		XPLMUnloadObject(tug->front);
-	if (tug->rear != NULL)
-		XPLMUnloadObject(tug->rear);
 
 	if (tug->engine_snd != NULL) {
 		wav_stop(tug->engine_snd);
@@ -466,7 +536,22 @@ tug_destroy(tug_t *tug)
 		wav_free(tug->beeper_snd);
 	}
 
-	memset(tug, 0, sizeof (*tug));
+	free(tug);
+	glob_tug = NULL;
+}
+
+void
+tug_set_pos(tug_t *tug, vect2_t pos, double hdg, double spd)
+{
+	seg_t *seg;
+
+	tug->pos.pos = pos;
+	tug->pos.hdg = hdg;
+	tug->pos.spd = spd;
+
+	/* flush any driving segments as those will have been invalidated */
+	while ((seg = list_remove_head(&tug->segs)) != NULL)
+		free(seg);
 }
 
 bool_t
@@ -495,16 +580,20 @@ tug_run(tug_t *tug, double d_t)
 	double steer = 0, speed = 0;
 	double accel, turn, radius;
 
-	if (!tug->engine_snd_playing) {
-		wav_play(tug->engine_snd);
-		tug->engine_snd_playing = B_TRUE;
-	}
-
 	if (list_head(&tug->segs) != NULL) {
 		(void) drive_segs(&tug->pos, &tug->veh, &tug->segs,
 		    &tug->last_mis_hdg, d_t, &steer, &speed);
 	} else if (tug->pos.spd == 0) {
 		return;
+	}
+
+	/* modulate our speed based on required steering angle */
+	if (speed > 0) {
+		speed = MIN(speed, tug->veh.max_fwd_spd *
+		    (1.1 - (steer / tug->veh.max_steer)));
+	} else {
+		speed = MAX(speed, -tug->veh.max_rev_spd *
+		    (1.1 - (steer / tug->veh.max_steer)));
 	}
 
 	if (speed >= tug->pos.spd)
@@ -526,17 +615,20 @@ tug_run(tug_t *tug, double d_t)
 		vect2_t p2c = VECT2(radius, tug->info->rear_z);
 		vect2_t c2np = vect2_rot(vect2_neg(p2c), d_hdg);
 		vect2_t d_pos = vect2_rot(vect2_add(p2c, c2np), tug->pos.hdg);
-		tug->pos.pos = vect2_add(tug->pos.pos, d_pos);
-		tug->pos.hdg = normalize_hdg(tug->pos.hdg + d_hdg);
+		UNUSED(d_pos);
+		if (!tug->info->anim_debug) {
+			tug->pos.pos = vect2_add(tug->pos.pos, d_pos);
+			tug->pos.hdg = normalize_hdg(tug->pos.hdg + d_hdg);
+		}
 	} else {
-		vect2_t dir = hdg2dir(tug->pos.hdg);
-		tug->pos.pos = vect2_add(tug->pos.pos, vect2_scmul(dir,
-		    tug->pos.spd * d_t));
+		if (!tug->info->anim_debug) {
+			vect2_t dir = hdg2dir(tug->pos.hdg);
+			tug->pos.pos = vect2_add(tug->pos.pos, vect2_scmul(dir,
+			    tug->pos.spd * d_t));
+		}
 	}
 
-	tug_set_TE_snd(tug, (ABS(tug->pos.spd) / tug->info->max_fwd_speed) / 2);
-
-	front_steer_anim = (tug->cur_steer / (2 * tug->veh.max_steer)) + 0.5;
+	tug_set_TE_snd(tug, (ABS(tug->pos.spd) / tug->info->max_fwd_speed) / 4);
 }
 
 void
@@ -568,21 +660,51 @@ tug_draw(tug_t *tug, double cur_t, double d_t)
 	di.roll = -RAD2DEG(asin(v.x / norm.y));
 	di.pitch = -RAD2DEG(asin(v.y / norm.y));
 
+	/* Set up our wheel animations */
+	if (!tug->info->anim_debug) {
+		front_drive_anim += (tug->pos.spd * d_t) /
+		    (2 * M_PI * tug->info->front_radius);
+		while (front_drive_anim >= 1.0)
+			front_drive_anim -= 1.0;
+		while (front_drive_anim < 0.0)
+			front_drive_anim += 1.0;
+
+		rear_drive_anim += (tug->pos.spd * d_t) /
+		    (2 * M_PI * tug->info->rear_radius);
+		while (rear_drive_anim >= 1.0)
+			rear_drive_anim -= 1.0;
+		while (rear_drive_anim < 0.0)
+			rear_drive_anim += 1.0;
+
+		front_steer_anim = (tug->cur_steer /
+		    (2 * tug->veh.max_steer)) + 0.5;
+
+		reverse_lights = (tug->pos.spd < -0.1);
+		hazard_lights_anim = TUG_HAZARD_REV_PER_SEC * cur_t -
+		    floor(TUG_HAZARD_REV_PER_SEC * cur_t);
+	} else {
+		front_drive_anim = cur_t - floor(cur_t);
+		front_steer_anim = front_drive_anim;
+		rear_drive_anim = front_drive_anim;
+		lift_anim = front_drive_anim;
+		lift_arm_anim = front_drive_anim;
+		lift_bowl_anim = front_drive_anim;
+		hazard_lights_anim = front_drive_anim;
+		cradle_lights = ((long long)cur_t) % 2;
+		reverse_lights = ((long long)cur_t) % 2;
+		hazard_lights = 1;
+//		hazard_lights = ((long long)cur_t) % 2;
+	}
+
 	XPLMDrawObjects(tug->tug, 1, &di, 1, 1);
 
-	front_drive_anim += (tug->pos.spd * d_t) /
-	    (2 * M_PI * tug->info->front_radius);
-	while (front_drive_anim >= 1.0)
-		front_drive_anim -= 1.0;
-	while (front_drive_anim < 0.0)
-		front_drive_anim += 1.0;
-
-	rear_drive_anim += (tug->pos.spd * d_t) /
-	    (2 * M_PI * tug->info->rear_radius);
-	while (rear_drive_anim >= 1.0)
-		rear_drive_anim -= 1.0;
-	while (rear_drive_anim < 0.0)
-		rear_drive_anim += 1.0;
+	/*
+	 * Sound control. No more drawing after this point.
+	 */
+	if (!tug->engine_snd_playing) {
+		wav_play(tug->engine_snd);
+		tug->engine_snd_playing = B_TRUE;
+	}
 
 	if (dr_geti(&tug->sound_on) == 1) {
 		vect3_t cam_pos_xp = VECT3(dr_getf(&tug->cam_x),
@@ -666,8 +788,48 @@ tug_set_cradle_beeper_on(tug_t *tug, bool_t flag)
 	tug->cradle_beeper_snd_on = flag;
 }
 
+void
+tug_set_steering(tug_t *tug, double req_steer, double d_t)
+{
+	double d_steer = (req_steer - tug->cur_steer) * d_t;
+	double max_d_steer = TUG_STEER_RATE * d_t;
+	d_steer = MIN(d_steer, max_d_steer);
+	d_steer = MAX(d_steer, -max_d_steer);
+	tug->cur_steer += d_steer;
+}
+
 bool_t
 tug_is_stopped(const tug_t *tug)
 {
 	return (list_head(&tug->segs) == NULL && tug->pos.spd == 0);
+}
+
+void
+tug_set_lift_pos(float x)
+{
+	lift_anim = MAX(MIN(x, 1.0), 0.0);
+}
+
+void
+tug_set_lift_arm_pos(float x)
+{
+	lift_arm_anim = MAX(MIN(x, 1.0), 0.0);
+}
+
+void
+tug_set_lift_bowl_pos(float x)
+{
+	lift_bowl_anim = MAX(MIN(x, 1.0), 0.0);
+}
+
+void
+tug_set_cradle_lights_on(bool_t flag)
+{
+	cradle_lights = flag;
+}
+
+void
+tug_set_hazard_lights_on(bool_t flag)
+{
+	hazard_lights = flag;
 }

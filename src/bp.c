@@ -56,7 +56,7 @@
 #include "xplane.h"
 
 #define	PB_DEBUG_INTF
-#define	TUG_DRIVING_DEBUG
+//#define	QUICK_DEBUG
 
 #define	STRAIGHT_STEER_RATE	20	/* degrees per second */
 #define	TURN_STEER_RATE		10	/* degrees per second */
@@ -126,7 +126,7 @@ typedef struct {
 	pushback_step_t	step;
 	double		step_start_t;
 
-	tug_t	tug;
+	tug_t		*tug;
 
 	list_t		segs;
 } bp_state_t;
@@ -173,14 +173,18 @@ bp_gather(void)
 	bp.cur_t = dr_getf(&drs.sim_time);
 }
 
-static void
+static double
 turn_nosewheel(double req_angle, double rate)
 {
-	double rate_of_turn, steer_incr, cur_nw_angle;
+	double rate_of_turn, steer_incr, cur_nw_angle, rate_of_turn_fract;
+
+	/* limit the steering request to what we can actually do */
+	req_angle = MIN(req_angle, bp.veh.max_steer);
+	req_angle = MAX(req_angle, -bp.veh.max_steer);
 
 	cur_nw_angle = dr_getf(&drs.tire_steer_cmd);
 	if (cur_nw_angle == req_angle)
-		return;
+		return (0);
 
 	/*
 	 * Modulate the steering increment to always be
@@ -188,11 +192,12 @@ turn_nosewheel(double req_angle, double rate)
 	 */
 	rate_of_turn = rate * bp.d_t;
 	steer_incr = MIN(ABS(req_angle - cur_nw_angle), rate_of_turn);
+	rate_of_turn_fract = (cur_nw_angle < req_angle ?
+	    steer_incr : -steer_incr) / rate_of_turn;
 	cur_nw_angle += (cur_nw_angle < req_angle ? steer_incr : -steer_incr);
-	/* prevent excessive deflection */
-	cur_nw_angle = MIN(cur_nw_angle, bp.veh.max_steer);
-	cur_nw_angle = MAX(cur_nw_angle, -bp.veh.max_steer);
 	dr_setf(&drs.tire_steer_cmd, cur_nw_angle);
+
+	return (rate_of_turn_fract);
 }
 
 static void
@@ -264,9 +269,9 @@ push_at_speed(double targ_speed, double max_accel)
 
 	if ((bp.cur_pos.spd > 0 && force < 0) ||
 	    (bp.cur_pos.spd < 0 && force > 0))
-		tug_set_TE_snd(&bp.tug, fabs(force / force_lim));
+		tug_set_TE_snd(bp.tug, fabs(force / force_lim));
 	else
-		tug_set_TE_snd(&bp.tug, 0);
+		tug_set_TE_snd(bp.tug, 0);
 }
 
 static bool_t
@@ -366,22 +371,24 @@ draw_tugs(void)
 	vect2_t pos = VECT2(dr_getf(&drs.local_x), -dr_getf(&drs.local_z));
 	double hdg = dr_getf(&drs.hdg);
 
-	tug_run(&bp.tug, bp.d_t);
-
-	if (list_head(&bp.tug.segs) == NULL &&
+	if (list_head(&bp.tug->segs) == NULL &&
 	    bp.step >= PB_STEP_CONNECTING && bp.step <= PB_STEP_DISCONNECTING) {
 		double tug_hdg = normalize_hdg(hdg +
 		    dr_getf(&drs.tire_steer_cmd));
 		vect2_t dir = hdg2dir(hdg);
 		vect2_t off_v = vect2_rot(vect2_scmul(dir,
-		    PB_TUG_CONN_OFFSET), dr_getf(&drs.tire_steer_cmd));
-
-		bp.tug.pos.pos = vect2_add(vect2_add(pos, vect2_scmul(dir,
+		    -bp.tug->info->lift_z), dr_getf(&drs.tire_steer_cmd));
+		vect2_t tug_pos = vect2_add(vect2_add(pos, vect2_scmul(dir,
 		    -bp.acf.nw_z)), off_v);
-		bp.tug.pos.hdg = tug_hdg;
+		double tug_spd = bp.cur_pos.spd /
+		    cos(DEG2RAD(fabs(dr_getf(&drs.tire_steer_cmd))));
+
+		tug_set_pos(bp.tug, tug_pos, tug_hdg, tug_spd);
+	} else {
+		tug_run(bp.tug, bp.d_t);
 	}
 
-	tug_draw(&bp.tug, bp.cur_t, bp.d_t);
+	tug_draw(bp.tug, bp.cur_t, bp.d_t);
 }
 
 bool_t
@@ -416,11 +423,8 @@ bp_can_start(char **reason)
 			*reason = "Pushback failure: aircraft has moved. "
 			    "Please plan a new pushback path.";
 		}
-		do {
-			list_remove(&bp.segs, seg);
+		while ((seg = list_remove_head(&bp.segs)) != NULL)
 			free(seg);
-			seg = list_head(&bp.segs);
-		} while (seg != NULL);
 		return (B_FALSE);
 	}
 
@@ -431,9 +435,6 @@ bool_t
 bp_start(void)
 {
 	char *reason;
-#ifndef	TUG_DRIVING_DEBUG
-	vect2_t p_start, dir;
-#endif
 
 	if (started)
 		return (B_TRUE);
@@ -449,27 +450,24 @@ bp_start(void)
 	bp.step = PB_STEP_START;
 	bp.step_start_t = bp.cur_t;
 
-#ifndef	TUG_DRIVING_DEBUG
-	dir = hdg2dir(bp.cur_pos.hdg);
-	p_start = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-	    3 * bp.veh.wheelbase));
-	p_start = vect2_add(p_start, vect2_scmul(vect2_norm(dir, B_TRUE),
-	    3 * bp.veh.wheelbase));
-
-	if (!tug_create(&bp.tug, dr_getf(&drs.mtow), dr_getf(&drs.leg_len),
-	    NULL, p_start, normalize_hdg(bp.cur_pos.hdg + 90))) {
+	bp.tug = tug_alloc(dr_getf(&drs.mtow), dr_getf(&drs.leg_len), NULL);
+	if (bp.tug == NULL) {
 		XPLMSpeakString("Pushback failure: no suitable tug for your "
 		    "aircraft.");
 		return (B_FALSE);
 	}
-#else	/* TUG_DRIVING_DEBUG */
-	if (!tug_create(&bp.tug, dr_getf(&drs.mtow), dr_getf(&drs.leg_len),
-	    NULL, bp.cur_pos.pos, bp.cur_pos.hdg)) {
-		XPLMSpeakString("Pushback failure: no suitable tug for your "
-		    "aircraft.");
-		return (B_FALSE);
+	if (!bp.tug->info->drive_debug) {
+		vect2_t p_start, dir;
+		dir = hdg2dir(bp.cur_pos.hdg);
+		p_start = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
+		    3 * bp.veh.wheelbase));
+		p_start = vect2_add(p_start, vect2_scmul(vect2_norm(dir,
+		    B_TRUE), 3 * bp.veh.wheelbase));
+		tug_set_pos(bp.tug, p_start,
+		    normalize_hdg(bp.cur_pos.hdg + 90), 0);
+	} else {
+		tug_set_pos(bp.tug, bp.cur_pos.pos, bp.cur_pos.hdg, 0);
 	}
-#endif	/* TUG_DRIVING_DEBUG */
 
 	XPLMRegisterFlightLoopCallback((XPLMFlightLoop_f)bp_run, -1, NULL);
 	XPLMRegisterDrawCallback((XPLMDrawCallback_f)draw_tugs,
@@ -483,14 +481,13 @@ bp_start(void)
 bool_t
 bp_stop(void)
 {
+	seg_t *seg;
+
 	if (!started)
 		return (B_FALSE);
 	/* Delete all pushback segments, that'll stop us */
-	for (seg_t *seg = list_head(&bp.segs); seg != NULL;
-	    seg = list_head(&bp.segs)) {
-		list_remove_head(&bp.segs);
+	while ((seg = list_remove_head(&bp.segs)) != NULL)
 		free(seg);
-	}
 
 	return (B_TRUE);
 }
@@ -498,6 +495,8 @@ bp_stop(void)
 void
 bp_fini(void)
 {
+	seg_t *seg;
+
 	if (!inited)
 		return;
 
@@ -511,14 +510,20 @@ bp_fini(void)
 		started = B_FALSE;
 	}
 
-	for (seg_t *seg = list_head(&bp.segs); seg != NULL;
-	    seg = list_head(&bp.segs)) {
-		list_remove_head(&bp.segs);
+	while ((seg = list_remove_head(&bp.segs)) != NULL)
 		free(seg);
-	}
 	list_destroy(&bp.segs);
 
 	inited = B_FALSE;
+}
+
+static void
+acf2tug_steer(double fract_deflection)
+{
+	if (bp.cur_pos.spd < 0)
+		fract_deflection = -fract_deflection;
+	tug_set_steering(bp.tug, bp.tug->info->max_steer * fract_deflection,
+	    bp.d_t);
 }
 
 static bool_t
@@ -533,14 +538,14 @@ bp_run_push(void)
 		if (dr_getf(&drs.lbrake) > BRAKE_PEDAL_THRESH ||
 		    dr_getf(&drs.rbrake) > BRAKE_PEDAL_THRESH ||
 		    dr_getf(&drs.pbrake) != 0) {
-			tug_set_TE_snd(&bp.tug, 0);
+			tug_set_TE_snd(bp.tug, 0);
 			break;
 		}
 		if (drive_segs(&bp.cur_pos, &bp.veh, &bp.segs,
 		    &bp.last_mis_hdg, bp.d_t, &steer, &speed)) {
 			double steer_rate = (seg->type == SEG_TYPE_STRAIGHT ?
 			    STRAIGHT_STEER_RATE : TURN_STEER_RATE);
-			turn_nosewheel(steer, steer_rate);
+			acf2tug_steer(turn_nosewheel(steer, steer_rate));
 			push_at_speed(speed, bp.veh.max_accel);
 			break;
 		}
@@ -553,7 +558,8 @@ static void
 bp_complete(void)
 {
 	started = B_FALSE;
-	tug_destroy(&bp.tug);
+	tug_free(bp.tug);
+	bp.tug = NULL;
 	XPLMUnregisterDrawCallback((XPLMDrawCallback_f) draw_tugs,
 	    xplm_Phase_Objects, 1, NULL);
 
@@ -572,6 +578,8 @@ bp_complete(void)
 static float
 bp_run(void)
 {
+	ASSERT(bp.tug != NULL);
+
 	bp_gather();
 
 	if (bp.cur_t <= bp.last_t)
@@ -582,11 +590,17 @@ bp_run(void)
 	bp.d_pos.spd = bp.cur_pos.spd - bp.last_pos.spd;
 	bp.d_t = bp.cur_t - bp.last_t;
 
-	if (bp.step >= PB_STEP_CONNECTING && bp.step <= PB_STEP_DISCONNECTING)
+	if (bp.step >= PB_STEP_DRIVING_UP_CONNECT &&
+	    bp.step <= PB_STEP_MOVING_AWAY)
 		dr_seti(&drs.override_steer, 1);
 	else
 		dr_seti(&drs.override_steer, 0);
 
+	/*
+	 * If we have no segs, means the user stopped the operation.
+	 * Jump to the appropriate state. If we haven't connected yet,
+	 * just disappear. If we have, jump to the stopping state.
+	 */
 	if (list_head(&bp.segs) == NULL) {
 		if (bp.step < PB_STEP_CONNECTING) {
 			bp_complete();
@@ -597,63 +611,87 @@ bp_run(void)
 		}
 	}
 
+#ifdef	QUICK_DEBUG
+	/*
+	 * When performing quick debugging, skip the whole driving-up phase.
+	 */
+	if (bp.step < PB_STEP_CONNECTED) {
+		bp.step = PB_STEP_CONNECTED;
+		tug_set_lift_pos(1);
+		tug_set_lift_arm_pos(1);
+		tug_set_lift_bowl_pos(0);
+		dr_setf(&drs.leg_len, bp.tug->info->lift_height +
+		    bp.acf.nw_len);
+		/*
+		 * Just a quick'n'dirty way of removing all tug driving segs.
+		 * The actual tug position will be updated in draw_tugs.
+		 */
+		tug_set_pos(bp.tug, ZERO_VECT2, 0, 0);
+	}
+#endif	/* QUICK_DEBUG */
+
 	switch (bp.step) {
 	case PB_STEP_OFF:
 		VERIFY(bp.step != PB_STEP_OFF);
-	case PB_STEP_START: {
-#ifndef	TUG_DRIVING_DEBUG
-		vect2_t right_off, p_end, dir;
+	case PB_STEP_START:
+		if (!bp.tug->info->drive_debug) {
+			vect2_t right_off, p_end, dir;
 
-		dir = hdg2dir(bp.cur_pos.hdg);
+			dir = hdg2dir(bp.cur_pos.hdg);
 
-		right_off = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-		    3 * bp.veh.wheelbase));
-		right_off = vect2_add(right_off, vect2_scmul(vect2_norm(
-		    dir, B_TRUE), PB_DRIVING_TURN_OFFSET));
-		p_end = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-		    (-bp.acf.nw_z) - bp.tug.info->lift_z));
+			right_off = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
+			    3 * bp.veh.wheelbase));
+			right_off = vect2_add(right_off, vect2_scmul(
+			    vect2_norm( dir, B_TRUE), PB_DRIVING_TURN_OFFSET));
+			p_end = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
+			    (-bp.acf.nw_z) + 2 * bp.tug->veh.wheelbase));
 
-		VERIFY(tug_drive2point(&bp.tug, right_off,
-		    normalize_hdg(bp.cur_pos.hdg + 90)));
-		VERIFY(tug_drive2point(&bp.tug, p_end, bp.cur_pos.hdg));
-#else	/* TUG_DRIVING_DEBUG */
-		for (seg_t *seg = list_head(&bp.segs); seg != NULL;
-		    seg = list_next(&bp.segs, seg)) {
-			seg_t *seg2 = calloc(1, sizeof (*seg2));
-			memcpy(seg2, seg, sizeof (*seg2));
-			list_insert_tail(&bp.tug.segs, seg2);
+			VERIFY(tug_drive2point(bp.tug, right_off,
+			    normalize_hdg(bp.cur_pos.hdg + 90)));
+			VERIFY(tug_drive2point(bp.tug, p_end, bp.cur_pos.hdg));
+		} else {
+			for (seg_t *seg = list_head(&bp.segs); seg != NULL;
+			    seg = list_next(&bp.segs, seg)) {
+				seg_t *seg2 = calloc(1, sizeof (*seg2));
+				memcpy(seg2, seg, sizeof (*seg2));
+				list_insert_tail(&bp.tug->segs, seg2);
+			}
 		}
-#endif	/* TUG_DRIVING_DEBUG */
 
 		msg_play(MSG_DRIVING_UP);
 		bp.step++;
 		bp.step_start_t = bp.cur_t;
 		break;
-	}
 	case PB_STEP_DRIVING_UP_CLOSE:
-		if (tug_is_stopped(&bp.tug)) {
+		if (tug_is_stopped(bp.tug)) {
 			if (dr_getf(&drs.pbrake) != 1)
 				msg_play(MSG_RDY2CONN);
-			tug_set_cradle_beeper_on(&bp.tug, B_TRUE);
+			tug_set_cradle_beeper_on(bp.tug, B_TRUE);
+			tug_set_cradle_lights_on(B_TRUE);
+			tug_set_hazard_lights_on(B_TRUE);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
 		}
 		break;
-	case PB_STEP_OPENING_CRADLE:
-		if (bp.cur_t - bp.step_start_t > PB_CRADLE_DELAY) {
-			tug_set_cradle_beeper_on(&bp.tug, B_FALSE);
+	case PB_STEP_OPENING_CRADLE: {
+		double d_t = bp.cur_t - bp.step_start_t;
+		tug_set_lift_arm_pos(1 - (d_t / PB_CRADLE_DELAY));
+		tug_set_lift_bowl_pos(d_t / PB_CRADLE_DELAY);
+		if (d_t >= PB_CRADLE_DELAY) {
+			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
 		}
 		break;
+	}
 	case PB_STEP_WAITING_FOR_PBRAKE:
 		if (dr_getf(&drs.pbrake) == 1) {
 			vect2_t p_end, dir;
 
 			dir = hdg2dir(bp.cur_pos.hdg);
 			p_end = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-			    (-bp.acf.nw_z) + PB_TUG_CONN_OFFSET));
-			(void) tug_drive2point(&bp.tug, p_end,
+			    (-bp.acf.nw_z) - bp.tug->info->lift_z));
+			(void) tug_drive2point(bp.tug, p_end,
 			    bp.cur_pos.hdg);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
@@ -662,8 +700,8 @@ bp_run(void)
 	case PB_STEP_DRIVING_UP_CONNECT:
 		dr_setf(&drs.lbrake, 0.9);
 		dr_setf(&drs.rbrake, 0.9);
-		if (tug_is_stopped(&bp.tug)) {
-			tug_set_cradle_beeper_on(&bp.tug, B_TRUE);
+		if (tug_is_stopped(bp.tug)) {
+			tug_set_cradle_beeper_on(bp.tug, B_TRUE);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
 		}
@@ -671,17 +709,23 @@ bp_run(void)
 	case PB_STEP_CONNECTING: {
 		double d_t = bp.cur_t - bp.step_start_t;
 		double lift;
+		double cradle_closed_fract = d_t / PB_CONN_LIFT_DELAY;
+		double lift_fract = (d_t - PB_CONN_LIFT_DELAY) /
+		    PB_CONN_LIFT_DURATION;
 
 		dr_setf(&drs.tire_steer_cmd, 0);
 		dr_setf(&drs.lbrake, 0.9);
 		dr_setf(&drs.rbrake, 0.9);
 
+		cradle_closed_fract = MAX(MIN(cradle_closed_fract, 1), 0);
+		lift_fract = MAX(MIN(lift_fract, 1), 0);
+
+		tug_set_lift_pos(lift_fract);
+		tug_set_lift_arm_pos(cradle_closed_fract);
+		tug_set_lift_bowl_pos(1 - (2 * (cradle_closed_fract - 0.5)));
+
 		/* Iterate the lift */
-		lift = bp.tug.info->lift_height * ((d_t - PB_CONN_LIFT_DELAY) /
-		    PB_CONN_LIFT_DURATION);
-		lift = MAX(lift, 0);
-		lift = MIN(lift, bp.tug.info->lift_height);
-		lift += bp.acf.nw_len;
+		lift = (bp.tug->info->lift_height * lift_fract) + bp.acf.nw_len;
 		dr_setvf(&drs.leg_len, &lift, 0, 1);
 
 		/*
@@ -694,15 +738,15 @@ bp_run(void)
 			double TE_fract = ((d_t - PB_CONN_LIFT_DELAY) /
 			    PB_LIFT_TE_RAMP_UP) * PB_LIFT_TE;
 			TE_fract = MIN(TE_fract, PB_LIFT_TE);
-			tug_set_TE_snd(&bp.tug, TE_fract);
+			tug_set_TE_snd(bp.tug, TE_fract);
 		}
 		if (d_t >= PB_CONN_LIFT_DELAY + PB_CONN_LIFT_DURATION) {
 			double TE_fract = (((PB_CONN_LIFT_DELAY +
 			    PB_CONN_LIFT_DURATION + PB_LIFT_TE_RAMP_UP) - d_t) /
 			    PB_LIFT_TE_RAMP_UP) * PB_LIFT_TE;
 			TE_fract = MAX(TE_fract, 0);
-			tug_set_TE_snd(&bp.tug, TE_fract);
-			tug_set_cradle_beeper_on(&bp.tug, B_FALSE);
+			tug_set_TE_snd(bp.tug, TE_fract);
+			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
 		}
 
 		if (d_t >= PB_CONN_DELAY) {
@@ -744,8 +788,8 @@ bp_run(void)
 			bp.step_start_t = bp.cur_t;
 		}
 		break;
-	case PB_STEP_STOPPING:
-		turn_nosewheel(0, STRAIGHT_STEER_RATE);
+	case PB_STEP_STOPPING: {
+		acf2tug_steer(turn_nosewheel(0, STRAIGHT_STEER_RATE));
 		push_at_speed(0, bp.veh.max_accel);
 		if (ABS(bp.cur_pos.spd) < SPEED_COMPLETE_THRESH) {
 			if (dr_getf(&drs.pbrake) == 0)
@@ -754,6 +798,7 @@ bp_run(void)
 			bp.step_start_t = bp.cur_t;
 		}
 		break;
+	}
 	case PB_STEP_STOPPED:
 		turn_nosewheel(0, STRAIGHT_STEER_RATE);
 		push_at_speed(0, bp.veh.max_accel);
@@ -767,31 +812,38 @@ bp_run(void)
 		break;
 	case PB_STEP_DISCONNECTING: {
 		double rmng_t = (bp.step_start_t + PB_CONN_DELAY) - bp.cur_t;
+		double cradle_closed_fract = rmng_t / PB_CONN_LIFT_DELAY;
+		double lift_fract = (rmng_t - PB_CONN_LIFT_DELAY) /
+		    PB_CONN_LIFT_DURATION;
 		double lift;
 
 		dr_setf(&drs.lbrake, 0.9);
 		dr_setf(&drs.rbrake, 0.9);
 
-		if (rmng_t < PB_CONN_LIFT_DURATION + PB_CONN_LIFT_DELAY &&
-		    rmng_t > PB_CONN_LIFT_DELAY) {
-			tug_set_cradle_air_on(&bp.tug, B_TRUE, bp.cur_t);
-			tug_set_cradle_beeper_on(&bp.tug, B_TRUE);
-		} else if (rmng_t < PB_CONN_LIFT_DELAY) {
-			tug_set_cradle_air_on(&bp.tug, B_FALSE, bp.cur_t);
-		}
+		cradle_closed_fract = MAX(MIN(cradle_closed_fract, 1), 0);
+		lift_fract = MAX(MIN(lift_fract, 1), 0);
+
+		tug_set_lift_pos(lift_fract);
+		tug_set_lift_arm_pos(cradle_closed_fract);
+		tug_set_lift_bowl_pos(1 - (2 * (cradle_closed_fract - 0.5)));
 
 		/* Iterate the lift */
-		lift = bp.tug.info->lift_height * ((rmng_t -
-		    PB_CONN_LIFT_DELAY) / PB_CONN_LIFT_DURATION);
-		lift = MAX(lift, 0);
-		lift = MIN(lift, bp.tug.info->lift_height);
+		lift = bp.tug->info->lift_height * lift_fract;
 		lift += bp.acf.nw_len;
 		dr_setvf(&drs.leg_len, &lift, 0, 1);
+
+		if (rmng_t < PB_CONN_LIFT_DURATION + PB_CONN_LIFT_DELAY &&
+		    rmng_t > PB_CONN_LIFT_DELAY) {
+			tug_set_cradle_air_on(bp.tug, B_TRUE, bp.cur_t);
+			tug_set_cradle_beeper_on(bp.tug, B_TRUE);
+		} else if (rmng_t < PB_CONN_LIFT_DELAY) {
+			tug_set_cradle_air_on(bp.tug, B_FALSE, bp.cur_t);
+		}
 
 		if (rmng_t <= 0) {
 			vect2_t dir, p;
 
-			tug_set_cradle_beeper_on(&bp.tug, B_FALSE);
+			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
 
 			dir = hdg2dir(bp.cur_pos.hdg);
 
@@ -803,9 +855,9 @@ bp_run(void)
 			 * 1x wheelbase to the right
 			 */
 			p = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-			    -bp.acf.nw_z - bp.tug.info->lift_z));
+			    -bp.acf.nw_z + 2 * bp.tug->veh.wheelbase));
 
-			(void) tug_drive2point(&bp.tug, p, bp.cur_pos.hdg);
+			(void) tug_drive2point(bp.tug, p, bp.cur_pos.hdg);
 
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
@@ -813,19 +865,22 @@ bp_run(void)
 		break;
 	}
 	case PB_STEP_MOVING_AWAY:
-		if (tug_is_stopped(&bp.tug)) {
-			tug_set_cradle_beeper_on(&bp.tug, B_TRUE);
+		if (tug_is_stopped(bp.tug)) {
+			tug_set_cradle_beeper_on(bp.tug, B_TRUE);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
 		}
 		break;
-	case PB_STEP_CLOSING_CRADLE:
-		if (bp.cur_t - bp.step_start_t >= PB_CRADLE_DELAY) {
+	case PB_STEP_CLOSING_CRADLE: {
+		double d_t = bp.cur_t - bp.step_start_t;
+		tug_set_lift_arm_pos(d_t / PB_CRADLE_DELAY);
+		tug_set_lift_bowl_pos(1 - (d_t / PB_CRADLE_DELAY));
+		if (d_t >= PB_CRADLE_DELAY) {
 			vect2_t turn_p, abeam_p, end_p;
 			double turn_hdg, back_hdg;
 			vect2_t dir, norm_dir;
 
-			tug_set_cradle_beeper_on(&bp.tug, B_FALSE);
+			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
 
 			dir = hdg2dir(bp.cur_pos.hdg);
 			norm_dir = vect2_norm(dir, B_TRUE);
@@ -854,16 +909,20 @@ bp_run(void)
 
 			msg_play(MSG_DONE);
 
-			VERIFY(tug_drive2point(&bp.tug, turn_p, turn_hdg));
-			VERIFY(tug_drive2point(&bp.tug, abeam_p, back_hdg));
-			VERIFY(tug_drive2point(&bp.tug, end_p, back_hdg));
+			VERIFY(tug_drive2point(bp.tug, turn_p, turn_hdg));
+			VERIFY(tug_drive2point(bp.tug, abeam_p, back_hdg));
+			VERIFY(tug_drive2point(bp.tug, end_p, back_hdg));
+
+			tug_set_cradle_lights_on(B_FALSE);
+			tug_set_hazard_lights_on(B_FALSE);
 
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
 		}
 		break;
+	}
 	case PB_STEP_DRIVING_AWAY:
-		if (tug_is_stopped(&bp.tug)) {
+		if (tug_is_stopped(bp.tug)) {
 			bp_complete();
 			return (0);
 		}
@@ -1017,11 +1076,8 @@ cam_ctl(XPLMCameraPosition_t *pos, int losing_control, void *refcon)
 	if (dx > MAX_PRED_DISTANCE || dy > MAX_PRED_DISTANCE)
 		return (1);
 
-	for (seg = list_head(&pred_segs); seg != NULL;
-	    seg = list_head(&pred_segs)) {
-		list_remove(&pred_segs, seg);
+	while ((seg = list_remove_head(&pred_segs)) != NULL)
 		free(seg);
-	}
 
 	seg = list_tail(&bp.segs);
 	if (seg != NULL) {
@@ -1313,11 +1369,7 @@ fake_win_click(XPLMWindowID inWindowID, int x, int y, XPLMMouseStatus inMouse,
 			 * Transfer whatever is in pred_segs to the normal
 			 * segments and clear pred_segs.
 			 */
-			for (seg_t *seg = list_head(&pred_segs); seg != NULL;
-			    seg = list_head(&pred_segs)) {
-				list_remove(&pred_segs, seg);
-				list_insert_tail(&bp.segs, seg);
-			}
+			list_move_tail(&bp.segs, &pred_segs);
 		}
 		force_root_win_focus = B_TRUE;
 	}
@@ -1374,9 +1426,7 @@ key_sniffer(char inChar, XPLMKeyFlags inFlags, char inVirtualKey, void *refcon)
 	case XPLM_VK_BACK:
 	case XPLM_VK_DELETE:
 		/* Delete the segments up to the next user-placed segment */
-		if (list_tail(&bp.segs) == NULL)
-			return (0);
-		list_remove_tail(&bp.segs);
+		free(list_remove_tail(&bp.segs));
 		for (seg_t *seg = list_tail(&bp.segs); seg != NULL &&
 		    !seg->user_placed; seg = list_tail(&bp.segs)) {
 			list_remove_tail(&bp.segs);
@@ -1464,15 +1514,15 @@ bp_cam_start(void)
 bool_t
 bp_cam_stop(void)
 {
+	seg_t *seg;
+
 	if (!cam_inited)
 		return (B_FALSE);
 
-	for (seg_t *seg = list_head(&pred_segs); seg != NULL;
-	    seg = list_head(&pred_segs)) {
-		list_remove(&pred_segs, seg);
+	while ((seg = list_remove_head(&pred_segs)) != NULL)
 		free(seg);
-	}
 	list_destroy(&pred_segs);
+
 	XPLMUnregisterDrawCallback(draw_prediction, PREDICTION_DRAWING_PHASE,
 	    0, NULL);
 	XPLMDestroyWindow(fake_win);
