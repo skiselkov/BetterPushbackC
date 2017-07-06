@@ -11,3 +11,6 @@ src/Makefile
 src/cmake_install.cmake
 docs
 cmdfiles
+xplane2blender.log
+objects/src/AST-3F.png
+*.blend1
