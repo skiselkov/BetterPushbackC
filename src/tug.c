@@ -26,6 +26,7 @@
 #include <acfutils/assert.h>
 #include <acfutils/helpers.h>
 #include <acfutils/math.h>
+#include <acfutils/time.h>
 
 #include "driving.h"
 #include "tug.h"
@@ -642,36 +643,6 @@ tug_run(tug_t *tug, double d_t)
 	}
 
 	tug_set_TE_snd(tug, (ABS(tug->pos.spd) / tug->info->max_fwd_speed) / 4);
-}
-
-void
-tug_draw(tug_t *tug, double cur_t, double d_t)
-{
-	XPLMDrawInfo_t di;
-	XPLMProbeRef probe = XPLMCreateProbe(xplm_ProbeY);
-	XPLMProbeInfo_t info = { .structSize = sizeof (XPLMProbeInfo_t) };
-	vect3_t pos, norm;
-	vect2_t v;
-	double gain;
-
-	/* X-Plane's Z axis is inverted to ours */
-	VERIFY3U(XPLMProbeTerrainXYZ(probe, tug->pos.pos.x, 0,
-	    -tug->pos.pos.y, &info), ==, xplm_ProbeHitTerrain);
-
-	pos = VECT3(tug->pos.pos.x, info.locationY, -tug->pos.pos.y);
-	norm = VECT3(info.normalX, info.normalY, info.normalZ);
-	pos = vect3_add(pos, vect3_set_abs(norm, tug->info->height));
-
-	v = VECT2(norm.x, -norm.z);
-	v = vect2_rot(v, tug->pos.hdg);
-
-	di.structSize = sizeof (di);
-	di.x = pos.x;
-	di.y = pos.y;
-	di.z = pos.z;
-	di.heading = tug->pos.hdg;
-	di.roll = -RAD2DEG(asin(v.x / norm.y));
-	di.pitch = -RAD2DEG(asin(v.y / norm.y));
 
 	/* Set up our wheel animations */
 	if (!tug->info->anim_debug) {
@@ -698,16 +669,48 @@ tug_draw(tug_t *tug, double cur_t, double d_t)
 		else if (tug->pos.spd > 0.1)
 			reverse_lights = B_FALSE;
 	} else {
-		front_drive_anim = cur_t / 3 - floor(cur_t / 3);
+		uint64_t mt = microclock();
+		front_drive_anim = (mt % 3000000) / 3000000.0;
 		front_steer_anim = front_drive_anim;
 		rear_drive_anim = front_drive_anim;
 		lift_anim = front_drive_anim;
 		lift_arm_anim = front_drive_anim;
-		vehicle_lights = ((long long)cur_t) % 2;
-		cradle_lights = ((long long)cur_t) % 2;
-		reverse_lights = ((long long)cur_t) % 2;
-		hazard_lights = ((long long)cur_t) % 2;
+
+		vehicle_lights = (mt / 1000000) % 2;
+		cradle_lights = vehicle_lights;
+		reverse_lights = vehicle_lights;
+		hazard_lights = vehicle_lights;
 	}
+}
+
+void
+tug_draw(tug_t *tug, double cur_t)
+{
+	XPLMDrawInfo_t di;
+	XPLMProbeRef probe = XPLMCreateProbe(xplm_ProbeY);
+	XPLMProbeInfo_t info = { .structSize = sizeof (XPLMProbeInfo_t) };
+	vect3_t pos, norm;
+	vect2_t v;
+	double gain;
+
+	/* X-Plane's Z axis is inverted to ours */
+	VERIFY3U(XPLMProbeTerrainXYZ(probe, tug->pos.pos.x, 0,
+	    -tug->pos.pos.y, &info), ==, xplm_ProbeHitTerrain);
+
+	pos = VECT3(tug->pos.pos.x, info.locationY, -tug->pos.pos.y);
+	norm = VECT3(info.normalX, info.normalY, info.normalZ);
+	pos = vect3_add(pos, vect3_set_abs(norm, tug->info->height));
+
+	v = VECT2(norm.x, -norm.z);
+	v = vect2_rot(v, tug->pos.hdg);
+
+	di.structSize = sizeof (di);
+	di.x = pos.x;
+	di.y = pos.y;
+	di.z = pos.z;
+	di.heading = tug->pos.hdg;
+	di.roll = -RAD2DEG(asin(v.x / norm.y));
+	di.pitch = -RAD2DEG(asin(v.y / norm.y));
 
 	XPLMDrawObjects(tug->tug, 1, &di, 1, 1);
 

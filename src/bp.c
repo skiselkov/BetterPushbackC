@@ -387,11 +387,9 @@ draw_tugs(void)
 		    cos(DEG2RAD(fabs(dr_getf(&drs.tire_steer_cmd))));
 
 		tug_set_pos(bp.tug, tug_pos, tug_hdg, tug_spd);
-	} else {
-		tug_run(bp.tug, bp.d_t);
 	}
 
-	tug_draw(bp.tug, bp.cur_t, bp.d_t);
+	tug_draw(bp.tug, bp.cur_t);
 }
 
 bool_t
@@ -593,6 +591,8 @@ bp_run(void)
 	bp.d_pos.hdg = bp.cur_pos.hdg - bp.last_pos.hdg;
 	bp.d_pos.spd = bp.cur_pos.spd - bp.last_pos.spd;
 	bp.d_t = bp.cur_t - bp.last_t;
+
+	tug_run(bp.tug, bp.d_t);
 
 	if (bp.step >= PB_STEP_DRIVING_UP_CONNECT &&
 	    bp.step <= PB_STEP_MOVING_AWAY)
