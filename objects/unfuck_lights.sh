@@ -28,7 +28,7 @@ fi
 
 UNFUCKERY_TMP="/tmp/unfucker_tmp.$$.obj"
 
-gawk '
+if ! gawk '
 BEGIN {
 	in_anim = 0;
 }
@@ -72,9 +72,39 @@ BEGIN {
 		if (!in_anim)
 			print("ANIM_end");
 		print("## UNFUCKERY END ##");
+	} else if ($0 ~ /\<LIGHT_PARAM[[:space:]]+airplane_nav_(tail|left|right).*unfuck\>/) {
+		if (!in_anim)
+			print("ANIM_begin");
+		type = $2;
+		x = $3;
+		y = $4;
+		z = $5;
+		rx = $7;
+		ry = $8;
+		rz = $9;
+		sz = $10;
+		focus = $11;
+
+		print("## UNFUCKERY BEGIN ##");
+		printf("ANIM_trans %s %s %s %s %s %s 0 0 no_ref\n", x, y, z,
+		    x, y, z);
+		# Remember, X-Plane`s Y/Z axes are flipped to Blender`s
+		if (rx != 0)
+			printf("ANIM_rotate 1 0 0 %s %s 0 0 no_ref\n", rx, rx);
+		if (ry != 0)
+			printf("ANIM_rotate 0 0 -1 %s %s 0 0 no_ref\n", ry, ry);
+		if (rz != 0)
+			printf("ANIM_rotate 0 1 0 %s %s 0 0 no_ref\n", rz, rz);
+		printf("LIGHT_PARAM %s 0 0 0 %s %s\n", type, sz, focus);
+		if (!in_anim)
+			print("ANIM_end");
+		print("## UNFUCKERY END ##");
 	} else {
 		print;
 	}
 }
-' "$1" > "$UNFUCKERY_TMP"
+' "$1" > "$UNFUCKERY_TMP"; then
+	exit 1
+fi
+
 mv "$UNFUCKERY_TMP" "$1"

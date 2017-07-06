@@ -48,18 +48,19 @@
 #define	TUG_CRADLE_CHG_D_T	0.5
 #define	TUG_CRADLE_AIR_MOD	0.5
 #define	TUG_HAZARD_REV_PER_SEC	2	/* revolutions per second of beacon */
+#define	LIGHTS_ON_SUN_ANGLE	5	/* degrees, sets vehicle lights on */
 
 static float front_drive_anim = 0, front_steer_anim = 0.5;
 static float rear_drive_anim = 0;
-static float lift_anim = 0, lift_arm_anim = 0, lift_bowl_anim = 0;
-static float cradle_lights = 0, reverse_lights = 0;
-static float hazard_lights_anim = 0, hazard_lights = 0;
+static float lift_anim = 1, lift_arm_anim = 0;
+static float vehicle_lights = 0, cradle_lights = 0, reverse_lights = 0;
+static float hazard_lights = 0;
 
 static dr_t front_drive_anim_dr, front_steer_anim_dr;
 static dr_t rear_drive_anim_dr;
-static dr_t lift_anim_dr, lift_arm_anim_dr, lift_bowl_anim_dr;
-static dr_t cradle_lights_dr, reverse_lights_dr;
-static dr_t hazard_lights_anim_dr, hazard_lights_dr;
+static dr_t lift_anim_dr, lift_arm_anim_dr;
+static dr_t vehicle_lights_dr, cradle_lights_dr, reverse_lights_dr;
+static dr_t hazard_lights_dr, sun_pitch_dr;
 
 static bool_t inited = B_FALSE;
 
@@ -118,7 +119,7 @@ tug_info_read(const char *tugdir)
 	ti = calloc(1, sizeof (*ti));
 	ti->front_z = NAN;
 	ti->rear_z = NAN;
-	ti->lift_z = NAN;
+	ti->lift_wall_z = NAN;
 
 	/* set some defaults */
 	ti->max_fwd_speed = TUG_MAX_FWD_SPD;
@@ -188,8 +189,14 @@ tug_info_read(const char *tugdir)
 			READ_REAL("rear_z", &ti->rear_z);
 		} else if (strcmp(option, "rear_r") == 0) {
 			READ_REAL("rear_r", &ti->rear_radius);
-		} else if (strcmp(option, "lift_z") == 0) {
-			READ_REAL("lift_z", &ti->lift_z);
+		} else if (strcmp(option, "lift_wall_z") == 0) {
+			READ_REAL("lift_wall_z", &ti->lift_wall_z);
+		} else if (strcmp(option, "max_tirrad") == 0) {
+			READ_REAL("max_tirrad", &ti->max_tirrad);
+		} else if (strcmp(option, "max_tirrad_f") == 0) {
+			READ_REAL("max_tirrad_f", &ti->max_tirrad_f);
+		} else if (strcmp(option, "min_tirrad") == 0) {
+			READ_REAL("min_tirrad", &ti->min_tirrad);
 		} else if (strcmp(option, "height") == 0) {
 			READ_REAL("height", &ti->height);
 		} else if (strcmp(option, "min_mtow") == 0) {
@@ -250,7 +257,10 @@ tug_info_read(const char *tugdir)
 	VALIDATE_TUG_REAL(ti->front_radius, "front_r");
 	VALIDATE_TUG_REAL_NAN(ti->rear_z, "rear_z");
 	VALIDATE_TUG_REAL(ti->rear_radius, "rear_r");
-	VALIDATE_TUG_REAL_NAN(ti->lift_z, "lift_z");
+	VALIDATE_TUG_REAL_NAN(ti->lift_wall_z, "lift_wall_z");
+	VALIDATE_TUG_REAL(ti->max_tirrad, "max_tirrad");
+	VALIDATE_TUG_REAL(ti->max_tirrad_f, "max_tirrad_f");
+	VALIDATE_TUG_REAL(ti->min_tirrad, "min_tirrad");
 	VALIDATE_TUG_REAL(ti->max_mtow, "max_mtow");
 	if (ti->min_mtow >= ti->max_mtow) {
 		logMsg("Malformed tug config file %s: min_mtow >= max_mtow",
@@ -279,7 +289,7 @@ errout:
 }
 
 static tug_info_t *
-tug_info_select(double mtow, double ng_len, const char *arpt)
+tug_info_select(double mtow, double ng_len, double tirrad, const char *arpt)
 {
 	char *tugdir;
 	DIR *dirp;
@@ -319,11 +329,13 @@ tug_info_select(double mtow, double ng_len, const char *arpt)
 		 * 2) its min_mtow is <= our MTOW
 		 * 3) its max_mtow is >= our MTOW
 		 * 4) its min nosegear length is <= our nosegear length
-		 * 5) if the caller provided an airport identifier and the
+		 * 5) our nose gear radius matches its min and max tire radius
+		 * 6) if the caller provided an airport identifier and the
 		 *	tug is airport-specific, then the airport ID matches
 		 */
 		if (ti != NULL && ti->min_mtow <= mtow &&
 		    mtow <= ti->max_mtow && ti->min_nlg_len <= ng_len &&
+		    ti->min_tirrad <= tirrad && ti->max_tirrad >= tirrad &&
 		    (arpt == NULL || ti->arpt == NULL ||
 		    strcmp(arpt, ti->arpt) == 0)) {
 			avl_add(&tis, ti);
@@ -373,16 +385,15 @@ tug_glob_init(void)
 	dr_create_f(&lift_anim_dr, &lift_anim, B_FALSE, "bp/anim/lift");
 	dr_create_f(&lift_arm_anim_dr, &lift_arm_anim, B_FALSE,
 	    "bp/anim/lift_arm");
-	dr_create_f(&lift_bowl_anim_dr, &lift_bowl_anim, B_FALSE,
-	    "bp/anim/lift_bowl");
+	dr_create_f(&vehicle_lights_dr, &vehicle_lights, B_FALSE,
+	    "bp/anim/vehicle_lights");
 	dr_create_f(&cradle_lights_dr, &cradle_lights, B_FALSE,
 	    "bp/anim/cradle_lights");
 	dr_create_f(&reverse_lights_dr, &reverse_lights, B_FALSE,
 	    "bp/anim/reverse_lights");
-	dr_create_f(&hazard_lights_anim_dr, &hazard_lights_anim, B_FALSE,
-	    "bp/anim/hazard_lights_anim");
 	dr_create_f(&hazard_lights_dr, &hazard_lights, B_FALSE,
 	    "bp/anim/hazard_lights");
+	fdr_find(&sun_pitch_dr, "sim/graphics/scenery/sun_pitch_degrees");
 
 	tug_reload_cmd = XPLMCreateCommand("BetterPushback/reload_tug",
             "Reload tug");
@@ -401,17 +412,16 @@ tug_glob_fini(void)
 	dr_delete(&rear_drive_anim_dr);
 	dr_delete(&lift_anim_dr);
 	dr_delete(&lift_arm_anim_dr);
-	dr_delete(&lift_bowl_anim_dr);
+	dr_delete(&vehicle_lights_dr);
 	dr_delete(&cradle_lights_dr);
 	dr_delete(&reverse_lights_dr);
-	dr_delete(&hazard_lights_anim_dr);
 	dr_delete(&hazard_lights_dr);
 
 	inited = B_FALSE;
 }
 
 tug_t *
-tug_alloc(double mtow, double ng_len, const char *arpt)
+tug_alloc(double mtow, double ng_len, double tirrad, const char *arpt)
 {
 	tug_t *tug;
 
@@ -421,11 +431,12 @@ tug_alloc(double mtow, double ng_len, const char *arpt)
 	list_create(&tug->segs, sizeof (seg_t), offsetof(seg_t, node));
 
 	/* Select a matching tug from our repertoire */
-	tug->info = tug_info_select(mtow, ng_len, arpt);
+	tug->info = tug_info_select(mtow, ng_len, tirrad, arpt);
 	if (tug->info == NULL)
 		goto errout;
 
 	tug->info = tug->info;
+	tug->tirrad = tirrad;
 
 	tug->veh.wheelbase = fabs(tug->info->front_z - tug->info->rear_z);
 	tug->veh.wheelbase = MIN(tug->veh.wheelbase, TUG_MIN_WHEELBASE);
@@ -491,14 +502,16 @@ tug_alloc(double mtow, double ng_len, const char *arpt)
 	}
 
 	/*
-	 * Initial lift position is:
-	 * 1) lift in bottom position
+	 * Initial state is:
+	 * 1) lift in upper position
 	 * 2) arms fully closed
-	 * 3) bowl in the upper position
+	 * 3) cradle lights off
+	 * 4) hazard lights off
 	 */
-	lift_anim = 0;
-	lift_arm_anim = 1;
-	lift_bowl_anim = 0;
+	lift_anim = 1;
+	lift_arm_anim = 0;
+	cradle_lights = 0;
+	hazard_lights = 0;
 
 	glob_tug = tug;
 
@@ -679,21 +692,21 @@ tug_draw(tug_t *tug, double cur_t, double d_t)
 		front_steer_anim = (tug->cur_steer /
 		    (2 * tug->veh.max_steer)) + 0.5;
 
-		reverse_lights = (tug->pos.spd < -0.1);
-		hazard_lights_anim = TUG_HAZARD_REV_PER_SEC * cur_t -
-		    floor(TUG_HAZARD_REV_PER_SEC * cur_t);
+		vehicle_lights = (dr_getf(&sun_pitch_dr) < LIGHTS_ON_SUN_ANGLE);
+		if (tug->pos.spd < -0.1)
+			reverse_lights = B_TRUE;
+		else if (tug->pos.spd > 0.1)
+			reverse_lights = B_FALSE;
 	} else {
-		front_drive_anim = cur_t - floor(cur_t);
+		front_drive_anim = cur_t / 3 - floor(cur_t / 3);
 		front_steer_anim = front_drive_anim;
 		rear_drive_anim = front_drive_anim;
 		lift_anim = front_drive_anim;
 		lift_arm_anim = front_drive_anim;
-		lift_bowl_anim = front_drive_anim;
-		hazard_lights_anim = front_drive_anim;
+		vehicle_lights = ((long long)cur_t) % 2;
 		cradle_lights = ((long long)cur_t) % 2;
 		reverse_lights = ((long long)cur_t) % 2;
-		hazard_lights = 1;
-//		hazard_lights = ((long long)cur_t) % 2;
+		hazard_lights = ((long long)cur_t) % 2;
 	}
 
 	XPLMDrawObjects(tug->tug, 1, &di, 1, 1);
@@ -811,15 +824,17 @@ tug_set_lift_pos(float x)
 }
 
 void
-tug_set_lift_arm_pos(float x)
+tug_set_lift_arm_pos(const tug_t *tug, float x, bool_t grabbing_tire)
 {
-	lift_arm_anim = MAX(MIN(x, 1.0), 0.0);
-}
+	double min_val = 0;
+	if (grabbing_tire) {
+		const tug_info_t *ti = tug->info;
+		min_val = wavg(0, ti->max_tirrad_f,
+		    (tug->tirrad - ti->min_tirrad) / (ti->max_tirrad -
+		    ti->min_tirrad));
+	}
 
-void
-tug_set_lift_bowl_pos(float x)
-{
-	lift_bowl_anim = MAX(MIN(x, 1.0), 0.0);
+	lift_arm_anim = MAX(MIN(x, 1.0), min_val);
 }
 
 void

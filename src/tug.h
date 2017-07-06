@@ -50,7 +50,10 @@ typedef struct {
 	double	front_radius;	/* meters */
 	double	rear_z;		/* meters */
 	double	rear_radius;	/* meters */
-	double	lift_z;		/* lift position long offset, meters */
+	double	lift_wall_z;	/* lift forward fixed long offset, meters */
+	double	max_tirrad;	/* max acf tire radius, meters */
+	double	max_tirrad_f;	/* lift_arm_anim value for max_tirrad */
+	double	min_tirrad;	/* min acf tire rad, meters (lift_arm_anim=0) */
 
 	double	lift_height;	/* how high we lift the acf nose gear, meters */
 
@@ -83,6 +86,8 @@ typedef struct {
 
 	tug_info_t	*info;
 
+	double		tirrad;			/* acf tire radius, meters */
+
 	bool_t		engine_snd_playing;
 	float		pitch;
 	wav_t		*engine_snd;
@@ -113,7 +118,7 @@ typedef struct {
 void tug_glob_init(void);
 void tug_glob_fini(void);
 
-tug_t *tug_alloc(double mtow, double ng_len, const char *arpt);
+tug_t *tug_alloc(double mtow, double ng_len, double tirrad, const char *arpt);
 void tug_free(tug_t *tug);
 
 void tug_set_pos(tug_t *tug, vect2_t pos, double hdg, double spd);
@@ -128,8 +133,7 @@ void tug_set_steering(tug_t *tug, double steer, double d_t);
 bool_t tug_is_stopped(const tug_t *tug);
 
 void tug_set_lift_pos(float x);
-void tug_set_lift_arm_pos(float x);
-void tug_set_lift_bowl_pos(float x);
+void tug_set_lift_arm_pos(const tug_t *tug, float x, bool_t grabbing_tire);
 void tug_set_cradle_lights_on(bool_t flag);
 void tug_set_hazard_lights_on(bool_t flag);
 

@@ -103,6 +103,7 @@ typedef struct {
 	double		nw_z;
 	double		main_z;
 	double		nw_len;
+	double		tirrad;
 } acf_t;
 
 typedef struct {
@@ -142,7 +143,7 @@ static struct {
 	dr_t	sim_time;
 	dr_t	acf_mass;
 	dr_t	mtow;
-	dr_t	tire_z, leg_len;
+	dr_t	tire_z, leg_len, tirrad;
 	dr_t	nw_steerdeg1, nw_steerdeg2;
 	dr_t	tire_steer_cmd;
 	dr_t	override_steer;
@@ -287,6 +288,7 @@ bp_state_init(void)
 
 	dr_getvf(&drs.tire_z, &bp.acf.nw_z, 0, 1);
 	dr_getvf(&drs.leg_len, &bp.acf.nw_len, 0, 1);
+	dr_getvf(&drs.tirrad, &bp.acf.tirrad, 0, 1);
 	n_main = dr_getvf(&drs.tire_z, tire_z_main, 1, 8);
 	if (n_main < 1) {
 		XPLMSpeakString("Pushback failure: aircraft seems to only "
@@ -343,6 +345,7 @@ bp_init(void)
 	fdr_find(&drs.tire_z, "sim/flightmodel/parts/tire_z_no_deflection");
 	fdr_find(&drs.mtow, "sim/aircraft/weight/acf_m_max");
 	fdr_find(&drs.leg_len, "sim/aircraft/parts/acf_gear_leglen");
+	fdr_find(&drs.tirrad, "sim/aircraft/parts/acf_gear_tirrad");
 	fdr_find(&drs.nw_steerdeg1, "sim/aircraft/gear/acf_nw_steerdeg1");
 	fdr_find(&drs.nw_steerdeg2, "sim/aircraft/gear/acf_nw_steerdeg2");
 	fdr_find(&drs.tire_steer_cmd,
@@ -376,8 +379,8 @@ draw_tugs(void)
 		double tug_hdg = normalize_hdg(hdg +
 		    dr_getf(&drs.tire_steer_cmd));
 		vect2_t dir = hdg2dir(hdg);
-		vect2_t off_v = vect2_rot(vect2_scmul(dir,
-		    -bp.tug->info->lift_z), dr_getf(&drs.tire_steer_cmd));
+		vect2_t off_v = vect2_scmul(hdg2dir(tug_hdg),
+		    (-bp.tug->info->lift_wall_z) + bp.acf.tirrad);
 		vect2_t tug_pos = vect2_add(vect2_add(pos, vect2_scmul(dir,
 		    -bp.acf.nw_z)), off_v);
 		double tug_spd = bp.cur_pos.spd /
@@ -450,7 +453,8 @@ bp_start(void)
 	bp.step = PB_STEP_START;
 	bp.step_start_t = bp.cur_t;
 
-	bp.tug = tug_alloc(dr_getf(&drs.mtow), dr_getf(&drs.leg_len), NULL);
+	bp.tug = tug_alloc(dr_getf(&drs.mtow), dr_getf(&drs.leg_len),
+	    dr_getf(&drs.tirrad), NULL);
 	if (bp.tug == NULL) {
 		XPLMSpeakString("Pushback failure: no suitable tug for your "
 		    "aircraft.");
@@ -464,7 +468,7 @@ bp_start(void)
 		p_start = vect2_add(p_start, vect2_scmul(vect2_norm(dir,
 		    B_TRUE), 3 * bp.veh.wheelbase));
 		tug_set_pos(bp.tug, p_start,
-		    normalize_hdg(bp.cur_pos.hdg + 90), 0);
+		    normalize_hdg(bp.cur_pos.hdg - 90), 0);
 	} else {
 		tug_set_pos(bp.tug, bp.cur_pos.pos, bp.cur_pos.hdg, 0);
 	}
@@ -618,8 +622,7 @@ bp_run(void)
 	if (bp.step < PB_STEP_CONNECTED) {
 		bp.step = PB_STEP_CONNECTED;
 		tug_set_lift_pos(1);
-		tug_set_lift_arm_pos(1);
-		tug_set_lift_bowl_pos(0);
+		tug_set_lift_arm_pos(bp.tug, 0, B_TRUE);
 		dr_setf(&drs.leg_len, bp.tug->info->lift_height +
 		    bp.acf.nw_len);
 		/*
@@ -635,19 +638,19 @@ bp_run(void)
 		VERIFY(bp.step != PB_STEP_OFF);
 	case PB_STEP_START:
 		if (!bp.tug->info->drive_debug) {
-			vect2_t right_off, p_end, dir;
+			vect2_t left_off, p_end, dir;
 
 			dir = hdg2dir(bp.cur_pos.hdg);
 
-			right_off = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
+			left_off = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
 			    3 * bp.veh.wheelbase));
-			right_off = vect2_add(right_off, vect2_scmul(
-			    vect2_norm( dir, B_TRUE), PB_DRIVING_TURN_OFFSET));
+			left_off = vect2_add(left_off, vect2_scmul(
+			    vect2_norm(dir, B_FALSE), PB_DRIVING_TURN_OFFSET));
 			p_end = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
 			    (-bp.acf.nw_z) + 2 * bp.tug->veh.wheelbase));
 
-			VERIFY(tug_drive2point(bp.tug, right_off,
-			    normalize_hdg(bp.cur_pos.hdg + 90)));
+			VERIFY(tug_drive2point(bp.tug, left_off,
+			    normalize_hdg(bp.cur_pos.hdg - 90)));
 			VERIFY(tug_drive2point(bp.tug, p_end, bp.cur_pos.hdg));
 		} else {
 			for (seg_t *seg = list_head(&bp.segs); seg != NULL;
@@ -675,8 +678,8 @@ bp_run(void)
 		break;
 	case PB_STEP_OPENING_CRADLE: {
 		double d_t = bp.cur_t - bp.step_start_t;
-		tug_set_lift_arm_pos(1 - (d_t / PB_CRADLE_DELAY));
-		tug_set_lift_bowl_pos(d_t / PB_CRADLE_DELAY);
+		tug_set_lift_pos(1 - d_t / PB_CRADLE_DELAY);
+		tug_set_lift_arm_pos(bp.tug, d_t / PB_CRADLE_DELAY, B_FALSE);
 		if (d_t >= PB_CRADLE_DELAY) {
 			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
 			bp.step++;
@@ -690,7 +693,8 @@ bp_run(void)
 
 			dir = hdg2dir(bp.cur_pos.hdg);
 			p_end = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-			    (-bp.acf.nw_z) - bp.tug->info->lift_z));
+			    (-bp.acf.nw_z) + (-bp.tug->info->lift_wall_z) +
+			    bp.acf.tirrad));
 			(void) tug_drive2point(bp.tug, p_end,
 			    bp.cur_pos.hdg);
 			bp.step++;
@@ -721,8 +725,7 @@ bp_run(void)
 		lift_fract = MAX(MIN(lift_fract, 1), 0);
 
 		tug_set_lift_pos(lift_fract);
-		tug_set_lift_arm_pos(cradle_closed_fract);
-		tug_set_lift_bowl_pos(1 - (2 * (cradle_closed_fract - 0.5)));
+		tug_set_lift_arm_pos(bp.tug, 1 - cradle_closed_fract, B_TRUE);
 
 		/* Iterate the lift */
 		lift = (bp.tug->info->lift_height * lift_fract) + bp.acf.nw_len;
@@ -824,8 +827,7 @@ bp_run(void)
 		lift_fract = MAX(MIN(lift_fract, 1), 0);
 
 		tug_set_lift_pos(lift_fract);
-		tug_set_lift_arm_pos(cradle_closed_fract);
-		tug_set_lift_bowl_pos(1 - (2 * (cradle_closed_fract - 0.5)));
+		tug_set_lift_arm_pos(bp.tug, 1 - cradle_closed_fract, B_TRUE);
 
 		/* Iterate the lift */
 		lift = bp.tug->info->lift_height * lift_fract;
@@ -873,8 +875,9 @@ bp_run(void)
 		break;
 	case PB_STEP_CLOSING_CRADLE: {
 		double d_t = bp.cur_t - bp.step_start_t;
-		tug_set_lift_arm_pos(d_t / PB_CRADLE_DELAY);
-		tug_set_lift_bowl_pos(1 - (d_t / PB_CRADLE_DELAY));
+		tug_set_lift_arm_pos(bp.tug, 1 - d_t / PB_CRADLE_DELAY,
+		    B_FALSE);
+		tug_set_lift_pos(d_t / PB_CRADLE_DELAY);
 		if (d_t >= PB_CRADLE_DELAY) {
 			vect2_t turn_p, abeam_p, end_p;
 			double turn_hdg, back_hdg;
