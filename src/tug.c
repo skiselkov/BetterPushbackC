@@ -56,6 +56,7 @@ static float rear_drive_anim = 0;
 static float lift_anim = 1, lift_arm_anim = 0;
 static float vehicle_lights = 0, cradle_lights = 0, reverse_lights = 0;
 static float hazard_lights = 0;
+static bool_t cradle_lights_req = B_FALSE;
 
 static dr_t front_drive_anim_dr, front_steer_anim_dr;
 static dr_t rear_drive_anim_dr;
@@ -597,8 +598,6 @@ tug_run(tug_t *tug, double d_t)
 	if (list_head(&tug->segs) != NULL) {
 		(void) drive_segs(&tug->pos, &tug->veh, &tug->segs,
 		    &tug->last_mis_hdg, d_t, &steer, &speed);
-	} else if (tug->pos.spd == 0) {
-		return;
 	}
 
 	/* modulate our speed based on required steering angle */
@@ -668,6 +667,8 @@ tug_run(tug_t *tug, double d_t)
 			reverse_lights = B_TRUE;
 		else if (tug->pos.spd > 0.1)
 			reverse_lights = B_FALSE;
+		cradle_lights = (dr_getf(&sun_pitch_dr) < LIGHTS_ON_SUN_ANGLE &&
+		    cradle_lights_req);
 	} else {
 		uint64_t mt = microclock();
 		front_drive_anim = (mt % 3000000) / 3000000.0;
@@ -771,6 +772,7 @@ tug_draw(tug_t *tug, double cur_t)
 		wav_stop(tug->air_snd);
 		tug->cradle_air_snd_on = B_FALSE;
 	}
+
 }
 
 void
@@ -843,7 +845,7 @@ tug_set_lift_arm_pos(const tug_t *tug, float x, bool_t grabbing_tire)
 void
 tug_set_cradle_lights_on(bool_t flag)
 {
-	cradle_lights = flag;
+	cradle_lights_req = flag;
 }
 
 void

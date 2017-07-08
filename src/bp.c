@@ -592,6 +592,7 @@ bp_run(void)
 	bp.d_pos.spd = bp.cur_pos.spd - bp.last_pos.spd;
 	bp.d_t = bp.cur_t - bp.last_t;
 
+	ASSERT(bp.tug != NULL);
 	tug_run(bp.tug, bp.d_t);
 
 	if (bp.step >= PB_STEP_DRIVING_UP_CONNECT &&
