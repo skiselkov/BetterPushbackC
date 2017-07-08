@@ -77,7 +77,7 @@ typedef struct {
 
 typedef struct {
 	vehicle_pos_t	pos;
-	vehicle_t	veh;
+	vehicle_t	veh, veh_slow;
 	double		cur_steer;
 	double		last_mis_hdg;
 
@@ -123,7 +123,7 @@ void tug_free(tug_t *tug);
 
 void tug_set_pos(tug_t *tug, vect2_t pos, double hdg, double spd);
 bool_t tug_drive2point(tug_t *tug, vect2_t dst, double hdg);
-void tug_run(tug_t *tug, double d_t);
+void tug_run(tug_t *tug, double d_t, bool_t drive_slow);
 void tug_draw(tug_t *tug, double cur_t);
 void tug_set_TE_snd(tug_t *tug, double TE_fract);
 void tug_set_cradle_air_on(tug_t *tug, bool_t flag, double cur_t);
@@ -134,6 +134,7 @@ bool_t tug_is_stopped(const tug_t *tug);
 
 void tug_set_lift_pos(float x);
 void tug_set_lift_arm_pos(const tug_t *tug, float x, bool_t grabbing_tire);
+void tug_set_tire_sense_pos(const tug_t *tug, float x);
 void tug_set_cradle_lights_on(bool_t flag);
 void tug_set_hazard_lights_on(bool_t flag);
 

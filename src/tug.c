@@ -53,14 +53,14 @@
 
 static float front_drive_anim = 0, front_steer_anim = 0.5;
 static float rear_drive_anim = 0;
-static float lift_anim = 1, lift_arm_anim = 0;
+static float lift_anim = 1, lift_arm_anim = 0, tire_sense_anim = 0;
 static float vehicle_lights = 0, cradle_lights = 0, reverse_lights = 0;
 static float hazard_lights = 0;
 static bool_t cradle_lights_req = B_FALSE;
 
 static dr_t front_drive_anim_dr, front_steer_anim_dr;
 static dr_t rear_drive_anim_dr;
-static dr_t lift_anim_dr, lift_arm_anim_dr;
+static dr_t lift_anim_dr, lift_arm_anim_dr, tire_sense_anim_dr;
 static dr_t vehicle_lights_dr, cradle_lights_dr, reverse_lights_dr;
 static dr_t hazard_lights_dr, sun_pitch_dr;
 
@@ -387,6 +387,8 @@ tug_glob_init(void)
 	dr_create_f(&lift_anim_dr, &lift_anim, B_FALSE, "bp/anim/lift");
 	dr_create_f(&lift_arm_anim_dr, &lift_arm_anim, B_FALSE,
 	    "bp/anim/lift_arm");
+	dr_create_f(&tire_sense_anim_dr, &tire_sense_anim, B_FALSE,
+	    "bp/anim/tire_sense");
 	dr_create_f(&vehicle_lights_dr, &vehicle_lights, B_FALSE,
 	    "bp/anim/vehicle_lights");
 	dr_create_f(&cradle_lights_dr, &cradle_lights, B_FALSE,
@@ -414,6 +416,7 @@ tug_glob_fini(void)
 	dr_delete(&rear_drive_anim_dr);
 	dr_delete(&lift_anim_dr);
 	dr_delete(&lift_arm_anim_dr);
+	dr_delete(&tire_sense_anim_dr);
 	dr_delete(&vehicle_lights_dr);
 	dr_delete(&cradle_lights_dr);
 	dr_delete(&reverse_lights_dr);
@@ -449,6 +452,11 @@ tug_alloc(double mtow, double ng_len, double tirrad, const char *arpt)
 	tug->veh.max_ang_vel = TUG_MAX_ANG_VEL;
 	tug->veh.max_accel = tug->info->max_accel;
 	tug->veh.max_decel = tug->info->max_decel;
+
+	/* veh_slow is identical to 'veh', but with a much slower speed */
+	tug->veh_slow = tug->veh;
+	tug->veh_slow.max_fwd_spd = tug->veh.max_fwd_spd / 10;
+	tug->veh_slow.max_rev_spd = tug->veh.max_rev_spd / 10;
 
 	tug->tug = XPLMLoadObject(tug->info->tug);
 	if (tug->tug == NULL) {
@@ -590,14 +598,15 @@ tug_drive2point(tug_t *tug, vect2_t dst, double hdg)
 }
 
 void
-tug_run(tug_t *tug, double d_t)
+tug_run(tug_t *tug, double d_t, bool_t drive_slow)
 {
 	double steer = 0, speed = 0;
 	double accel, turn, radius;
 
 	if (list_head(&tug->segs) != NULL) {
-		(void) drive_segs(&tug->pos, &tug->veh, &tug->segs,
-		    &tug->last_mis_hdg, d_t, &steer, &speed);
+		(void) drive_segs(&tug->pos, drive_slow ? &tug->veh_slow :
+		    &tug->veh, &tug->segs, &tug->last_mis_hdg, d_t, &steer,
+		    &speed);
 	}
 
 	/* modulate our speed based on required steering angle */
@@ -676,6 +685,7 @@ tug_run(tug_t *tug, double d_t)
 		rear_drive_anim = front_drive_anim;
 		lift_anim = front_drive_anim;
 		lift_arm_anim = front_drive_anim;
+		tire_sense_anim = front_drive_anim;
 
 		vehicle_lights = (mt / 1000000) % 2;
 		cradle_lights = vehicle_lights;
@@ -690,28 +700,29 @@ tug_draw(tug_t *tug, double cur_t)
 	XPLMDrawInfo_t di;
 	XPLMProbeRef probe = XPLMCreateProbe(xplm_ProbeY);
 	XPLMProbeInfo_t info = { .structSize = sizeof (XPLMProbeInfo_t) };
-	vect3_t pos, norm;
-	vect2_t v;
+	vect3_t pos, norm, norm_hdg;
 	double gain;
 
 	/* X-Plane's Z axis is inverted to ours */
 	VERIFY3U(XPLMProbeTerrainXYZ(probe, tug->pos.pos.x, 0,
 	    -tug->pos.pos.y, &info), ==, xplm_ProbeHitTerrain);
+	/* Must be upright, no driving on ceilings! */
+	ASSERT3F(info.normalY, >, 0.0);
 
 	pos = VECT3(tug->pos.pos.x, info.locationY, -tug->pos.pos.y);
 	norm = VECT3(info.normalX, info.normalY, info.normalZ);
 	pos = vect3_add(pos, vect3_set_abs(norm, tug->info->height));
 
-	v = VECT2(norm.x, -norm.z);
-	v = vect2_rot(v, tug->pos.hdg);
+	norm_hdg = vect3_rot(VECT3(info.normalX, info.normalY, -info.normalZ),
+	    tug->pos.hdg, 1);
 
 	di.structSize = sizeof (di);
 	di.x = pos.x;
 	di.y = pos.y;
 	di.z = pos.z;
 	di.heading = tug->pos.hdg;
-	di.roll = -RAD2DEG(asin(v.x / norm.y));
-	di.pitch = -RAD2DEG(asin(v.y / norm.y));
+	di.pitch = -RAD2DEG(atan(norm_hdg.z / norm_hdg.y));
+	di.roll = RAD2DEG(atan(norm_hdg.x / norm_hdg.y));
 
 	XPLMDrawObjects(tug->tug, 1, &di, 1, 1);
 
@@ -840,6 +851,15 @@ tug_set_lift_arm_pos(const tug_t *tug, float x, bool_t grabbing_tire)
 	}
 
 	lift_arm_anim = MAX(MIN(x, 1.0), min_val);
+}
+
+void
+tug_set_tire_sense_pos(const tug_t *tug, float x)
+{
+	const tug_info_t *ti = tug->info;
+	double max_val = wavg(0.0, 1.0, (tug->tirrad - ti->min_tirrad) /
+	    (ti->max_tirrad - ti->min_tirrad));
+	tire_sense_anim = MAX(MIN(x, max_val), 0.0);
 }
 
 void

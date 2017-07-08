@@ -1,0 +1,84 @@
+#!/bin/bash
+
+# CDDL HEADER START
+#
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
+#
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# http://www.illumos.org/license/CDDL.
+#
+# CDDL HEADER END
+
+# Copyright 2017 Saso Kiselkov. All rights reserved.
+
+DIST_FILES=(
+    'COPYING'					''
+    'data/connected.wav'			''
+    'data/disco.wav'				''
+    'data/done.wav'				''
+    'data/driving_up.wav'			''
+    'data/op_complete.wav'			''
+    'data/plan_end.wav'				''
+    'data/plan_start.wav'			''
+    'data/ready2conn.wav'			''
+    'data/start_pb.wav'				''
+    'data/start_tow.wav'			''
+    'objects/tugs/AST-3F.tug/AST-3F.obj'	''
+    'objects/tugs/AST-3F.tug/AST-3F_tex.png'	'//PNG2DDS//'
+    'objects/tugs/AST-3F.tug/air.wav'		''
+    'objects/tugs/AST-3F.tug/beeper.wav'	''
+    'objects/tugs/AST-3F.tug/engine.wav'	''
+    'objects/tugs/AST-3F.tug/info.cfg'		''
+)
+
+function install_xtra_files() {
+	for (( I=0; $I < ${#DIST_FILES[@]}; I=$I + 2 )); do
+		FILE="${DIST_FILES[$I]}"
+		DSTDIR="${DIST_FILES[$I+1]}"
+		if [[ "$DSTDIR" = "//PNG2DDS//" ]]; then
+			DSTDIR=""
+			XFERCMD="convert"
+			TGTFILE="$(basename "$FILE")"
+			TGTFILE="${TGTFILE/%.png/.dds}"
+		else
+			TGTFILE="$(basename "$FILE")"
+			XFERCMD="cp"
+		fi
+		if [[ "$DSTDIR" = "" ]]; then
+			DSTDIR="$(dirname "$FILE")"
+		fi
+		mkdir -p "BetterPushback/$DSTDIR"
+		$XFERCMD "$FILE" "BetterPushback/$DSTDIR/$TGTFILE"
+	done
+}
+
+rm -rf BetterPushback
+
+case `uname` in
+Linux)
+	set -e
+	( cd qmake && ./build-win-lin )
+	mkdir -p BetterPushback/{32,64}
+	cp qmake/output/32/{win,lin}.xpl BetterPushback/32
+	cp qmake/output/64/{win,lin}.xpl BetterPushback/64
+	install_xtra_files
+	set +e
+	;;
+Darwin)
+	set -e
+	( cd qmake && ./build-mac )
+	mkdir -p BetterPushback/{32,64}
+	cp qmake/output/32/mac.xpl BetterPushback/32
+	cp qmake/output/64/mac.xpl BetterPushback/64
+	install_xtra_files
+	set +e
+	;;
+*)
+	echo "Unsupported platform" >&2
+	exit 1
+	;;
+esac

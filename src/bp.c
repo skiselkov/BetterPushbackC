@@ -465,8 +465,8 @@ bp_start(void)
 		    3 * bp.veh.wheelbase));
 		p_start = vect2_add(p_start, vect2_scmul(vect2_norm(dir,
 		    B_TRUE), 3 * bp.veh.wheelbase));
-		tug_set_pos(bp.tug, p_start,
-		    normalize_hdg(bp.cur_pos.hdg - 90), 0);
+		tug_set_pos(bp.tug, p_start, normalize_hdg(bp.cur_pos.hdg - 90),
+		    bp.tug->veh.max_fwd_spd);
 	} else {
 		tug_set_pos(bp.tug, bp.cur_pos.pos, bp.cur_pos.hdg, 0);
 	}
@@ -593,7 +593,9 @@ bp_run(void)
 	bp.d_t = bp.cur_t - bp.last_t;
 
 	ASSERT(bp.tug != NULL);
-	tug_run(bp.tug, bp.d_t);
+	/* drive extra slowly while approaching & moving away from acf */
+	tug_run(bp.tug, bp.d_t, bp.step == PB_STEP_DRIVING_UP_CONNECT ||
+	    bp.step == PB_STEP_MOVING_AWAY);
 
 	if (bp.step >= PB_STEP_DRIVING_UP_CONNECT &&
 	    bp.step <= PB_STEP_MOVING_AWAY)
@@ -681,6 +683,7 @@ bp_run(void)
 		double d_t = bp.cur_t - bp.step_start_t;
 		tug_set_lift_pos(1 - d_t / PB_CRADLE_DELAY);
 		tug_set_lift_arm_pos(bp.tug, d_t / PB_CRADLE_DELAY, B_FALSE);
+		tug_set_tire_sense_pos(bp.tug, d_t / PB_CRADLE_DELAY);
 		if (d_t >= PB_CRADLE_DELAY) {
 			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
 			bp.step++;
@@ -878,6 +881,7 @@ bp_run(void)
 		double d_t = bp.cur_t - bp.step_start_t;
 		tug_set_lift_arm_pos(bp.tug, 1 - d_t / PB_CRADLE_DELAY,
 		    B_FALSE);
+		tug_set_tire_sense_pos(bp.tug, 1 - d_t / PB_CRADLE_DELAY);
 		tug_set_lift_pos(d_t / PB_CRADLE_DELAY);
 		if (d_t >= PB_CRADLE_DELAY) {
 			vect2_t turn_p, abeam_p, end_p;
