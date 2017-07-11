@@ -71,6 +71,7 @@ typedef struct {
 
 	bool_t	anim_debug;	/* animation debugging active */
 	bool_t	drive_debug;	/* driving debugging active */
+	bool_t	quick_debug;	/* quick test debugging active */
 
 	avl_node_t	node;
 } tug_info_t;
@@ -78,6 +79,7 @@ typedef struct {
 typedef struct {
 	vehicle_pos_t	pos;
 	vehicle_t	veh, veh_slow;
+	bool_t		steer_override;
 	double		cur_steer;
 	double		last_mis_hdg;
 
@@ -124,6 +126,7 @@ void tug_free(tug_t *tug);
 void tug_set_pos(tug_t *tug, vect2_t pos, double hdg, double spd);
 bool_t tug_drive2point(tug_t *tug, vect2_t dst, double hdg);
 void tug_run(tug_t *tug, double d_t, bool_t drive_slow);
+void tug_anim(tug_t *tug, double d_t);
 void tug_draw(tug_t *tug, double cur_t);
 void tug_set_TE_snd(tug_t *tug, double TE_fract);
 void tug_set_cradle_air_on(tug_t *tug, bool_t flag, double cur_t);

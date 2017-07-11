@@ -51,23 +51,58 @@
 #define	TUG_HAZARD_REV_PER_SEC	2	/* revolutions per second of beacon */
 #define	LIGHTS_ON_SUN_ANGLE	5	/* degrees, sets vehicle lights on */
 
-static float front_drive_anim = 0, front_steer_anim = 0.5;
-static float rear_drive_anim = 0;
-static float lift_anim = 1, lift_arm_anim = 0, tire_sense_anim = 0;
-static float vehicle_lights = 0, cradle_lights = 0, reverse_lights = 0;
-static float hazard_lights = 0;
+#define	DRIVER_TURN_TIME	0.75	/* seconds for driver to turn around */
+
+typedef enum {
+	ANIM_FRONT_DRIVE,
+	ANIM_FRONT_STEER,
+	ANIM_REAR_DRIVE,
+	ANIM_LIFT,
+	ANIM_LIFT_ARM,
+	ANIM_TIRE_SENSE,
+	ANIM_VEHICLE_LIGHTS,
+	ANIM_CRADLE_LIGHTS,
+	ANIM_REVERSE_LIGHTS,
+	ANIM_HAZARD_LIGHTS,
+	ANIM_DRIVER_ORIENTATION,
+	TUG_NUM_ANIMS
+} ANIM_t;
+
+typedef struct {
+	const char	*name;
+	dr_t		dr;
+	float		value;
+} ANIM_info_t;
+
+static ANIM_info_t anim[TUG_NUM_ANIMS] = {
+    { .name = "bp/anim/front_drive" },
+    { .name = "bp/anim/front_steer" },
+    { .name = "bp/anim/rear_drive" },
+    { .name = "bp/anim/lift" },
+    { .name = "bp/anim/lift_arm" },
+    { .name = "bp/anim/tire_sense" },
+    { .name = "bp/anim/vehicle_lights" },
+    { .name = "bp/anim/cradle_lights" },
+    { .name = "bp/anim/reverse_lights" },
+    { .name = "bp/anim/hazard_lights" },
+    { .name = "bp/anim/driver_orientation" }
+};
+
 static bool_t cradle_lights_req = B_FALSE;
-
-static dr_t front_drive_anim_dr, front_steer_anim_dr;
-static dr_t rear_drive_anim_dr;
-static dr_t lift_anim_dr, lift_arm_anim_dr, tire_sense_anim_dr;
-static dr_t vehicle_lights_dr, cradle_lights_dr, reverse_lights_dr;
-static dr_t hazard_lights_dr, sun_pitch_dr;
-
+static dr_t sun_pitch_dr;
 static bool_t inited = B_FALSE;
-
 static tug_t *glob_tug = NULL;
 static XPLMCommandRef tug_reload_cmd;
+
+static inline float
+anim_gate(float x)
+{
+	while (x > 1.0)
+		x -= 1.0;
+	while (x < 0.0)
+		x += 1.0;
+	return (x);
+}
 
 /*
  * Tug info ordering function for avl_tree_t.
@@ -223,6 +258,9 @@ tug_info_read(const char *tugdir)
 		} else if (strcmp(option, "drive_debug") == 0) {
 			logMsg("Driving debugging active on %s", tugdir);
 			ti->drive_debug = B_TRUE;
+		} else if (strcmp(option, "quick_debug") == 0) {
+			logMsg("Quick test debugging active on %s", tugdir);
+			ti->quick_debug = B_TRUE;
 		} else {
 			logMsg("Malformed tug config file %s: unknown "
 			    "option '%s'", cfgfilename, option);
@@ -320,8 +358,9 @@ tug_info_select(double mtow, double ng_len, double tirrad, const char *arpt)
 
 		tugpath = mkpathname(tugdir, de->d_name, NULL);
 		ti = tug_info_read(tugpath);
-		/* The animation debug flag means we always pick this tug. */
-		if (ti->anim_debug) {
+		/* A debug flag means we always pick this tug. */
+		if (ti != NULL && (ti->anim_debug || ti->drive_debug ||
+		    ti->quick_debug)) {
 			free(tugpath);
 			goto out;
 		}
@@ -378,25 +417,10 @@ void
 tug_glob_init(void)
 {
 	VERIFY(!inited);
-	dr_create_f(&front_drive_anim_dr, &front_drive_anim, B_FALSE,
-	    "bp/anim/front_drive");
-	dr_create_f(&front_steer_anim_dr, &front_steer_anim, B_FALSE,
-	    "bp/anim/front_steer");
-	dr_create_f(&rear_drive_anim_dr, &rear_drive_anim, B_FALSE,
-	    "bp/anim/rear_drive");
-	dr_create_f(&lift_anim_dr, &lift_anim, B_FALSE, "bp/anim/lift");
-	dr_create_f(&lift_arm_anim_dr, &lift_arm_anim, B_FALSE,
-	    "bp/anim/lift_arm");
-	dr_create_f(&tire_sense_anim_dr, &tire_sense_anim, B_FALSE,
-	    "bp/anim/tire_sense");
-	dr_create_f(&vehicle_lights_dr, &vehicle_lights, B_FALSE,
-	    "bp/anim/vehicle_lights");
-	dr_create_f(&cradle_lights_dr, &cradle_lights, B_FALSE,
-	    "bp/anim/cradle_lights");
-	dr_create_f(&reverse_lights_dr, &reverse_lights, B_FALSE,
-	    "bp/anim/reverse_lights");
-	dr_create_f(&hazard_lights_dr, &hazard_lights, B_FALSE,
-	    "bp/anim/hazard_lights");
+
+	for (ANIM_t a = 0; a < TUG_NUM_ANIMS; a++)
+		dr_create_f(&anim[a].dr, &anim[a].value, B_FALSE, anim[a].name);
+
 	fdr_find(&sun_pitch_dr, "sim/graphics/scenery/sun_pitch_degrees");
 
 	tug_reload_cmd = XPLMCreateCommand("BetterPushback/reload_tug",
@@ -411,16 +435,9 @@ tug_glob_fini(void)
 {
 	if (!inited)
 		return;
-	dr_delete(&front_drive_anim_dr);
-	dr_delete(&front_steer_anim_dr);
-	dr_delete(&rear_drive_anim_dr);
-	dr_delete(&lift_anim_dr);
-	dr_delete(&lift_arm_anim_dr);
-	dr_delete(&tire_sense_anim_dr);
-	dr_delete(&vehicle_lights_dr);
-	dr_delete(&cradle_lights_dr);
-	dr_delete(&reverse_lights_dr);
-	dr_delete(&hazard_lights_dr);
+
+	for (ANIM_t a = 0; a < TUG_NUM_ANIMS; a++)
+		dr_delete(&anim[a].dr);
 
 	inited = B_FALSE;
 }
@@ -457,6 +474,8 @@ tug_alloc(double mtow, double ng_len, double tirrad, const char *arpt)
 	tug->veh_slow = tug->veh;
 	tug->veh_slow.max_fwd_spd = tug->veh.max_fwd_spd / 10;
 	tug->veh_slow.max_rev_spd = tug->veh.max_rev_spd / 10;
+	tug->veh_slow.max_accel = tug->info->max_accel / 3;
+	tug->veh_slow.max_decel = tug->info->max_decel / 3;
 
 	tug->tug = XPLMLoadObject(tug->info->tug);
 	if (tug->tug == NULL) {
@@ -518,10 +537,10 @@ tug_alloc(double mtow, double ng_len, double tirrad, const char *arpt)
 	 * 3) cradle lights off
 	 * 4) hazard lights off
 	 */
-	lift_anim = 1;
-	lift_arm_anim = 0;
-	cradle_lights = 0;
-	hazard_lights = 0;
+	anim[ANIM_LIFT].value = 1;
+	anim[ANIM_LIFT_ARM].value = 0;
+	anim[ANIM_CRADLE_LIGHTS].value = 0;
+	anim[ANIM_HAZARD_LIGHTS].value = 0;
 
 	glob_tug = tug;
 
@@ -593,6 +612,8 @@ tug_drive2point(tug_t *tug, vect2_t dst, double hdg)
 		cur_hdg = tug->pos.hdg;
 	}
 
+	tug->steer_override = B_FALSE;
+
 	return (compute_segs(&tug->veh, cur_pos, cur_hdg, dst, hdg,
 	    &tug->segs) >= 0);
 }
@@ -604,9 +625,8 @@ tug_run(tug_t *tug, double d_t, bool_t drive_slow)
 	double accel, turn, radius;
 
 	if (list_head(&tug->segs) != NULL) {
-		(void) drive_segs(&tug->pos, drive_slow ? &tug->veh_slow :
-		    &tug->veh, &tug->segs, &tug->last_mis_hdg, d_t, &steer,
-		    &speed);
+		drive_segs(&tug->pos, drive_slow ? &tug->veh_slow : &tug->veh,
+		    &tug->segs, &tug->last_mis_hdg, d_t, &steer, &speed);
 	}
 
 	/* modulate our speed based on required steering angle */
@@ -629,7 +649,8 @@ tug_run(tug_t *tug, double d_t, bool_t drive_slow)
 		turn = MAX(steer - tug->cur_steer, -TUG_STEER_RATE * d_t);
 
 	tug->pos.spd += accel;
-	tug->cur_steer += turn;
+	if (!tug->steer_override)
+		tug->cur_steer += turn;
 
 	radius = tan(DEG2RAD(90 - tug->cur_steer)) * tug->veh.wheelbase;
 	if (radius > -1e3 && radius < 1e3) {
@@ -651,46 +672,57 @@ tug_run(tug_t *tug, double d_t, bool_t drive_slow)
 	}
 
 	tug_set_TE_snd(tug, (ABS(tug->pos.spd) / tug->info->max_fwd_speed) / 4);
+}
 
+void
+tug_anim(tug_t *tug, double d_t)
+{
 	/* Set up our wheel animations */
 	if (!tug->info->anim_debug) {
-		front_drive_anim += (tug->pos.spd * d_t) /
-		    (2 * M_PI * tug->info->front_radius);
-		while (front_drive_anim >= 1.0)
-			front_drive_anim -= 1.0;
-		while (front_drive_anim < 0.0)
-			front_drive_anim += 1.0;
+		anim[ANIM_FRONT_DRIVE].value = anim_gate(((tug->pos.spd * d_t) /
+		    (2 * M_PI * tug->info->front_radius)) +
+		    anim[ANIM_FRONT_DRIVE].value);
 
-		rear_drive_anim += (tug->pos.spd * d_t) /
-		    (2 * M_PI * tug->info->rear_radius);
-		while (rear_drive_anim >= 1.0)
-			rear_drive_anim -= 1.0;
-		while (rear_drive_anim < 0.0)
-			rear_drive_anim += 1.0;
+		anim[ANIM_REAR_DRIVE].value = anim_gate(((tug->pos.spd * d_t) /
+		    (2 * M_PI * tug->info->rear_radius)) +
+		    anim[ANIM_REAR_DRIVE].value);
 
-		front_steer_anim = (tug->cur_steer /
+		anim[ANIM_FRONT_STEER].value = (tug->cur_steer /
 		    (2 * tug->veh.max_steer)) + 0.5;
 
-		vehicle_lights = (dr_getf(&sun_pitch_dr) < LIGHTS_ON_SUN_ANGLE);
-		if (tug->pos.spd < -0.1)
-			reverse_lights = B_TRUE;
-		else if (tug->pos.spd > 0.1)
-			reverse_lights = B_FALSE;
-		cradle_lights = (dr_getf(&sun_pitch_dr) < LIGHTS_ON_SUN_ANGLE &&
-		    cradle_lights_req);
+		anim[ANIM_VEHICLE_LIGHTS].value =
+		    (dr_getf(&sun_pitch_dr) < LIGHTS_ON_SUN_ANGLE);
+		if (tug->pos.spd < -0.1) {
+			anim[ANIM_REVERSE_LIGHTS].value = B_TRUE;
+			anim[ANIM_DRIVER_ORIENTATION].value = MIN(1,
+			    anim[ANIM_DRIVER_ORIENTATION].value +
+			    d_t / DRIVER_TURN_TIME);
+		} else if (tug->pos.spd > 0.1) {
+			anim[ANIM_REVERSE_LIGHTS].value = B_FALSE;
+			anim[ANIM_DRIVER_ORIENTATION].value = MAX(0,
+			    anim[ANIM_DRIVER_ORIENTATION].value -
+			    d_t * DRIVER_TURN_TIME);
+		}
+		anim[ANIM_CRADLE_LIGHTS].value = (cradle_lights_req &&
+		    dr_getf(&sun_pitch_dr) < LIGHTS_ON_SUN_ANGLE);
 	} else {
 		uint64_t mt = microclock();
-		front_drive_anim = (mt % 3000000) / 3000000.0;
-		front_steer_anim = front_drive_anim;
-		rear_drive_anim = front_drive_anim;
-		lift_anim = front_drive_anim;
-		lift_arm_anim = front_drive_anim;
-		tire_sense_anim = front_drive_anim;
+		float value;
 
-		vehicle_lights = (mt / 1000000) % 2;
-		cradle_lights = vehicle_lights;
-		reverse_lights = vehicle_lights;
-		hazard_lights = vehicle_lights;
+		value = (mt % 3000000) / 3000000.0;
+		anim[ANIM_FRONT_DRIVE].value = value;
+		anim[ANIM_FRONT_STEER].value = value;
+		anim[ANIM_REAR_DRIVE].value = value;
+		anim[ANIM_LIFT].value = value;
+		anim[ANIM_LIFT_ARM].value = value;
+		anim[ANIM_TIRE_SENSE].value = value;
+		anim[ANIM_DRIVER_ORIENTATION].value = value;
+
+		value = (mt / 1000000) % 2;
+		anim[ANIM_VEHICLE_LIGHTS].value = value;
+		anim[ANIM_CRADLE_LIGHTS].value = value;
+		anim[ANIM_REVERSE_LIGHTS].value = value;
+		anim[ANIM_HAZARD_LIGHTS].value = value;
 	}
 }
 
@@ -825,6 +857,7 @@ tug_set_steering(tug_t *tug, double req_steer, double d_t)
 	d_steer = MIN(d_steer, max_d_steer);
 	d_steer = MAX(d_steer, -max_d_steer);
 	tug->cur_steer += d_steer;
+	tug->steer_override = (list_head(&tug->segs) == NULL);
 }
 
 bool_t
@@ -836,7 +869,7 @@ tug_is_stopped(const tug_t *tug)
 void
 tug_set_lift_pos(float x)
 {
-	lift_anim = MAX(MIN(x, 1.0), 0.0);
+	anim[ANIM_LIFT].value = MAX(MIN(x, 1.0), 0.0);
 }
 
 void
@@ -850,7 +883,7 @@ tug_set_lift_arm_pos(const tug_t *tug, float x, bool_t grabbing_tire)
 		    ti->min_tirrad));
 	}
 
-	lift_arm_anim = MAX(MIN(x, 1.0), min_val);
+	anim[ANIM_LIFT_ARM].value = MAX(MIN(x, 1.0), min_val);
 }
 
 void
@@ -859,7 +892,7 @@ tug_set_tire_sense_pos(const tug_t *tug, float x)
 	const tug_info_t *ti = tug->info;
 	double max_val = wavg(0.0, 1.0, (tug->tirrad - ti->min_tirrad) /
 	    (ti->max_tirrad - ti->min_tirrad));
-	tire_sense_anim = MAX(MIN(x, max_val), 0.0);
+	anim[ANIM_TIRE_SENSE].value = MAX(MIN(x, max_val), 0.0);
 }
 
 void
@@ -871,5 +904,5 @@ tug_set_cradle_lights_on(bool_t flag)
 void
 tug_set_hazard_lights_on(bool_t flag)
 {
-	hazard_lights = flag;
+	anim[ANIM_HAZARD_LIGHTS].value = flag;
 }

@@ -1,4 +1,4 @@
-/*
+/*t
  * CDDL HEADER START
  *
  * The contents of this file are subject to the terms of the
@@ -56,7 +56,6 @@
 #include "xplane.h"
 
 #define	PB_DEBUG_INTF
-//#define	QUICK_DEBUG
 
 #define	STRAIGHT_STEER_RATE	20	/* degrees per second */
 #define	TURN_STEER_RATE		10	/* degrees per second */
@@ -79,6 +78,7 @@
 #define	PB_DRIVING_TURN_OFFSET	15	/* meters */
 #define	PB_LIFT_TE_RAMP_UP	0.5	/* seconds */
 #define	PB_LIFT_TE		0.075	/* fraction */
+#define	STATE_TRANS_DELAY	2	/* seconds, state transition delay */
 
 typedef enum {
 	PB_STEP_OFF,
@@ -596,6 +596,7 @@ bp_run(void)
 	/* drive extra slowly while approaching & moving away from acf */
 	tug_run(bp.tug, bp.d_t, bp.step == PB_STEP_DRIVING_UP_CONNECT ||
 	    bp.step == PB_STEP_MOVING_AWAY);
+	tug_anim(bp.tug, bp.d_t);
 
 	if (bp.step >= PB_STEP_DRIVING_UP_CONNECT &&
 	    bp.step <= PB_STEP_MOVING_AWAY)
@@ -618,23 +619,27 @@ bp_run(void)
 		}
 	}
 
-#ifdef	QUICK_DEBUG
 	/*
 	 * When performing quick debugging, skip the whole driving-up phase.
 	 */
-	if (bp.step < PB_STEP_CONNECTED) {
-		bp.step = PB_STEP_CONNECTED;
-		tug_set_lift_pos(1);
-		tug_set_lift_arm_pos(bp.tug, 0, B_TRUE);
-		dr_setf(&drs.leg_len, bp.tug->info->lift_height +
-		    bp.acf.nw_len);
-		/*
-		 * Just a quick'n'dirty way of removing all tug driving segs.
-		 * The actual tug position will be updated in draw_tugs.
-		 */
-		tug_set_pos(bp.tug, ZERO_VECT2, 0, 0);
+	if (bp.tug->info->quick_debug) {
+		if (bp.step < PB_STEP_CONNECTED) {
+			bp.step = PB_STEP_CONNECTED;
+			tug_set_lift_pos(1);
+			tug_set_lift_arm_pos(bp.tug, 0, B_TRUE);
+			dr_setf(&drs.leg_len, bp.tug->info->lift_height +
+			    bp.acf.nw_len);
+			/*
+			 * Just a quick'n'dirty way of removing all tug driving
+			 * segs. The actual tug position will be updated in
+			 * draw_tugs.
+			 */
+			tug_set_pos(bp.tug, ZERO_VECT2, 0, 0);
+		} else if (bp.step == PB_STEP_DISCONNECTING) {
+			bp.step = PB_STEP_DRIVING_AWAY;
+			dr_setf(&drs.leg_len, bp.acf.nw_len);
+		}
 	}
-#endif	/* QUICK_DEBUG */
 
 	switch (bp.step) {
 	case PB_STEP_OFF:
@@ -669,7 +674,13 @@ bp_run(void)
 		bp.step_start_t = bp.cur_t;
 		break;
 	case PB_STEP_DRIVING_UP_CLOSE:
-		if (tug_is_stopped(bp.tug)) {
+		if (!tug_is_stopped(bp.tug)) {
+			/*
+			 * Keep resetting the start time to enforce
+			 * the state transition delay once the tug stops.
+			 */
+			bp.step_start_t = bp.cur_t;
+		} else  if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
 			if (dr_getf(&drs.pbrake) != 1)
 				msg_play(MSG_RDY2CONN);
 			tug_set_cradle_beeper_on(bp.tug, B_TRUE);
@@ -681,11 +692,13 @@ bp_run(void)
 		break;
 	case PB_STEP_OPENING_CRADLE: {
 		double d_t = bp.cur_t - bp.step_start_t;
+
 		tug_set_lift_pos(1 - d_t / PB_CRADLE_DELAY);
 		tug_set_lift_arm_pos(bp.tug, d_t / PB_CRADLE_DELAY, B_FALSE);
 		tug_set_tire_sense_pos(bp.tug, d_t / PB_CRADLE_DELAY);
-		if (d_t >= PB_CRADLE_DELAY) {
+		if (d_t >= PB_CRADLE_DELAY)
 			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
+		if (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY) {
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
 		}
@@ -708,7 +721,13 @@ bp_run(void)
 	case PB_STEP_DRIVING_UP_CONNECT:
 		dr_setf(&drs.lbrake, 0.9);
 		dr_setf(&drs.rbrake, 0.9);
-		if (tug_is_stopped(bp.tug)) {
+		if (!tug_is_stopped(bp.tug)) {
+			/*
+			 * Keep resetting the start time to enforce a state
+			 * transition delay once the tug stops.
+			 */
+			bp.step_start_t = bp.cur_t;
+		} else if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
 			tug_set_cradle_beeper_on(bp.tug, B_TRUE);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
@@ -764,9 +783,13 @@ bp_run(void)
 		break;
 	}
 	case PB_STEP_CONNECTED:
-		dr_setf(&drs.lbrake, 0);
-		dr_setf(&drs.rbrake, 0);
-		if (dr_geti(&drs.pbrake) != 1) {
+		if (dr_geti(&drs.pbrake) == 1) {
+			/*
+			 * Keep resetting the start time to enforce
+			 * the state delay after the parking brake is released.
+			 */
+			bp.step_start_t = bp.cur_t;
+		} else if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
 			seg_t *seg = list_head(&bp.segs);
 
 			ASSERT(seg != NULL);
@@ -781,7 +804,7 @@ bp_run(void)
 		break;
 	case PB_STEP_STARTING:
 		dr_seti(&drs.override_steer, 1);
-		if (bp.cur_t - bp.step_start_t > PB_START_DELAY) {
+		if (bp.cur_t - bp.step_start_t >= PB_START_DELAY) {
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
 		} else {
@@ -790,6 +813,9 @@ bp_run(void)
 		}
 		break;
 	case PB_STEP_PUSHING:
+		dr_setf(&drs.lbrake, 0);
+		dr_setf(&drs.rbrake, 0);
+		dr_seti(&drs.override_steer, 1);
 		if (!bp_run_push()) {
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
@@ -798,11 +824,20 @@ bp_run(void)
 	case PB_STEP_STOPPING: {
 		acf2tug_steer(turn_nosewheel(0, STRAIGHT_STEER_RATE));
 		push_at_speed(0, bp.veh.max_accel);
-		if (ABS(bp.cur_pos.spd) < SPEED_COMPLETE_THRESH) {
-			if (dr_getf(&drs.pbrake) == 0)
-				msg_play(MSG_OP_COMPLETE);
-			bp.step++;
+		if (ABS(bp.cur_pos.spd) > SPEED_COMPLETE_THRESH) {
+			/*
+			 * Keep resetting the start time to enforce a delay
+			 * once stopped.
+			 */
 			bp.step_start_t = bp.cur_t;
+		} else {
+			dr_setf(&drs.lbrake, 0.9);
+			dr_setf(&drs.rbrake, 0.9);
+			if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
+				msg_play(MSG_OP_COMPLETE);
+				bp.step++;
+				bp.step_start_t = bp.cur_t;
+			}
 		}
 		break;
 	}
@@ -811,7 +846,13 @@ bp_run(void)
 		push_at_speed(0, bp.veh.max_accel);
 		dr_setf(&drs.lbrake, 0.9);
 		dr_setf(&drs.rbrake, 0.9);
-		if (dr_geti(&drs.pbrake) == 1) {
+		if (dr_geti(&drs.pbrake) != 1) {
+			/*
+			 * Keep resetting the start time to enforce a delay
+			 * when the parking brake is set.
+			 */
+			bp.step_start_t = bp.cur_t;
+		} else if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
 			msg_play(MSG_DISCO);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
@@ -846,13 +887,13 @@ bp_run(void)
 			tug_set_cradle_air_on(bp.tug, B_FALSE, bp.cur_t);
 		}
 
-		if (rmng_t <= 0) {
-			vect2_t dir, p;
-
+		if (rmng_t <= 0)
 			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
 
-			dir = hdg2dir(bp.cur_pos.hdg);
+		if (rmng_t <= -STATE_TRANS_DELAY) {
+			vect2_t dir, p;
 
+			dir = hdg2dir(bp.cur_pos.hdg);
 			dr_setf(&drs.lbrake, 0);
 			dr_setf(&drs.rbrake, 0);
 
@@ -879,16 +920,19 @@ bp_run(void)
 		break;
 	case PB_STEP_CLOSING_CRADLE: {
 		double d_t = bp.cur_t - bp.step_start_t;
+
 		tug_set_lift_arm_pos(bp.tug, 1 - d_t / PB_CRADLE_DELAY,
 		    B_FALSE);
 		tug_set_tire_sense_pos(bp.tug, 1 - d_t / PB_CRADLE_DELAY);
 		tug_set_lift_pos(d_t / PB_CRADLE_DELAY);
-		if (d_t >= PB_CRADLE_DELAY) {
+
+		if (d_t >= PB_CRADLE_DELAY)
+			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
+
+		if (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY) {
 			vect2_t turn_p, abeam_p, end_p;
 			double turn_hdg, back_hdg;
 			vect2_t dir, norm_dir;
-
-			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
 
 			dir = hdg2dir(bp.cur_pos.hdg);
 			norm_dir = vect2_norm(dir, B_TRUE);
@@ -1523,6 +1567,7 @@ bool_t
 bp_cam_stop(void)
 {
 	seg_t *seg;
+	XPLMCommandRef cockpit_view_cmd;
 
 	if (!cam_inited)
 		return (B_FALSE);
@@ -1540,6 +1585,10 @@ bp_cam_stop(void)
 		    1, (void *)(uintptr_t)i);
 	}
 	XPLMUnregisterKeySniffer(key_sniffer, 1, NULL);
+
+	cockpit_view_cmd = XPLMFindCommand("sim/view/3d_cockpit_cmnd_look");
+	ASSERT(cockpit_view_cmd != NULL);
+	XPLMCommandOnce(cockpit_view_cmd);
 
 	cam_inited = B_FALSE;
 
