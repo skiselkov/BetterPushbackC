@@ -106,6 +106,9 @@ linux-g++-32 {
 }
 
 macx {
+	# Prevent linking via clang++ which makes us depend on libstdc++
+	QMAKE_LINK = $$QMAKE_CC
+
 	DEFINES += APL=1 IBM=0 LIN=0
 	TARGET = mac.xpl
 	INCLUDEPATH += ../OpenAL/include
