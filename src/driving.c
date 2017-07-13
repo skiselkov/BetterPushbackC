@@ -25,6 +25,7 @@
 
 #include <stddef.h>
 #include <string.h>
+#include <errno.h>
 
 #include <acfutils/avl.h>
 #include <acfutils/helpers.h>
