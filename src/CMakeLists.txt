@@ -50,12 +50,14 @@ if(UNIX)
 	include_directories(bp PUBLIC "../SDK/CHeaders/XPLM"
 	    "../SDK/CHeaders/Widgets" "../SDK/CHeaders/Wrappers")
 else()
+	include_directories(bp PUBLIC "..\\libpng\\libpng-1.6.30")
 	include_directories(bp PUBLIC "..\\OpenAL\\include")
 	include_directories(bp PUBLIC
 	    "..\\SDK\\CHeaders\\XPLM" "..\\SDK\\CHeaders\\Widgets"
 	    "..\\SDK\\CHeaders\\Wrappers")
 endif(UNIX)
 if(APPLE)
+	include_directories(bp PUBLIC "../libpng/libpng-mac-64/include")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -arch x86_64 -Wno-deprecated")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mmacosx-version-min=10.7")
 endif(APPLE)
@@ -83,9 +85,9 @@ if(APPLE)
 	FIND_LIBRARY(XPWIDGETS_LIBRARY XPWidgets ../SDK/Libraries/Mac/)
 	FIND_LIBRARY(OPENGL_LIBRARY OpenGL)
 	FIND_LIBRARY(OPENAL_LIBRARY OpenAL)
-	FIND_LIBRARY(CURSES_LIBRARY ncurses)
+	FIND_LIBRARY(LIBPNG_LIBRARY png)
 	target_link_libraries(bp ${OPENAL_LIBRARY} ${OPENGL_LIBRARY}
-	    ${XPLM_LIBRARY})
+	    ${XPLM_LIBRARY} ${LIBPNG_LIBRARY})
 elseif(WIN32)
 	set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH}
 	    "..\\SDK\\Libraries\\Win\\")

@@ -25,6 +25,7 @@
 
 #include <string.h>
 #include <stddef.h>
+#include <errno.h>
 
 #if	IBM
 #include <gl.h>
@@ -33,6 +34,8 @@
 #else	/* LIN */
 #include <GL/gl.h>
 #endif	/* LIN */
+
+#include <png.h>
 
 #include <XPLMCamera.h>
 #include <XPLMDisplay.h>
@@ -157,6 +160,10 @@ static bool_t inited = B_FALSE, cam_inited = B_FALSE, started = B_FALSE;
 static bp_state_t bp;
 
 static float bp_run(void);
+static bool_t load_buttons(void);
+static void unload_buttons(void);
+static int key_sniffer(char inChar, XPLMKeyFlags inFlags, char inVirtualKey,
+    void *refcon);
 
 static void
 bp_gather(void)
@@ -363,6 +370,9 @@ bp_init(void)
 	if (!bp_state_init())
 		return (B_FALSE);
 
+	if (!load_buttons())
+		return (B_FALSE);
+
 	inited = B_TRUE;
 
 	return (B_TRUE);
@@ -515,6 +525,8 @@ bp_fini(void)
 	while ((seg = list_remove_head(&bp.segs)) != NULL)
 		free(seg);
 	list_destroy(&bp.segs);
+
+	unload_buttons();
 
 	inited = B_FALSE;
 }
@@ -987,16 +999,6 @@ bp_run(void)
 	return (-1);
 }
 
-static vect3_t cam_pos;
-static double cam_height;
-static double cam_hdg;
-static double cursor_hdg;
-static list_t pred_segs;
-static XPLMCommandRef circle_view_cmd;
-static XPLMWindowID fake_win;
-static vect2_t cursor_world_pos;
-static bool_t force_root_win_focus = B_TRUE;
-
 #define	ABV_TERR_HEIGHT		1.5	/* meters */
 #define	MAX_PRED_DISTANCE	10000	/* meters */
 #define	ANGLE_DRAW_STEP		5
@@ -1016,6 +1018,8 @@ static bool_t force_root_win_focus = B_TRUE;
 #define	MAX_ACCEL_MULT		10
 #define	WHEEL_ANGLE_MULT	0.5
 
+#define	MIN_BUTTON_SCALE	0.5
+
 #define	PREDICTION_DRAWING_PHASE	xplm_Phase_Airplanes
 
 typedef struct {
@@ -1023,6 +1027,24 @@ typedef struct {
 	XPLMCommandRef	cmd;
 	vect3_t		incr;
 } view_cmd_info_t;
+
+typedef struct {
+	const char	*filename;	/* PNG filename in data/icons */
+	const int	vk;		/* function virtual key, -1 if none */
+	GLuint		tex;		/* OpenGL texture object */
+	GLbyte		*tex_data;	/* RGBA texture data */
+	int		w, h;		/* button width & height in pixels */
+} button_t;
+
+static vect3_t		cam_pos;
+static double		cam_height;
+static double		cam_hdg;
+static double		cursor_hdg;
+static list_t		pred_segs;
+static XPLMCommandRef	circle_view_cmd;
+static XPLMWindowID	fake_win;
+static vect2_t		cursor_world_pos;
+static bool_t		force_root_win_focus = B_TRUE;
 
 static view_cmd_info_t view_cmds[] = {
     { .name = "sim/general/left", .incr = VECT3(-INCR_MED, 0, 0) },
@@ -1063,6 +1085,156 @@ static view_cmd_info_t view_cmds[] = {
     { .name = "sim/general/zoom_out_slow", .incr = VECT3(0, INCR_SMALL, 0) },
     { .name = NULL }
 };
+
+static button_t buttons[] = {
+    { .filename = "move_view.png", .vk = -1, .tex = 0, .tex_data = NULL },
+    { .filename = "place_seg.png", .vk = -1, .tex = 0, .tex_data = NULL },
+    { .filename = "rotate_seg.png", .vk = -1, .tex = 0, .tex_data = NULL },
+    { .filename = "", .vk = -1, .tex = 0, .tex_data = NULL, .h = 64 },
+    {
+	.filename = "accept_plan.png", .vk = XPLM_VK_RETURN, .tex = 0,
+	.tex_data = NULL
+    },
+    {
+	.filename = "delete_seg.png", .vk = XPLM_VK_DELETE, .tex = 0,
+	.tex_data = NULL
+    },
+    { .filename = "", .vk = -1, .tex = 0, .tex_data = NULL, .h = 64 },
+    {
+	.filename = "cancel_plan.png", .vk = XPLM_VK_ESCAPE, .tex = 0,
+	.tex_data = NULL
+    },
+    { .filename = NULL }
+};
+static int button_hit = -1;
+
+static bool_t
+load_icon(button_t *btn)
+{
+	char *filename = mkpathname(bp_xpdir, bp_plugindir, "data", "icons",
+	    btn->filename, NULL);
+	FILE *fp;
+	size_t rowbytes;
+	png_bytep *rowp = NULL;
+	png_structp pngp = NULL;
+	png_infop infop = NULL;
+	bool_t res = B_TRUE;
+	uint8_t header[8];
+
+	fp = fopen(filename, "rb");
+	if (fp == NULL) {
+		logMsg("Cannot open file %s: %s", filename, strerror(errno));
+		res = B_FALSE;
+		goto out;
+	}
+	fread(header, 1, sizeof (header), fp);
+	if (png_sig_cmp(header, 0, sizeof (header)) != 0) {
+		logMsg("Cannot open file %s: invalid PNG header", filename);
+		res = B_FALSE;
+		goto out;
+	}
+	pngp = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+	VERIFY(pngp != NULL);
+	infop = png_create_info_struct(pngp);
+	VERIFY(infop != NULL);
+	if (setjmp(png_jmpbuf(pngp))) {
+		logMsg("Cannot open file %s: libpng error in init_io",
+		    filename);
+		res = B_FALSE;
+		goto out;
+	}
+	png_init_io(pngp, fp);
+	png_set_sig_bytes(pngp, 8);
+
+	if (setjmp(png_jmpbuf(pngp))) {
+		logMsg("Cannot open file %s: libpng read info failed",
+		    filename);
+		res = B_FALSE;
+		goto out;
+	}
+	png_read_info(pngp, infop);
+	btn->w = png_get_image_width(pngp, infop);
+	btn->h = png_get_image_height(pngp, infop);
+
+	if (png_get_color_type(pngp, infop) != PNG_COLOR_TYPE_RGBA) {
+		logMsg("Bad icon file %s: need color type RGBA", filename);
+		res = B_FALSE;
+		goto out;
+	}
+	if (png_get_bit_depth(pngp, infop) != 8) {
+		logMsg("Bad icon file %s: need 8-bit depth", filename);
+		res = B_FALSE;
+		goto out;
+	}
+	rowbytes = png_get_rowbytes(pngp, infop);
+
+	rowp = malloc(sizeof (*rowp) * btn->h);
+	VERIFY(rowp != NULL);
+	for (int i = 0; i < btn->h; i++) {
+		rowp[i] = malloc(rowbytes);
+		VERIFY(rowp[i] != NULL);
+	}
+
+	if (setjmp(png_jmpbuf(pngp))) {
+		logMsg("Bad icon file %s: error reading image file", filename);
+		res = B_FALSE;
+		goto out;
+	}
+	png_read_image(pngp, rowp);
+
+	btn->tex_data = malloc(btn->h * rowbytes);
+	for (int i = 0; i < btn->h; i++)
+		memcpy(&btn->tex_data[i * rowbytes], rowp[i], rowbytes);
+
+	glGenTextures(1, &btn->tex);
+	glBindTexture(GL_TEXTURE_2D, btn->tex);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, btn->w, btn->h, 0, GL_RGBA,
+	    GL_UNSIGNED_BYTE, btn->tex_data);
+
+out:
+	if (pngp != NULL)
+		png_destroy_read_struct(&pngp, &infop, NULL);
+	if (rowp != NULL) {
+		for (int i = 0; i < btn->h; i++)
+			free(rowp[i]);
+		free(rowp);
+	}
+	if (fp != NULL)
+		fclose(fp);
+	free(filename);
+
+	return (res);
+}
+
+static bool_t
+load_buttons(void)
+{
+
+	for (int i = 0; buttons[i].filename != NULL; i++) {
+		/* skip spacers */
+		if (strcmp(buttons[i].filename, "") == 0)
+			continue;
+		if (!load_icon(&buttons[i])) {
+			unload_buttons();
+			return (B_FALSE);
+		}
+	}
+
+	return (B_TRUE);
+}
+
+static void
+unload_buttons(void)
+{
+	for (int i = 0; buttons[i].filename != NULL; i++) {
+		if (buttons[i].tex != 0)
+			glDeleteTextures(1, &buttons[i].tex);
+		if (buttons[i].tex_data != NULL)
+			free(buttons[i].tex_data);
+	}
+}
 
 static int
 move_camera(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
@@ -1245,28 +1417,6 @@ draw_acf_symbol(vect3_t pos, double hdg, double wheelbase, vect3_t color)
 	glEnd();
 }
 
-#if	0
-static void
-draw_cross(vect2_t pos, double y)
-{
-	vect2_t v;
-
-	glLineWidth(4);
-	glColor3f(1, 0, 1);
-
-	glBegin(GL_LINES);
-	v = vect2_add(vect2_rot(VECT2(-1, 0), cam_hdg), pos);
-	glVertex3f(v.x, y, -v.y);
-	v = vect2_add(vect2_rot(VECT2(1, 0), cam_hdg), pos);
-	glVertex3f(v.x, y, -v.y);
-	v = vect2_add(vect2_rot(VECT2(0, 1), cam_hdg), pos);
-	glVertex3f(v.x, y, -v.y);
-	v = vect2_add(vect2_rot(VECT2(0, -1), cam_hdg), pos);
-	glVertex3f(v.x, y, -v.y);
-	glEnd();
-}
-#endif	/* DEBUG */
-
 static int
 draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 {
@@ -1344,7 +1494,8 @@ draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 static void
 fake_win_draw(XPLMWindowID inWindowID, void *inRefcon)
 {
-	int w, h;
+	double scale;
+	int w, h, h_buttons, h_off;
 	UNUSED(inWindowID);
 	UNUSED(inRefcon);
 
@@ -1355,6 +1506,54 @@ fake_win_draw(XPLMWindowID inWindowID, void *inRefcon)
 		XPLMBringWindowToFront(fake_win);
 	if (force_root_win_focus)
 		XPLMTakeKeyboardFocus(0);
+
+	XPLMSetGraphicsState(0, 1, 0, 0, 1, 0, 0);
+
+	h_buttons = 0;
+	for (int i = 0; buttons[i].filename != NULL; i++)
+		h_buttons += buttons[i].h;
+
+	scale = (double)h / h_buttons;
+	scale = MIN(scale, 1);
+	/* don't draw the buttons if we don't have enough space for them */
+	if (scale < MIN_BUTTON_SCALE)
+		return;
+
+	h_off = (h + (h_buttons * scale)) / 2;
+	for (int i = 0; buttons[i].filename != NULL;
+	    i++, h_off -= buttons[i].h * scale) {
+		button_t *btn = &buttons[i];
+
+		if (btn->tex == 0)
+			continue;
+		glBindTexture(GL_TEXTURE_2D, btn->tex);
+		glBegin(GL_QUADS);
+		glTexCoord2f(0, 1);
+		glVertex2f(w - btn->w * scale, h_off - btn->h * scale);
+		glTexCoord2f(0, 0);
+		glVertex2f(w - btn->w * scale, h_off);
+		glTexCoord2f(1, 0);
+		glVertex2f(w, h_off);
+		glTexCoord2f(1, 1);
+		glVertex2f(w, h_off - btn->h * scale);
+		glEnd();
+
+		if (i == button_hit) {
+			/*
+			 * If this button was hit by a mouse click, highlight
+			 * it by drawing a translucent white quad over it.
+			 */
+			XPLMSetGraphicsState(0, 0, 0, 0, 1, 0, 0);
+			glColor4f(1, 1, 1, 0.3);
+			glBegin(GL_QUADS);
+			glVertex2f(w - btn->w * scale, h_off - btn->h * scale);
+			glVertex2f(w - btn->w * scale, h_off);
+			glVertex2f(w, h_off);
+			glVertex2f(w, h_off - btn->h * scale);
+			glEnd();
+			XPLMSetGraphicsState(0, 1, 0, 0, 1, 0, 0);
+		}
+	}
 }
 
 static void
@@ -1380,6 +1579,35 @@ fake_win_cursor(XPLMWindowID inWindowID, int x, int y, void *inRefcon)
 }
 
 static int
+calc_button_hit(int x, int y)
+{
+	double scale;
+	int w, h, h_buttons, h_off;
+
+	XPLMGetScreenSize(&w, &h);
+
+	h_buttons = 0;
+	for (int i = 0; buttons[i].filename != NULL; i++)
+		h_buttons += buttons[i].h;
+
+	scale = (double)h / h_buttons;
+	scale = MIN(scale, 1);
+	if (scale < MIN_BUTTON_SCALE)
+		return (-1);
+
+	h_off = (h + (h_buttons * scale)) / 2;
+	for (int i = 0; buttons[i].filename != NULL;
+	    i++, h_off -= buttons[i].h * scale) {
+		if (x >= w - buttons[i].w * scale && x <= w &&
+		    y >= h_off - buttons[i].h * scale && y <= h_off &&
+		    buttons[i].vk != -1)
+			return (i);
+	}
+
+	return (-1);
+}
+
+static int
 fake_win_click(XPLMWindowID inWindowID, int x, int y, XPLMMouseStatus inMouse,
     void *inRefcon)
 {
@@ -1394,8 +1622,9 @@ fake_win_click(XPLMWindowID inWindowID, int x, int y, XPLMMouseStatus inMouse,
 		down_x = x;
 		down_y = y;
 		force_root_win_focus = B_FALSE;
+		button_hit = calc_button_hit(x, y);
 	} else if (inMouse == xplm_MouseDrag) {
-		if (x != down_x || y != down_y) {
+		if ((x != down_x || y != down_y) && button_hit == -1) {
 			int w, h;
 			double fov_h, fov_v, rx, ry, rw, rh, dx, dy;
 			vect2_t v;
@@ -1416,13 +1645,19 @@ fake_win_click(XPLMWindowID inWindowID, int x, int y, XPLMMouseStatus inMouse,
 			down_y = y;
 		}
 	} else {
-		if (microclock() - down_t < CLICK_THRESHOLD_US) {
+		if (button_hit != -1 && button_hit == calc_button_hit(x, y)) {
+			/* simulate a key press */
+			ASSERT(buttons[button_hit].vk != -1);
+			key_sniffer(0, xplm_DownFlag, buttons[button_hit].vk,
+			    NULL);
+		} else if (microclock() - down_t < CLICK_THRESHOLD_US) {
 			/*
 			 * Transfer whatever is in pred_segs to the normal
 			 * segments and clear pred_segs.
 			 */
 			list_move_tail(&bp.segs, &pred_segs);
 		}
+		button_hit = -1;
 		force_root_win_focus = B_TRUE;
 	}
 
@@ -1471,9 +1706,15 @@ key_sniffer(char inChar, XPLMKeyFlags inFlags, char inVirtualKey, void *refcon)
 
 	switch (inVirtualKey) {
 	case XPLM_VK_RETURN:
-	case XPLM_VK_ESCAPE:
 		XPLMCommandOnce(XPLMFindCommand("BetterPushback/stop_planner"));
 		return (0);
+	case XPLM_VK_ESCAPE: {
+		seg_t *seg;
+		while ((seg = list_remove_head(&bp.segs)) != NULL)
+			free(seg);
+		XPLMCommandOnce(XPLMFindCommand("BetterPushback/stop_planner"));
+		return (0);
+	}
 	case XPLM_VK_CLEAR:
 	case XPLM_VK_BACK:
 	case XPLM_VK_DELETE:

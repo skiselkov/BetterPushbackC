@@ -55,7 +55,7 @@ msg_init(void)
 	ASSERT(!inited);
 
 	for (message_t msg = 0; msg < MSG_NUM_MSGS; msg++) {
-		path = mkpathname(bp_xpdir, bp_plugindir, "data",
+		path = mkpathname(bp_xpdir, bp_plugindir, "data", "msgs",
 		    msgs[msg].filename, NULL);
 		msgs[msg].wav = wav_load(path, msgs[msg].filename);
 		if (msgs[msg].wav == NULL) {

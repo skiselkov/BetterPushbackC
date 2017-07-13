@@ -17,16 +17,32 @@
 
 DIST_FILES=(
     'COPYING'					''
-    'data/connected.wav'			''
-    'data/disco.wav'				''
-    'data/done.wav'				''
-    'data/driving_up.wav'			''
-    'data/op_complete.wav'			''
-    'data/plan_end.wav'				''
-    'data/plan_start.wav'			''
-    'data/ready2conn.wav'			''
-    'data/start_pb.wav'				''
-    'data/start_tow.wav'			''
+    'data/msgs/connected.wav'			''
+    'data/msgs/disco.wav'			''
+    'data/msgs/done.wav'			''
+    'data/msgs/driving_up.wav'			''
+    'data/msgs/op_complete.wav'			''
+    'data/msgs/plan_end.wav'			''
+    'data/msgs/plan_start.wav'			''
+    'data/msgs/ready2conn.wav'			''
+    'data/msgs/start_pb.wav'			''
+    'data/msgs/start_tow.wav'			''
+    'data/msgs/connected.wav'			''
+    'data/msgs/disco.wav'			''
+    'data/msgs/done.wav'			''
+    'data/msgs/driving_up.wav'			''
+    'data/msgs/op_complete.wav'			''
+    'data/msgs/plan_end.wav'			''
+    'data/msgs/plan_start.wav'			''
+    'data/msgs/ready2conn.wav'			''
+    'data/msgs/start_pb.wav'			''
+    'data/msgs/start_tow.wav'			''
+    'data/icons/accept_plan.png'		''
+    'data/icons/delete_seg.png'			''
+    'data/icons/place_seg.png'			''
+    'data/icons/cancel_plan.png'		''
+    'data/icons/move_view.png'			''
+    'data/icons/rotate_seg.png'			''
     'objects/tugs/AST-3F.tug/AST-3F.obj'	''
     'objects/tugs/AST-3F.tug/AST-3F_tex.png'	'//PNG2DDS//'
     'objects/tugs/AST-3F.tug/air.wav'		''
@@ -57,6 +73,9 @@ function install_xtra_files() {
 }
 
 rm -rf BetterPushback
+
+(cd zlib && ./build_zlib_deps ) || exit 1
+(cd libpng && ./build_libpng_deps ) || exit 1
 
 case `uname` in
 Linux)

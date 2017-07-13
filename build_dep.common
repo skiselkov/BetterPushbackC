@@ -1,0 +1,55 @@
+#!/bin/bash
+
+# CDDL HEADER START
+#
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
+#
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# http://www.illumos.org/license/CDDL.
+#
+# CDDL HEADER END
+
+# Copyright 2017 Saso Kiselkov. All rights reserved.
+
+function build_dep() {
+	PLATFORM="$1"
+	CONFOPTS="$2"
+	TARBALL="$3"
+	PRODNAME="$4"
+	PRODFILE="$5"
+
+	SRCDIR="${TARBALL/%.tar.*/}"
+
+	if ! [ -d "$SRCDIR" ]; then
+		case "${TARBALL##*.}" in
+		bz2)	tar -xjf "$TARBALL" || exit 1 ;;
+		gz)	tar -xzf "$TARBALL" || exit 1 ;;
+		xz)	tar -xJf "$TARBALL" || exit 1 ;;
+		*)
+			echo "Unknown archive extension of $TARBALL" >&2
+			exit 1
+			;;
+		esac
+	fi
+	if [ -f "$PRODNAME-$PLATFORM/$PRODFILE" ] && \
+	    [ "$PRODNAME-$PLATFORM/$PRODFILE" -nt "$TARBALL" ]; then
+		return
+	fi
+	(
+		rm -rf "$PRODNAME-$PLATFORM"
+		mkdir "$PRODNAME-$PLATFORM"
+		cd "$PRODNAME-$PLATFORM"
+		# Linux: for some reason, we need to specify an optimization
+		# level or we won't get lstat/fstat correctly defined. WTF...
+		CFLAGS="${CFLAGS} -fvisibility=hidden -O2" \
+		LDFLAGS="${LDFLAGS} -fvisibility=hidden" \
+		    "../$SRCDIR/configure" --prefix="$(pwd)" \
+		    $CONFOPTS || exit 1
+		make -j $NCPUS || exit 1
+		make install || exit 1
+	)
+}

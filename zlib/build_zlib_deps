@@ -1,0 +1,57 @@
+#!/bin/bash
+
+# CDDL HEADER START
+#
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
+#
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# http://www.illumos.org/license/CDDL.
+#
+# CDDL HEADER END
+
+# Copyright 2017 Saso Kiselkov. All rights reserved.
+
+source ../build_dep.common
+
+ZLIB="zlib-1.2.11.tar.gz"
+
+do_clean=0
+if [[ "$1" = "-c" ]]; then
+	do_clean=1
+fi
+
+case `uname` in
+	Linux)
+		NCPUS=$(( $(grep 'processor[[:space:]]\+:' /proc/cpuinfo \
+		    | wc -l) + 1 ))
+		CFLAGS="-fPIC -m64" LDLFAGS="-fPIC -m64" \
+		    build_dep "linux-64" "--static --64" "$ZLIB" "zlib" \
+		    "libz.a" && \
+		CFLAGS="-fPIC -m32" LDLFAGS="-fPIC -m32" \
+		    build_dep "linux-32" "--static" "$ZLIB" "zlib" "libz.a" && \
+		CFLAGS="-m64" LDFLAGS="-m64" build_dep "win-64" \
+		    "--static --64 --host=x86_64-w64-mingw32" \
+		    "$ZLIB" "zlib" "libz.a" && \
+		CFLAGS="-m32" LDFLAGS="-m32" \
+		    build_dep "win-32" "--static --host=i686-w64-mingw32" \
+		    "$ZLIB" "zlib" "libz.a"
+		;;
+	Darwin)
+		NCPUS=$(( $(sysctl -n hw.ncpu) + 1 ))
+		CFLAGS="-mmacosx-version-min=10.6" \
+		    LDFLAGS="-mmacosx-version-min=10.6" \
+		    build_dep "mac-64" "--static --64" "$ZLIB" "zlib" \
+		    "libz.a" && \
+		CFLAGS="-mmacosx-version-min=10.6 -m32" \
+		    LDFLAGS="-mmacosx-version-min=10.6 -m32" \
+		    build_dep "mac-32" "--static" "$ZLIB" "zlib" "libz.a"
+		;;
+	*)
+		echo "Unsupported build platform" >&2
+		exit 1
+		;;
+esac

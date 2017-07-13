@@ -54,19 +54,27 @@ win32 {
 }
 
 win32:contains(CROSS_COMPILE, x86_64-w64-mingw32-) {
+	INCLUDEPATH += ../libpng/libpng-win-64/include
+
 	# This must go first for GCC to properly find dependent symbols
 	LIBS += -L$$[LIBACFUTILS]/qmake/win64 -lacfutils
 	LIBS += -L../SDK/Libraries/Win -lXPLM_64
 	LIBS += -L../OpenAL/libs/Win64 -lOpenAL32
 	LIBS += -L../GL_for_Windows/lib -lopengl32
+	LIBS += -L../libpng/libpng-win-64/.libs -lpng16
+	LIBS += -L../zlib/zlib-win-64 -lz
 	LIBS += -ldbghelp
 }
 
 win32:contains(CROSS_COMPILE, i686-w64-mingw32-) {
+	INCLUDEPATH += ../libpng/libpng-win-32/include
+
 	LIBS += -L$$[LIBACFUTILS]/qmake/win32 -lacfutils
 	LIBS += -L../SDK/Libraries/Win -lXPLM
 	LIBS += -L../OpenAL/libs/Win32 -lOpenAL32
 	LIBS += -L../GL_for_Windows/lib -lopengl32
+	LIBS += -L../libpng/libpng-win-32/.libs -lpng16
+	LIBS += -L../zlib/zlib-win-32 -lz
 	LIBS += -ldbghelp
 }
 
@@ -77,15 +85,23 @@ unix:!macx {
 }
 
 linux-g++-64 {
+	INCLUDEPATH += ../libpng/libpng-linux-64/include
+
 	LIBS += -L$$[LIBACFUTILS]/qmake/lin64 -lacfutils
+	LIBS += -L../libpng/libpng-linux-64/.libs -lpng16
+	LIBS += -L../zlib/zlib-linux-64 -lz
 }
 
 linux-g++-32 {
+	INCLUDEPATH += ../libpng/libpng-linux-32/include
+
 	# The stack protector forces us to depend on libc,
 	# but we'd prefer to be static.
 	QMAKE_CFLAGS += -fno-stack-protector
 	LIBS += -fno-stack-protector
 	LIBS += -L$$[LIBACFUTILS]/qmake/lin32 -lacfutils
+	LIBS += -L../libpng/libpng-linux-32/.libs -lpng16
+	LIBS += -L../zlib/zlib-linux-32 -lz
 }
 
 macx {
@@ -97,11 +113,19 @@ macx {
 }
 
 macx-clang {
+	INCLUDEPATH += ../libpng/libpng-mac-64/include
+
 	LIBS += -L$$[LIBACFUTILS]/qmake/mac64 -lacfutils
+	LIBS += -L../libpng/libpng-mac-64/.libs -lpng16
+	LIBS += -L../zlib/zlib-mac-64 -lz
 }
 
 macx-clang-32 {
+	INCLUDEPATH += ../libpng/libpng-mac-32/include
+
 	LIBS += -L$$[LIBACFUTILS]/qmake/mac32 -lacfutils
+	LIBS += -L../libpng/libpng-mac-32/.libs -lpng16
+	LIBS += -L../zlib/zlib-mac-32 -lz
 }
 
 HEADERS += ../src/*.h
