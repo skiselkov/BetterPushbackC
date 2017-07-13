@@ -83,6 +83,9 @@
 #define	PB_LIFT_TE		0.075	/* fraction */
 #define	STATE_TRANS_DELAY	2	/* seconds, state transition delay */
 
+#define	SEGS_TABLE_DIST_THRESH	30	/* meters */
+#define	SEGS_TABLE_HDG_THRESH	10	/* degrees */
+
 typedef enum {
 	PB_STEP_OFF,
 	PB_STEP_START,
@@ -141,6 +144,7 @@ static struct {
 	dr_t	rot_force_N;
 	dr_t	axial_force;
 	dr_t	local_x, local_y, local_z;
+	dr_t	lat, lon;
 	dr_t	hdg;
 	dr_t	vx, vy, vz;
 	dr_t	sim_time;
@@ -343,6 +347,8 @@ bp_init(void)
 	fdr_find(&drs.local_x, "sim/flightmodel/position/local_x");
 	fdr_find(&drs.local_y, "sim/flightmodel/position/local_y");
 	fdr_find(&drs.local_z, "sim/flightmodel/position/local_z");
+	fdr_find(&drs.lat, "sim/flightmodel/position/latitude");
+	fdr_find(&drs.lon, "sim/flightmodel/position/longitude");
 	fdr_find(&drs.hdg, "sim/flightmodel/position/psi");
 	fdr_find(&drs.vx, "sim/flightmodel/position/local_vx");
 	fdr_find(&drs.vy, "sim/flightmodel/position/local_vy");
@@ -406,7 +412,6 @@ bool_t
 bp_can_start(char **reason)
 {
 	seg_t *seg;
-	vect2_t pos;
 
 	if (dr_getf(&drs.gear_deploy) != 1) {
 		if (reason != NULL)
@@ -426,16 +431,6 @@ bp_can_start(char **reason)
 			*reason = "Pushback failure: please first plan your "
 			    "pushback to tell me where you want to go.";
 		}
-		return (B_FALSE);
-	}
-	pos = VECT2(dr_getf(&drs.local_x), -dr_getf(&drs.local_z));
-	if (vect2_dist(pos, seg->start_pos) >= 3) {
-		if (reason != NULL) {
-			*reason = "Pushback failure: aircraft has moved. "
-			    "Please plan a new pushback path.";
-		}
-		while ((seg = list_remove_head(&bp.segs)) != NULL)
-			free(seg);
 		return (B_FALSE);
 	}
 
@@ -484,6 +479,9 @@ bp_start(void)
 	XPLMRegisterFlightLoopCallback((XPLMFlightLoop_f)bp_run, -1, NULL);
 	XPLMRegisterDrawCallback((XPLMDrawCallback_f)draw_tugs,
 	    xplm_Phase_Objects, 1, NULL);
+
+	segs_save(GEO_POS2(dr_getf(&drs.lat), dr_getf(&drs.lon)),
+	    dr_getf(&drs.hdg), &bp.segs);
 
 	started = B_TRUE;
 
@@ -1821,6 +1819,12 @@ bp_cam_start(void)
 		    1, (void *)(uintptr_t)i);
 	}
 	XPLMRegisterKeySniffer(key_sniffer, 1, NULL);
+
+	/* If the list of segs is empty, try to reload the saved state */
+	if (list_head(&bp.segs) == NULL) {
+		segs_load(GEO_POS2(dr_getf(&drs.lat), dr_getf(&drs.lon)),
+		    dr_getf(&drs.hdg), &bp.segs);
+	}
 
 	cam_inited = B_TRUE;
 

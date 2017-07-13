@@ -23,10 +23,17 @@
  * Copyright 2017 Saso Kiselkov. All rights reserved.
  */
 
+#include <stddef.h>
+#include <string.h>
+
+#include <acfutils/avl.h>
 #include <acfutils/helpers.h>
 #include <acfutils/math.h>
 
+#include <XPLMGraphics.h>
+
 #include "driving.h"
+#include "xplane.h"
 
 #define	CRAWL_SPEED		0.1	/* m/s */
 
@@ -39,6 +46,26 @@
 #define	STEERING_SENSITIVE	90	/* degrees */
 
 #define	STEER_GATE(x, g)	MIN(MAX((x), -g), g)
+
+#define	SEGS_TABLE_DIST_THRESH	30	/* meters */
+#define	SEGS_TABLE_HDG_THRESH	10	/* degrees */
+
+/*
+ * A segment table is an AVL tree that holds sets of driving segments, each
+ * associated with a particular starting position. This allows us to store
+ * and retrieve previously used driving instructions so the user doesn't
+ * have to keep re-entering them if they repeatedly push back from the same
+ * starting positions.
+ * This table is stored in Output/caches/BetterPushback_segs_table.dat as
+ * a text file. See segs_table_store for details on the format.
+ */
+typedef struct {
+	geo_pos2_t	pos;
+	vect3_t		pos_ecef;
+	double		hdg;
+	list_t		segs;
+	avl_node_t	node;
+} segs_table_entry_t;
 
 static double turn_run_speed(const vehicle_t *veh, list_t *segs, double rhdg,
     double radius, bool_t backward, const seg_t *next);
@@ -424,7 +451,10 @@ drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
 
 	ASSERT(seg != NULL);
 	if (seg->type == SEG_TYPE_STRAIGHT) {
-		double len = vect2_dist(pos->pos, seg->start_pos);
+		vect2_t dir = !seg->backward ? hdg2dir(seg->start_hdg) :
+		    vect2_neg(hdg2dir(seg->start_hdg));
+		double len = vect2_dotprod(vect2_sub(pos->pos, seg->start_pos),
+		    dir);
 		double speed = straight_run_speed(veh, segs, seg->len - len,
 		    seg->backward, list_next(segs, seg));
 		double hdg = (!seg->backward ? seg->start_hdg :
@@ -467,4 +497,331 @@ drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
 	*out_steer = STEER_GATE(*out_steer, veh->max_steer);
 
 	return (B_TRUE);
+}
+
+/* Converts a seg_t from using geographic to local coordinates */
+void
+seg_world2local(seg_t *seg)
+{
+	double unused;
+
+	ASSERT(seg->use_geo_coords);
+	XPLMWorldToLocal(seg->start_pos_geo.lat, seg->start_pos_geo.lon, 0,
+	    &seg->start_pos.x, &unused, &seg->start_pos.y);
+	XPLMWorldToLocal(seg->end_pos_geo.lat, seg->end_pos_geo.lon, 0,
+	    &seg->end_pos.x, &unused, &seg->end_pos.y);
+	/* X-Plane's Z axis is flipped to ours */
+	seg->start_pos.y = -seg->start_pos.y;
+	seg->end_pos.y = -seg->end_pos.y;
+	seg->use_geo_coords = B_FALSE;
+}
+
+/* Converts a seg_t from using local to geographic coordinates */
+void
+seg_local2world(seg_t *seg)
+{
+	double unused;
+
+	ASSERT(!seg->use_geo_coords);
+	/* X-Plane's Z axis is flipped to ours */
+	XPLMLocalToWorld(seg->start_pos.x, 0, -seg->start_pos.y,
+	    &seg->start_pos_geo.lat, &seg->start_pos_geo.lon, &unused);
+	XPLMLocalToWorld(seg->end_pos.x, 0, -seg->end_pos.y,
+	    &seg->end_pos_geo.lat, &seg->end_pos_geo.lon, &unused);
+	seg->use_geo_coords = B_TRUE;
+}
+
+static segs_table_entry_t *
+segs_table_entry_alloc(geo_pos2_t pos, double hdg, const list_t *segs)
+{
+	segs_table_entry_t *e = calloc(1, sizeof (*e));
+
+	e->pos = pos;
+	e->pos_ecef = geo2ecef(GEO_POS3(pos.lat, pos.lon, 0), &wgs84);
+	e->hdg = hdg;
+	list_create(&e->segs, sizeof (seg_t), offsetof(seg_t, node));
+
+	if (segs != NULL) {
+		for (const seg_t *seg = list_head(segs); seg != NULL;
+		    seg = list_next(segs, seg)) {
+			seg_t *e_seg = calloc(1, sizeof (*e_seg));
+
+			memcpy(e_seg, seg, sizeof (*e_seg));
+			if (!e_seg->use_geo_coords)
+				seg_local2world(e_seg);
+			list_insert_tail(&e->segs, e_seg);
+		}
+	}
+
+	return (e);
+}
+
+static void
+segs_table_entry_free(segs_table_entry_t *e)
+{
+	seg_t *seg;
+	while ((seg = list_remove_head(&e->segs)) != NULL)
+		free(seg);
+	list_destroy(&e->segs);
+	free(e);
+}
+
+static int
+segs_table_compar(const void *a, const void *b)
+{
+	const segs_table_entry_t *e1 = a, *e2 = b;
+	double dist = vect3_dist(e1->pos_ecef, e2->pos_ecef);
+	double rhdg = fabs(rel_hdg(e1->hdg, e2->hdg));
+
+	if (dist <= SEGS_TABLE_DIST_THRESH && rhdg <= SEGS_TABLE_HDG_THRESH) {
+		return (0);
+	} else if ((e1->pos.lat * 1000 + e1->pos.lon) * 1000 + e1->hdg <
+	    (e2->pos.lat * 1000 + e2->pos.lon) * 1000 + e2->hdg) {
+		return (-1);
+	} else {
+		return (1);
+	}
+}
+
+static avl_tree_t *
+segs_table_load(void)
+{
+	char *filename = mkpathname(bp_xpdir, "Output", "caches",
+	    "BetterPushback_segs_table.dat", NULL);
+	FILE *fp = fopen(filename, "r");
+	segs_table_entry_t *e = NULL;
+	avl_tree_t *t = calloc(1, sizeof (*t));
+
+	avl_create(t, segs_table_compar, sizeof (segs_table_entry_t),
+	    offsetof(segs_table_entry_t, node));
+
+	if (fp == NULL)
+		goto out;
+
+	while (!feof(fp)) {
+		char word[32];
+		if (fscanf(fp, "%31s", word) != 1)
+			continue;
+		if (*word == '#') {
+			while (fgetc(fp) != '\n' && !feof(fp))
+				;
+			continue;
+		}
+		if (strcmp(word, "pos") == 0) {
+			segs_table_entry_t *e2;
+			double lat, lon, hdg;
+			if (fscanf(fp, "%lf %lf %lf", &lat, &lon, &hdg) != 3) {
+				logMsg("Error parsing %s: expected three "
+				    "numbers following 'pos' keyword.",
+				    filename);
+				goto out;
+			}
+			e = segs_table_entry_alloc(GEO_POS2(lat, lon), hdg,
+			    NULL);
+			while ((e2 = avl_find(t, e, NULL)) != NULL) {
+				avl_remove(t, e2);
+				segs_table_entry_free(e2);
+			}
+			avl_add(t, e);
+		} else if (strcmp(word, "seg") == 0) {
+			seg_t *seg = calloc(1, sizeof (*seg));
+
+			if (e == NULL) {
+				logMsg("Error parsing %s: 'seg' keyword must "
+				    "follow a 'pos' keyword.", filename);
+				free(seg);
+				goto out;
+			}
+			if (fscanf(fp, "%u", &seg->type) != 1 ||
+			    seg->type > SEG_TYPE_TURN) {
+				logMsg("Error parsing %s: missing or bad "
+				    "segment type following 'seg' keyword",
+				    filename);
+				free(seg);
+				goto out;
+			}
+			seg->use_geo_coords = B_TRUE;
+			if (fscanf(fp, "%lf %lf %lf %lf %lf %lf %u",
+			    &seg->start_pos_geo.lat, &seg->start_pos_geo.lon,
+			    &seg->start_hdg, &seg->end_pos_geo.lat,
+			    &seg->end_pos_geo.lon, &seg->end_hdg,
+			    &seg->backward) != 7) {
+				logMsg("Error parsing %s: bad coordinates "
+				    "following 'seg' keyword", filename);
+				free(seg);
+				goto out;
+			}
+			switch (seg->type) {
+			case SEG_TYPE_STRAIGHT: {
+				vect3_t start_ecef = geo2ecef(GEO_POS3(
+				    seg->start_pos_geo.lat,
+				    seg->start_pos_geo.lon, 0), &wgs84);
+				vect3_t end_ecef = geo2ecef(GEO_POS3(
+				    seg->end_pos_geo.lat,
+				    seg->end_pos_geo.lon, 0), &wgs84);
+				seg->len = vect3_dist(start_ecef, end_ecef);
+				if (fscanf(fp, "%u", &seg->user_placed) != 1) {
+					logMsg("Error parsing %s: bad length "
+					    "following 'seg 0' keyword",
+					    filename);
+					free(seg);
+					goto out;
+				}
+				break;
+			}
+			case SEG_TYPE_TURN:
+				if (fscanf(fp, "%lf %u %u", &seg->turn.r,
+				    &seg->turn.right, &seg->user_placed) != 3) {
+					logMsg("Error parsing %s: bad turn "
+					    "info following 'seg 1' keyword",
+					    filename);
+					free(seg);
+					goto out;
+				}
+				break;
+			}
+
+			list_insert_tail(&e->segs, seg);
+		} else {
+			logMsg("Error parsing %s: unrecognized keyword '%s'",
+			    filename, word);
+			goto out;
+		}
+	}
+
+out:
+	free(filename);
+	if (fp != NULL)
+		fclose(fp);
+
+	return (t);
+}
+
+/*
+ * Saves a driving segment table to the standard database location at
+ * Output/caches/BetterPushback_segs_table.dat, creating the intermediate
+ * directories as necessary.
+ */
+static bool_t
+segs_table_store(avl_tree_t *t)
+{
+	char *dirname = mkpathname(bp_xpdir, "Output", "caches", NULL);
+	char *filename;
+	bool_t isdir;
+	FILE *fp;
+
+	if (!file_exists(dirname, &isdir) || !isdir) {
+		if (!create_directory(dirname))
+			return (B_FALSE);
+	}
+	free(dirname);
+	filename = mkpathname(bp_xpdir, "Output", "caches",
+	    "BetterPushback_segs_table.dat", NULL);
+	fp = fopen(filename, "w");
+	if (fp == NULL) {
+		logMsg("Error writing file %s: %s", filename, strerror(errno));
+		free(filename);
+		return (B_FALSE);
+	}
+
+	fprintf(fp, "### This is the BetterPushback segment table ###\n"
+	    "### This file is automatically generated. DO NOT EDIT! ###\n");
+
+	for (segs_table_entry_t *e = avl_first(t); e != NULL;
+	    e = AVL_NEXT(t, e)) {
+		fprintf(fp, "\npos %lf %lf %.1lf\n", e->pos.lat, e->pos.lon,
+		    e->hdg);
+		for (seg_t *seg = list_head(&e->segs); seg != NULL;
+		    seg = list_next(&e->segs, seg)) {
+			ASSERT(seg->use_geo_coords);
+			fprintf(fp, "  seg %u %lf %lf %.1lf %lf %lf %.1lf %u ",
+			    seg->type, seg->start_pos_geo.lat,
+			    seg->start_pos_geo.lon, seg->start_hdg,
+			    seg->end_pos_geo.lat,
+			    seg->end_pos_geo.lon, seg->end_hdg, seg->backward);
+			if (seg->type == SEG_TYPE_STRAIGHT) {
+				fprintf(fp, "%u\n", seg->user_placed);
+			} else {
+				ASSERT3U(seg->type, ==, SEG_TYPE_TURN);
+				fprintf(fp, "%f %u %u\n", seg->turn.r,
+				    seg->turn.right, seg->user_placed);
+			}
+		}
+	}
+
+	free(filename);
+	fclose(fp);
+
+	return (B_TRUE);
+}
+
+static void
+segs_table_destroy(avl_tree_t *t)
+{
+	segs_table_entry_t *e;
+	void *cookie = NULL;
+
+	while ((e = avl_destroy_nodes(t, &cookie)) != NULL)
+		segs_table_entry_free(e);
+	avl_destroy(t);
+	free(t);
+}
+
+/*
+ * Given a start position, heading and driving segments, associates the
+ * segments with the start position and saves them persistently driving
+ * for later reuse via segs_load.
+ */
+void
+segs_save(geo_pos2_t start_pos, double start_hdg, const list_t *segs)
+{
+	avl_tree_t *t;
+	segs_table_entry_t *e, *e2;
+
+	ASSERT(list_head(segs) != NULL);
+
+	t = segs_table_load();
+
+	e = segs_table_entry_alloc(start_pos, start_hdg, segs);
+	while ((e2 = avl_find(t, e, NULL)) != NULL) {
+		avl_remove(t, e2);
+		segs_table_entry_free(e2);
+	}
+	avl_add(t, e);
+
+	(void) segs_table_store(t);
+	segs_table_destroy(t);
+}
+
+/*
+ * Given a start position and heading, attempts to reload the driving
+ * segments used last from this position. The resulting segments are
+ * placed in `segs'. If no suitable driving segments for the given
+ * position were found, the list is left unmodified. The `segs' list
+ * must be empty when calling this function.
+ */
+void
+segs_load(geo_pos2_t start_pos, double start_hdg, list_t *segs)
+{
+	avl_tree_t *t;
+	segs_table_entry_t *srch, *e;
+
+	ASSERT3P(list_head(segs), ==, NULL);
+
+	t = segs_table_load();
+
+	srch = segs_table_entry_alloc(start_pos, start_hdg, NULL);
+	e = avl_find(t, srch, NULL);
+	if (e != NULL) {
+		for (seg_t *seg = list_head(&e->segs); seg != NULL;
+		    seg = list_next(&e->segs, seg)) {
+			seg_t *seg2 = calloc(1, sizeof (*seg2));
+			memcpy(seg2, seg, sizeof (*seg2));
+			seg_world2local(seg2);
+			list_insert_tail(segs, seg2);
+		}
+	}
+
+	segs_table_entry_free(srch);
+	segs_table_destroy(t);
 }

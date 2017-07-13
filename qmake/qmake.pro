@@ -108,6 +108,8 @@ linux-g++-32 {
 macx {
 	# Prevent linking via clang++ which makes us depend on libstdc++
 	QMAKE_LINK = $$QMAKE_CC
+	QMAKE_CFLAGS += -mmacosx-version-min=10.7
+	QMAKE_LFLAGS += -mmacosx-version-min=10.7
 
 	DEFINES += APL=1 IBM=0 LIN=0
 	TARGET = mac.xpl

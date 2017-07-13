@@ -41,9 +41,25 @@ typedef enum {
 typedef struct {
 	seg_type_t	type;
 
-	vect2_t		start_pos;
+	/*
+	 * The vector positions are in local OpenGL coordinates space and
+	 * are used by the steering algorithm. The geographic coordinates
+	 * are used by the persistence algorithms to store the points in
+	 * an absolute sense. Before passing such a segment to the driving
+	 * algorithm, they must be converted to local coordinates using
+	 * seg_world2local.
+	 */
+	bool_t	use_geo_coords;
+
+	union {
+		vect2_t		start_pos;
+		geo_pos2_t	start_pos_geo;
+	};
 	double		start_hdg;
-	vect2_t		end_pos;
+	union {
+		vect2_t		end_pos;
+		geo_pos2_t	end_pos_geo;
+	};
 	double		end_hdg;
 
 	/*
@@ -112,6 +128,12 @@ int compute_segs(const vehicle_t *veh, vect2_t start_pos, double start_hdg,
     vect2_t end_pos, double end_hdg, list_t *segs);
 bool_t drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
     double *last_mis_hdg, double d_t, double *out_steer, double *out_speed);
+
+void seg_world2local(seg_t *seg);
+void seg_local2world(seg_t *seg);
+
+void segs_save(geo_pos2_t start_pos, double start_hdg, const list_t *segs);
+void segs_load(geo_pos2_t start_pos, double start_hdg, list_t *segs);
 
 #ifdef	__cplusplus
 }
