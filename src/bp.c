@@ -1106,7 +1106,7 @@ static button_t buttons[] = {
     },
     { .filename = NULL }
 };
-static int button_hit = -1;
+static int button_hit = -1, button_lit = -1;
 
 static bool_t
 load_icon(button_t *btn)
@@ -1552,34 +1552,27 @@ fake_win_draw(XPLMWindowID inWindowID, void *inRefcon)
 			glVertex2f(w, h_off - btn->h * scale);
 			glEnd();
 			XPLMSetGraphicsState(0, 1, 0, 0, 1, 0, 0);
+		} else if (i == button_lit) {
+			XPLMSetGraphicsState(0, 0, 0, 0, 1, 0, 0);
+			glColor4f(1, 1, 1, 1);
+			glLineWidth(1);
+			glBegin(GL_LINES);
+			glVertex2f(w - btn->w * scale, h_off - btn->h * scale);
+			glVertex2f(w - btn->w * scale, h_off);
+			glVertex2f(w - btn->w * scale, h_off);
+			glVertex2f(w, h_off);
+			glVertex2f(w, h_off);
+			glVertex2f(w, h_off - btn->h * scale);
+			glVertex2f(w, h_off - btn->h * scale);
+			glVertex2f(w - btn->w * scale, h_off - btn->h * scale);
+			glEnd();
+			XPLMSetGraphicsState(0, 1, 0, 0, 1, 0, 0);
 		}
 	}
 }
 
-static void
-fake_win_key(XPLMWindowID inWindowID, char inKey, XPLMKeyFlags inFlags,
-    char inVirtualKey, void *inRefcon, int losingFocus)
-{
-	UNUSED(inWindowID);
-	UNUSED(inKey);
-	UNUSED(inFlags);
-	UNUSED(inVirtualKey);
-	UNUSED(inRefcon);
-	UNUSED(losingFocus);
-}
-
-static XPLMCursorStatus
-fake_win_cursor(XPLMWindowID inWindowID, int x, int y, void *inRefcon)
-{
-	UNUSED(inWindowID);
-	UNUSED(x);
-	UNUSED(y);
-	UNUSED(inRefcon);
-	return (xplm_CursorDefault);
-}
-
 static int
-calc_button_hit(int x, int y)
+button_hit_check(int x, int y)
 {
 	double scale;
 	int w, h, h_buttons, h_off;
@@ -1607,6 +1600,36 @@ calc_button_hit(int x, int y)
 	return (-1);
 }
 
+static void
+fake_win_key(XPLMWindowID inWindowID, char inKey, XPLMKeyFlags inFlags,
+    char inVirtualKey, void *inRefcon, int losingFocus)
+{
+	UNUSED(inWindowID);
+	UNUSED(inKey);
+	UNUSED(inFlags);
+	UNUSED(inVirtualKey);
+	UNUSED(inRefcon);
+	UNUSED(losingFocus);
+}
+
+static XPLMCursorStatus
+fake_win_cursor(XPLMWindowID inWindowID, int x, int y, void *inRefcon)
+{
+	int lit;
+
+	UNUSED(inWindowID);
+	UNUSED(x);
+	UNUSED(y);
+	UNUSED(inRefcon);
+
+	if ((lit = button_hit_check(x, y)) != -1 &&buttons[lit].vk != -1)
+		button_lit = lit;
+	else
+		button_lit = -1;
+
+	return (xplm_CursorDefault);
+}
+
 static int
 fake_win_click(XPLMWindowID inWindowID, int x, int y, XPLMMouseStatus inMouse,
     void *inRefcon)
@@ -1622,7 +1645,7 @@ fake_win_click(XPLMWindowID inWindowID, int x, int y, XPLMMouseStatus inMouse,
 		down_x = x;
 		down_y = y;
 		force_root_win_focus = B_FALSE;
-		button_hit = calc_button_hit(x, y);
+		button_hit = button_hit_check(x, y);
 	} else if (inMouse == xplm_MouseDrag) {
 		if ((x != down_x || y != down_y) && button_hit == -1) {
 			int w, h;
@@ -1645,7 +1668,7 @@ fake_win_click(XPLMWindowID inWindowID, int x, int y, XPLMMouseStatus inMouse,
 			down_y = y;
 		}
 	} else {
-		if (button_hit != -1 && button_hit == calc_button_hit(x, y)) {
+		if (button_hit != -1 && button_hit == button_hit_check(x, y)) {
 			/* simulate a key press */
 			ASSERT(buttons[button_hit].vk != -1);
 			key_sniffer(0, xplm_DownFlag, buttons[button_hit].vk,
