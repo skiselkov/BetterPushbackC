@@ -33,12 +33,11 @@ case `uname` in
 		    "libz.a" && \
 		CFLAGS="-fPIC -m32" LDLFAGS="-fPIC -m32" \
 		    build_dep "linux-32" "--static" "$ZLIB" "zlib" "libz.a" && \
-		CFLAGS="-m64" LDFLAGS="-m64" build_dep "win-64" \
-		    "--static --64 --host=x86_64-w64-mingw32" \
+		CFLAGS="-m64" LDFLAGS="-m64" CC="x86_64-w64-mingw32-gcc" \
+		    build_dep "win-64" "--static --64" \
 		    "$ZLIB" "zlib" "libz.a" && \
-		CFLAGS="-m32" LDFLAGS="-m32" \
-		    build_dep "win-32" "--static --host=i686-w64-mingw32" \
-		    "$ZLIB" "zlib" "libz.a"
+		CFLAGS="-m32" LDFLAGS="-m32" CC="i686-w64-mingw32-gcc" \
+		    build_dep "win-32" "--static" "$ZLIB" "zlib" "libz.a"
 		;;
 	Darwin)
 		NCPUS=$(( $(sysctl -n hw.ncpu) + 1 ))

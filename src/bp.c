@@ -1127,8 +1127,8 @@ load_icon(button_t *btn)
 		res = B_FALSE;
 		goto out;
 	}
-	fread(header, 1, sizeof (header), fp);
-	if (png_sig_cmp(header, 0, sizeof (header)) != 0) {
+	if (fread(header, 1, sizeof (header), fp) != 8 ||
+	    png_sig_cmp(header, 0, sizeof (header)) != 0) {
 		logMsg("Cannot open file %s: invalid PNG header", filename);
 		res = B_FALSE;
 		goto out;

@@ -102,6 +102,7 @@ linux-g++-32 {
 	LIBS += -L$$[LIBACFUTILS]/qmake/lin32 -lacfutils
 	LIBS += -L../libpng/libpng-linux-32/.libs -lpng16
 	LIBS += -L../zlib/zlib-linux-32 -lz
+	LIBS += -lssp_nonshared
 }
 
 macx {

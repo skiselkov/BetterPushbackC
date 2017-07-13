@@ -43,6 +43,11 @@ function build_dep() {
 		rm -rf "$PRODNAME-$PLATFORM"
 		mkdir "$PRODNAME-$PLATFORM"
 		cd "$PRODNAME-$PLATFORM"
+
+		if [ -n "$CUSTPREPCMD" ]; then
+			eval "$CUSTPREPCMD" || exit 1
+		fi
+
 		# Linux: for some reason, we need to specify an optimization
 		# level or we won't get lstat/fstat correctly defined. WTF...
 		CFLAGS="${CFLAGS} -fvisibility=hidden -O2" \

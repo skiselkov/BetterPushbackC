@@ -23,27 +23,47 @@ case `uname` in
 	Linux)
 		NCPUS=$(( $(grep 'processor[[:space:]]\+:' /proc/cpuinfo \
 		    | wc -l) + 1 ))
-		CFLAGS="-fPIC -m64" LDFLAGS="-fPIC -m64" \
+		CFLAGS="$CFLAGS_COMMON -I../../zlib/zlib-linux-64/include \
+		    -fPIC -m64" \
+		    LDFLAGS="$LDFLAGS_COMMON -fPIC -m64 \
+		    -L../../zlib/zlib-linux-64/lib" \
+		    CUSTPREPCMD="ln -s \
+		    ../../zlib/zlib-linux-64/include/zconf.h && \
+		    ln -s ../../zlib/zlib-linux-64/include/zlib.h" \
 		    build_dep "linux-64" "--enable-static --disable-shared" \
 		    "$LIBPNG" "libpng" ".libs/libpng16.a" && \
-		CFLAGS="-fPIC -m64 -fno-stack-protector" LDFLAGS="-fPIC -m64" \
+		CFLAGS="$CFLAGS_COMMON -I../../zlib/zlib-linux-32/include \
+		    -fPIC -m32 -fno-stack-protector" \
+		    LDFLAGS="$LDFLAGS_COMMON -fPIC -m32 -fno-stack-protector \
+		    -L../../zlib/zlib-linux-32/lib" \
+		    CUSTPREPCMD="ln -s \
+		    ../../zlib/zlib-linux-32/include/zconf.h && \
+		    ln -s ../../zlib/zlib-linux-32/include/zlib.h" \
 		    build_dep "linux-32" "--enable-static --disable-shared" \
 		    "$LIBPNG" "libpng" ".libs/libpng16.a" && \
-		build_dep "win-64" "--enable-static --disable-shared \
+		CFLAGS="$CFLAGS_COMMON -I../../zlib/zlib-win-64/include" \
+		    LDFLAGS="$LDFLAGS_COMMON -L../../zlib/zlib-win-64/lib" \
+		    CUSTPREPCMD="ln -s ../../zlib/zlib-win-64/include/zconf.h \
+		    && ln -s ../../zlib/zlib-win-64/include/zlib.h" \
+		    build_dep "win-64" "--enable-static --disable-shared \
 		    --host=x86_64-w64-mingw32" \
 		    "$LIBPNG" "libpng" ".libs/libpng16.a" && \
-		build_dep "win-32" "--enable-static --disable-shared \
+		CFLAGS="$CFLAGS_COMMON -I../../zlib/zlib-win-32/include" \
+		    LDFLAGS="$LDFLAGS_COMMON -L../../zlib/zlib-win-32/lib" \
+		    CUSTPREPCMD="ln -s ../../zlib/zlib-win-32/include/zconf.h \
+		    && ln -s ../../zlib/zlib-win-32/include/zlib.h" \
+		    build_dep "win-32" "--enable-static --disable-shared \
 		    --host=i686-w64-mingw32" \
 		    "$LIBPNG" "libpng" ".libs/libpng16.a"
 		;;
 	Darwin)
 		NCPUS=$(( $(sysctl -n hw.ncpu) + 1 ))
-		CFLAGS="-mmacosx-version-min=10.6" \
-		    LDFLAGS="-mmacosx-version-min=10.6" \
+		CFLAGS="$CFLAGS_COMMON -mmacosx-version-min=10.6" \
+		    LDFLAGS="$LDFLAGS_COMMON -mmacosx-version-min=10.6" \
 		    build_dep "mac-64" "--enable-static --disable-shared" \
 		    "$LIBPNG" "libpng" ".libs/libpng16.a" && \
-		CFLAGS="-mmacosx-version-min=10.6 -m32" \
-		    LDFLAGS="-mmacosx-version-min=10.6 -m32" \
+		CFLAGS="$CFLAGS_COMMON -mmacosx-version-min=10.6 -m32" \
+		    LDFLAGS="$LDFLAGS_COMMON -mmacosx-version-min=10.6 -m32" \
 		    build_dep "mac-32" "--enable-static --disable-shared" \
 		    "$LIBPNG" "libpng" ".libs/libpng16.a"
 		;;
