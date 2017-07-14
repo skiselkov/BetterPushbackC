@@ -49,17 +49,14 @@ typedef struct {
 	 * algorithm, they must be converted to local coordinates using
 	 * seg_world2local.
 	 */
-	bool_t	use_geo_coords;
+	bool_t	have_local_coords;
+	bool_t	have_world_coords;
 
-	union {
-		vect2_t		start_pos;
-		geo_pos2_t	start_pos_geo;
-	};
+	vect2_t		start_pos;
+	geo_pos2_t	start_pos_geo;
 	double		start_hdg;
-	union {
-		vect2_t		end_pos;
-		geo_pos2_t	end_pos_geo;
-	};
+	vect2_t		end_pos;
+	geo_pos2_t	end_pos_geo;
 	double		end_hdg;
 
 	/*
@@ -132,8 +129,8 @@ bool_t drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
 void seg_world2local(seg_t *seg);
 void seg_local2world(seg_t *seg);
 
-void segs_save(geo_pos2_t start_pos, double start_hdg, const list_t *segs);
-void segs_load(geo_pos2_t start_pos, double start_hdg, list_t *segs);
+void route_save(const list_t *segs);
+void route_load(geo_pos2_t start_pos, double start_hdg, list_t *segs);
 
 #ifdef	__cplusplus
 }

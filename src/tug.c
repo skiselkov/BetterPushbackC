@@ -816,6 +816,7 @@ tug_draw(tug_t *tug, double cur_t)
 		tug->cradle_air_snd_on = B_FALSE;
 	}
 
+	XPLMDestroyProbe(probe);
 }
 
 void

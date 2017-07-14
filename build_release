@@ -45,6 +45,7 @@ DIST_FILES=(
     'data/icons/rotate_seg.png'			''
     'objects/tugs/AST-3F.tug/AST-3F.obj'	''
     'objects/tugs/AST-3F.tug/AST-3F_tex.png'	'//PNG2DDS//'
+    'objects/tugs/AST-3F.tug/AST-3F_lit.png'	'//PNG2DDS//'
     'objects/tugs/AST-3F.tug/air.wav'		''
     'objects/tugs/AST-3F.tug/beeper.wav'	''
     'objects/tugs/AST-3F.tug/engine.wav'	''

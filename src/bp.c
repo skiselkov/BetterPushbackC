@@ -72,6 +72,7 @@
 #define	SEG_TURN_MULT		0.9	/* leave 10% for oversteer */
 #define	SPEED_COMPLETE_THRESH	0.05	/* m/s */
 #define	MAX_STEER_ANGLE		60	/* beyond this our push algos go nuts */
+#define	MIN_STEER_ANGLE		30	/* minimum sensible tire steer angle */
 #define	MAX_ANG_VEL		2.5	/* degrees per second */
 #define	PB_CRADLE_DELAY		10	/* seconds */
 #define	PB_CONN_DELAY		25.0	/* seconds */
@@ -318,6 +319,13 @@ bp_state_init(void)
 	}
 	bp.veh.max_steer = MIN(MAX(dr_getf(&drs.nw_steerdeg1),
 	    dr_getf(&drs.nw_steerdeg2)), MAX_STEER_ANGLE);
+	/*
+	 * Some aircraft have a broken declaration here and only declare the
+	 * high-speed rudder steering angle. For those, ignore what they say
+	 * and use our MAX_STEER_ANGLE.
+	 */
+	if (bp.veh.max_steer < MIN_STEER_ANGLE)
+		bp.veh.max_steer = MAX_STEER_ANGLE;
 	bp.veh.max_fwd_spd = MAX_FWD_SPEED;
 	bp.veh.max_rev_spd = MAX_REV_SPEED;
 	bp.veh.max_ang_vel = MAX_ANG_VEL;
@@ -480,8 +488,7 @@ bp_start(void)
 	XPLMRegisterDrawCallback((XPLMDrawCallback_f)draw_tugs,
 	    xplm_Phase_Objects, 1, NULL);
 
-	segs_save(GEO_POS2(dr_getf(&drs.lat), dr_getf(&drs.lon)),
-	    dr_getf(&drs.hdg), &bp.segs);
+	route_save(&bp.segs);
 
 	started = B_TRUE;
 
@@ -1822,7 +1829,7 @@ bp_cam_start(void)
 
 	/* If the list of segs is empty, try to reload the saved state */
 	if (list_head(&bp.segs) == NULL) {
-		segs_load(GEO_POS2(dr_getf(&drs.lat), dr_getf(&drs.lon)),
+		route_load(GEO_POS2(dr_getf(&drs.lat), dr_getf(&drs.lon)),
 		    dr_getf(&drs.hdg), &bp.segs);
 	}
 

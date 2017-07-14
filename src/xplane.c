@@ -229,14 +229,14 @@ XPluginEnable(void)
 	root_menu = XPLMCreateMenu("Better Pushback", XPLMFindPluginsMenu(),
 	    plugins_menu_item, menu_cb, NULL);
 
-	start_pb_menu_item = XPLMAppendMenuItem(root_menu, "Start pushback",
-	    start_pb, 1);
-	stop_pb_menu_item = XPLMAppendMenuItem(root_menu, "Stop pushback",
-	    stop_pb, 1);
 	start_pb_plan_menu_item = XPLMAppendMenuItem(root_menu,
 	    "Pre-plan pushback", start_cam, 1);
 	stop_pb_plan_menu_item = XPLMAppendMenuItem(root_menu,
 	    "Close pushback planner", stop_cam, 1);
+	start_pb_menu_item = XPLMAppendMenuItem(root_menu, "Start pushback",
+	    start_pb, 1);
+	stop_pb_menu_item = XPLMAppendMenuItem(root_menu, "Stop pushback",
+	    stop_pb, 1);
 
 	XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_TRUE);
 	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
