@@ -442,6 +442,24 @@ tug_glob_fini(void)
 	inited = B_FALSE;
 }
 
+/*
+ * Returns B_TRUE if we have a tug matching the aircraft selection criteria,
+ * otherwise returns B_FALSE. Can be used to check for aircraft suitability
+ * without having to actually load the tug object.
+ */
+bool_t
+tug_available(double mtow, double ng_len, double tirrad, const char *arpt)
+{
+	tug_info_t *ti = tug_info_select(mtow, ng_len, tirrad, arpt);
+
+	if (ti != NULL) {
+		tug_info_free(ti);
+		return (B_TRUE);
+	}
+
+	return (B_FALSE);
+}
+
 tug_t *
 tug_alloc(double mtow, double ng_len, double tirrad, const char *arpt)
 {

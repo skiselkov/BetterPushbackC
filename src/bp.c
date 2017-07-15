@@ -40,6 +40,7 @@
 #include <XPLMCamera.h>
 #include <XPLMDisplay.h>
 #include <XPLMGraphics.h>
+#include <XPLMNavigation.h>
 #include <XPLMScenery.h>
 #include <XPLMUtilities.h>
 #include <XPLMProcessing.h>
@@ -84,8 +85,7 @@
 #define	PB_LIFT_TE		0.075	/* fraction */
 #define	STATE_TRANS_DELAY	2	/* seconds, state transition delay */
 
-#define	SEGS_TABLE_DIST_THRESH	30	/* meters */
-#define	SEGS_TABLE_HDG_THRESH	10	/* degrees */
+#define	MAX_ARPT_DIST		10000	/* meters */
 
 typedef enum {
 	PB_STEP_OFF,
@@ -107,6 +107,7 @@ typedef enum {
 } pushback_step_t;
 
 typedef struct {
+	int		nw_i;
 	double		nw_z;
 	double		main_z;
 	double		nw_len;
@@ -129,7 +130,6 @@ typedef struct {
 	double		d_t;		/* delta time from last_t to cur_t */
 
 	double		last_force;
-	vect2_t		turn_c_pos;
 
 	pushback_step_t	step;
 	double		step_start_t;
@@ -155,6 +155,8 @@ static struct {
 	dr_t	nw_steerdeg1, nw_steerdeg2;
 	dr_t	tire_steer_cmd;
 	dr_t	override_steer;
+	dr_t	gear_types;
+	dr_t	gear_steers;
 	dr_t	gear_deploy;
 
 	dr_t	camera_fov_h, camera_fov_v;
@@ -164,11 +166,42 @@ static struct {
 static bool_t inited = B_FALSE, cam_inited = B_FALSE, started = B_FALSE;
 static bp_state_t bp;
 
-static float bp_run(void);
+static float bp_run(float elapsed, float elapsed2, int counter, void *refcon);
 static bool_t load_buttons(void);
 static void unload_buttons(void);
 static int key_sniffer(char inChar, XPLMKeyFlags inFlags, char inVirtualKey,
     void *refcon);
+
+/*
+ * Locates the airport nearest to our current location, but which is also
+ * within 10km (MAX_ARPT_DIST). If a suitable airport is found, its ICAO
+ * code is placed in the return argument `icao' and the function returns
+ * B_TRUE. Otherwise the variable is left untouched and B_FALSE is returned.
+ */
+static bool_t
+find_nearest_airport(char icao[8])
+{
+	float lat = dr_getf(&drs.lat), lon = dr_getf(&drs.lon);
+	float arpt_lat, arpt_lon;
+	vect3_t my_pos, arpt_pos;
+	XPLMNavRef ref = XPLMFindNavAid(NULL, NULL, &lat, &lon, NULL,
+	    xplm_Nav_Airport);
+	char arpt_icao[8];
+
+	if (ref == XPLM_NAV_NOT_FOUND)
+		return (B_FALSE);
+	XPLMGetNavAidInfo(ref, NULL, &arpt_lat, &arpt_lon, NULL, NULL,
+	    NULL, arpt_icao, NULL, NULL);
+	my_pos = geo2ecef(GEO_POS3(lat, lon, 0), &wgs84);
+	arpt_pos = geo2ecef(GEO_POS3(arpt_lat, arpt_lon, 0), &wgs84);
+
+	if (vect3_dist(my_pos, arpt_pos) <= MAX_ARPT_DIST) {
+		strlcpy(icao, arpt_icao, 8);
+		return (B_TRUE);
+	} else {
+		return (B_FALSE);
+	}
+}
 
 static void
 bp_gather(void)
@@ -195,7 +228,7 @@ turn_nosewheel(double req_angle, double rate)
 	req_angle = MIN(req_angle, bp.veh.max_steer);
 	req_angle = MAX(req_angle, -bp.veh.max_steer);
 
-	cur_nw_angle = dr_getf(&drs.tire_steer_cmd);
+	dr_getvf(&drs.tire_steer_cmd, &cur_nw_angle, bp.acf.nw_i, 1);
 	if (cur_nw_angle == req_angle)
 		return (0);
 
@@ -208,7 +241,7 @@ turn_nosewheel(double req_angle, double rate)
 	rate_of_turn_fract = (cur_nw_angle < req_angle ?
 	    steer_incr : -steer_incr) / rate_of_turn;
 	cur_nw_angle += (cur_nw_angle < req_angle ? steer_incr : -steer_incr);
-	dr_setf(&drs.tire_steer_cmd, cur_nw_angle);
+	dr_setvf(&drs.tire_steer_cmd, &cur_nw_angle, bp.acf.nw_i, 1);
 
 	return (rate_of_turn_fract);
 }
@@ -241,7 +274,8 @@ push_at_speed(double targ_speed, double max_accel)
 	 * to correctly apply angular momentum forces below.
 	 * N.B. we only push in the horizontal plane, hence no Fy component.
 	 */
-	angle_rad = DEG2RAD(dr_getf(&drs.tire_steer_cmd));
+	dr_getvf(&drs.tire_steer_cmd, &angle_rad, bp.acf.nw_i, 1);
+	angle_rad = DEG2RAD(angle_rad);
 	Fx = -force * sin(angle_rad);
 	Fz = force * cos(angle_rad);
 
@@ -288,28 +322,71 @@ push_at_speed(double targ_speed, double max_accel)
 }
 
 static bool_t
+read_gear_info(void)
+{
+	double tire_z[10];
+	int gear_steers[10], gear_types[10];
+	int n_gear = 0;
+	int gear_is[10];
+
+	bp.acf.nw_i = -1;
+
+	/* First determine where the gears are */
+	for (int i = 0, n = dr_getvi(&drs.gear_types, gear_types, 0, 10);
+	    i < n; i++) {
+		if (gear_types[i] != 0)
+			gear_is[n_gear++] = i;
+	}
+
+	/* Next determine which gear steers - must be only one! */
+	VERIFY3S(dr_getvi(&drs.gear_steers, gear_steers, 0, 10), >=, n_gear);
+	for (int i = 0; i < n_gear; i++) {
+		if (gear_steers[gear_is[i]] == 1) {
+			if (bp.acf.nw_i == -1) {
+				bp.acf.nw_i = gear_is[i];
+			} else {
+				XPLMSpeakString("Pushback failure: aircraft "
+				    "appears to have multiple steerable "
+				    "gears.");
+				return (B_FALSE);
+			}
+		}
+	}
+	if (bp.acf.nw_i == -1) {
+		XPLMSpeakString("Pushback failure: aircraft appears to not "
+		    "have any steerable gears.");
+		return (B_FALSE);
+	}
+
+	/* Read nosegear long axis deflections */
+	VERIFY3S(dr_getvf(&drs.tire_z, tire_z, 0, 10), >=, n_gear);
+	bp.acf.nw_z = tire_z[bp.acf.nw_i];
+	/* Nose gear strut length and tire radius */
+	VERIFY3S(dr_getvf(&drs.leg_len, &bp.acf.nw_len, bp.acf.nw_i, 1), ==, 1);
+	VERIFY3S(dr_getvf(&drs.tirrad, &bp.acf.tirrad, bp.acf.nw_i, 1), ==, 1);
+
+	/* Compute main gear Z deflection as mean of all main gears */
+	for (int i = 0; i < n_gear; i++) {
+		if (gear_is[i] != bp.acf.nw_i)
+			bp.acf.main_z += tire_z[gear_is[i]];
+	}
+	bp.acf.main_z /= n_gear - 1;
+
+	logMsg("nw_i: %d  nw_z: %.2f  main_z: %.2f", bp.acf.nw_i,
+	    bp.acf.nw_z, bp.acf.main_z);
+
+	return (B_TRUE);
+}
+
+static bool_t
 bp_state_init(void)
 {
-	double tire_z_main[8];
-	int n_main;
-
 	memset(&bp, 0, sizeof (bp));
 	list_create(&bp.segs, sizeof (seg_t), offsetof(seg_t, node));
 
-	bp.turn_c_pos = NULL_VECT2;
-
-	dr_getvf(&drs.tire_z, &bp.acf.nw_z, 0, 1);
-	dr_getvf(&drs.leg_len, &bp.acf.nw_len, 0, 1);
-	dr_getvf(&drs.tirrad, &bp.acf.tirrad, 0, 1);
-	n_main = dr_getvf(&drs.tire_z, tire_z_main, 1, 8);
-	if (n_main < 1) {
-		XPLMSpeakString("Pushback failure: aircraft seems to only "
-		    "have one gear leg.");
+	if (!read_gear_info())
 		return (B_FALSE);
-	}
-	for (int i = 0; i < n_main; i++)
-		bp.acf.main_z += tire_z_main[i];
-	bp.acf.main_z /= n_main;
+
 	bp.veh.wheelbase = bp.acf.main_z - bp.acf.nw_z;
 	bp.veh.fixed_z_off = -bp.acf.main_z;	/* X-Plane's Z is negative */
 	if (bp.veh.wheelbase <= 0) {
@@ -373,6 +450,8 @@ bp_init(void)
 	    "sim/flightmodel/parts/tire_steer_cmd");
 	fdr_find(&drs.override_steer,
 	    "sim/operation/override/override_wheel_steer");
+	fdr_find(&drs.gear_types, "sim/aircraft/parts/acf_gear_type");
+	fdr_find(&drs.gear_steers, "sim/aircraft/overflow/acf_gear_steers");
 	fdr_find(&drs.gear_deploy, "sim/aircraft/parts/acf_gear_deploy");
 
 	fdr_find(&drs.camera_fov_h,
@@ -392,28 +471,35 @@ bp_init(void)
 	return (B_TRUE);
 }
 
-static void
-draw_tugs(void)
+static int
+draw_tugs(XPLMDrawingPhase phase, int before, void *refcon)
 {
-	vect2_t pos = VECT2(dr_getf(&drs.local_x), -dr_getf(&drs.local_z));
-	double hdg = dr_getf(&drs.hdg);
+	UNUSED(phase);
+	UNUSED(before);
+	UNUSED(refcon);
 
 	if (list_head(&bp.tug->segs) == NULL &&
 	    bp.step >= PB_STEP_CONNECTING && bp.step <= PB_STEP_DISCONNECTING) {
-		double tug_hdg = normalize_hdg(hdg +
-		    dr_getf(&drs.tire_steer_cmd));
-		vect2_t dir = hdg2dir(hdg);
-		vect2_t off_v = vect2_scmul(hdg2dir(tug_hdg),
+		double hdg, tug_hdg, tug_spd, steer;
+		vect2_t pos, dir, off_v, tug_pos;
+
+		pos = VECT2(dr_getf(&drs.local_x), -dr_getf(&drs.local_z));
+		hdg = dr_getf(&drs.hdg);
+		dr_getvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1);
+		tug_hdg = normalize_hdg(hdg + steer);
+		dir = hdg2dir(hdg);
+		off_v = vect2_scmul(hdg2dir(tug_hdg),
 		    (-bp.tug->info->lift_wall_z) + bp.acf.tirrad);
-		vect2_t tug_pos = vect2_add(vect2_add(pos, vect2_scmul(dir,
+		tug_pos = vect2_add(vect2_add(pos, vect2_scmul(dir,
 		    -bp.acf.nw_z)), off_v);
-		double tug_spd = bp.cur_pos.spd /
-		    cos(DEG2RAD(fabs(dr_getf(&drs.tire_steer_cmd))));
+		tug_spd = bp.cur_pos.spd / cos(DEG2RAD(fabs(steer)));
 
 		tug_set_pos(bp.tug, tug_pos, tug_hdg, tug_spd);
 	}
 
 	tug_draw(bp.tug, bp.cur_t);
+
+	return (1);
 }
 
 bool_t
@@ -449,6 +535,7 @@ bool_t
 bp_start(void)
 {
 	char *reason;
+	char icao[8] = { 0 };
 
 	if (started)
 		return (B_TRUE);
@@ -464,8 +551,9 @@ bp_start(void)
 	bp.step = PB_STEP_START;
 	bp.step_start_t = bp.cur_t;
 
+	(void) find_nearest_airport(icao);
 	bp.tug = tug_alloc(dr_getf(&drs.mtow), dr_getf(&drs.leg_len),
-	    dr_getf(&drs.tirrad), NULL);
+	    dr_getf(&drs.tirrad), strcmp(icao, "") != 0 ? icao : NULL);
 	if (bp.tug == NULL) {
 		XPLMSpeakString("Pushback failure: no suitable tug for your "
 		    "aircraft.");
@@ -484,9 +572,8 @@ bp_start(void)
 		tug_set_pos(bp.tug, bp.cur_pos.pos, bp.cur_pos.hdg, 0);
 	}
 
-	XPLMRegisterFlightLoopCallback((XPLMFlightLoop_f)bp_run, -1, NULL);
-	XPLMRegisterDrawCallback((XPLMDrawCallback_f)draw_tugs,
-	    xplm_Phase_Objects, 1, NULL);
+	XPLMRegisterFlightLoopCallback(bp_run, -1, NULL);
+	XPLMRegisterDrawCallback(draw_tugs, xplm_Phase_Objects, 1, NULL);
 
 	route_save(&bp.segs);
 
@@ -595,8 +682,13 @@ bp_complete(void)
 }
 
 static float
-bp_run(void)
+bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 {
+	UNUSED(elapsed);
+	UNUSED(elapsed2);
+	UNUSED(counter);
+	UNUSED(refcon);
+
 	ASSERT(bp.tug != NULL);
 
 	bp_gather();
@@ -751,13 +843,13 @@ bp_run(void)
 		}
 		break;
 	case PB_STEP_CONNECTING: {
-		double d_t = bp.cur_t - bp.step_start_t;
+		double d_t = bp.cur_t - bp.step_start_t, steer = 0;
 		double lift;
 		double cradle_closed_fract = d_t / PB_CONN_LIFT_DELAY;
 		double lift_fract = (d_t - PB_CONN_LIFT_DELAY) /
 		    PB_CONN_LIFT_DURATION;
 
-		dr_setf(&drs.tire_steer_cmd, 0);
+		dr_setvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1);
 		dr_setf(&drs.lbrake, 0.9);
 		dr_setf(&drs.rbrake, 0.9);
 
@@ -1772,9 +1864,18 @@ bp_cam_start(void)
 	    .handleMouseWheelFunc = fake_win_wheel,
 	    .refcon = NULL
 	};
+	char icao[8] = { 0 };
 
 	if (cam_inited || !bp_init())
 		return (B_FALSE);
+
+	(void) find_nearest_airport(icao);
+	if (!tug_available(dr_getf(&drs.mtow), dr_getf(&drs.leg_len),
+	    dr_getf(&drs.tirrad), strcmp(icao, "") != 0 ? icao : NULL)) {
+		XPLMSpeakString("Pushback failure: no suitable tug for your "
+		    "aircraft.");
+		return (B_FALSE);
+	}
 
 #ifndef	PB_DEBUG_INTF
 	if (vect3_abs(VECT3(dr_getf(&drs.vx), dr_getf(&drs.vy),

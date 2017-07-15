@@ -70,9 +70,10 @@ start_pb_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	if (!bp_init())
 		return (1);
 	if (bp_num_segs() == 0) {
+		if (!bp_cam_start())
+			return (1);
 		msg_play(MSG_PLAN_START);
 		start_after_cam = B_TRUE;
-		XPLMCommandOnce(start_cam);
 		return (1);
 	}
 	if (!bp_start())
@@ -102,8 +103,10 @@ start_cam_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 {
 	UNUSED(cmd);
 	UNUSED(refcon);
-	if (phase != xplm_CommandEnd || !bp_init() || !bp_cam_start())
+	if (phase != xplm_CommandEnd || !bp_init() || !bp_cam_start()) {
+		start_after_cam = B_FALSE;
 		return (1);
+	}
 	XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_FALSE);
 	XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_TRUE);
 	XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_FALSE);

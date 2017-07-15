@@ -120,6 +120,8 @@ typedef struct {
 void tug_glob_init(void);
 void tug_glob_fini(void);
 
+bool_t tug_available(double mtow, double ng_len, double tirrad,
+    const char *arpt);
 tug_t *tug_alloc(double mtow, double ng_len, double tirrad, const char *arpt);
 void tug_free(tug_t *tug);
 
