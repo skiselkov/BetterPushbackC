@@ -372,9 +372,6 @@ read_gear_info(void)
 	}
 	bp.acf.main_z /= n_gear - 1;
 
-	logMsg("nw_i: %d  nw_z: %.2f  main_z: %.2f", bp.acf.nw_i,
-	    bp.acf.nw_z, bp.acf.main_z);
-
 	return (B_TRUE);
 }
 

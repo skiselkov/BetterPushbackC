@@ -533,7 +533,11 @@ tug_alloc(double mtow, double ng_len, double tirrad, const char *arpt)
 	fdr_find(&tug->cam_hdg, "sim/graphics/view/view_heading");
 	fdr_find(&tug->cam_is_ext, "sim/graphics/view/view_is_external");
 	fdr_find(&tug->sound_on, "sim/operation/sound/sound_on");
-	fdr_find(&tug->ext_vol, "sim/operation/sound/exterior_volume_ratio");
+	if (!dr_find(&tug->ext_vol,
+	    "sim/operation/sound/exterior_volume_ratio")) {
+		fdr_find(&tug->ext_vol,
+		    "sim/operation/sound/engine_volume_ratio");
+	}
 
 	/* Flight Factor A320 integration */
 	if (dr_find(&tug->cockpit_window_drs[0], "model/controls/window_l")) {
