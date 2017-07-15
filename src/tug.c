@@ -32,7 +32,8 @@
 #include "tug.h"
 #include "xplane.h"
 
-#define	TUG_STEER_RATE		20	/* deg/s */
+#define	TUG_STEER_RATE		25	/* deg/s */
+#define	TUG_FAST_STEER_RATE	60	/* deg/s */
 
 #define	TUG_MAX_ANG_VEL		20	/* deg/s */
 
@@ -45,6 +46,8 @@
 
 #define	TUG_SND_MAX_DIST	15	/* meters */
 #define	VOLUME_INSIDE_MODIFIER	0.2
+
+#define	TUG_TE_RAMP_UP_DELAY	3	/* seconds */
 
 #define	TUG_CRADLE_CHG_D_T	0.5
 #define	TUG_CRADLE_AIR_MOD	0.5
@@ -478,8 +481,7 @@ tug_alloc(double mtow, double ng_len, double tirrad, const char *arpt)
 	tug->info = tug->info;
 	tug->tirrad = tirrad;
 
-	tug->veh.wheelbase = fabs(tug->info->front_z - tug->info->rear_z);
-	tug->veh.wheelbase = MIN(tug->veh.wheelbase, TUG_MIN_WHEELBASE);
+	tug->veh.wheelbase = MAX(TUG_WHEELBASE(tug), TUG_MIN_WHEELBASE);
 	tug->veh.fixed_z_off = tug->info->rear_z;
 	tug->veh.max_steer = tug->info->max_steer;
 	tug->veh.max_fwd_spd = tug->info->max_fwd_speed;
@@ -693,7 +695,10 @@ tug_run(tug_t *tug, double d_t, bool_t drive_slow)
 		}
 	}
 
-	tug_set_TE_snd(tug, (ABS(tug->pos.spd) / tug->info->max_fwd_speed) / 4);
+	if (!tug->TE_override) {
+		tug_set_TE_snd(tug, (ABS(tug->pos.spd) /
+		    tug->info->max_fwd_speed) / 4, d_t);
+	}
 }
 
 void
@@ -842,15 +847,33 @@ tug_draw(tug_t *tug, double cur_t)
 }
 
 void
-tug_set_TE_snd(tug_t *tug, double TE_fract)
+tug_set_TE_override(tug_t *tug, bool_t flag)
 {
+	tug->TE_override = flag;
+}
+
+void
+tug_set_TE_snd(tug_t *tug, double TE_fract, double d_t)
+{
+	double d_TE_fract;
+
 	/*
 	 * We do a double log of the linear TE fraction to obtain a more
 	 * obvious engine note of the engine being under load.
 	 */
 	for (int i = 0; i < 2; i++)
 		TE_fract = log((TE_fract * (M_E - 1)) + 1);
-	wav_set_pitch(tug->engine_snd, 0.5 + TE_fract);
+
+	/*
+	 * Modulate the engine note change so that it takes 1 second to
+	 * ramp up from idle to max power.
+	 */
+	d_TE_fract = TE_fract - tug->last_TE_fract;
+	d_TE_fract = MIN(d_TE_fract, d_t / TUG_TE_RAMP_UP_DELAY);
+	d_TE_fract = MAX(d_TE_fract, -d_t / TUG_TE_RAMP_UP_DELAY);
+	tug->last_TE_fract += d_TE_fract;
+
+	wav_set_pitch(tug->engine_snd, 0.5 + tug->last_TE_fract);
 }
 
 void
@@ -876,7 +899,7 @@ void
 tug_set_steering(tug_t *tug, double req_steer, double d_t)
 {
 	double d_steer = (req_steer - tug->cur_steer) * d_t;
-	double max_d_steer = TUG_STEER_RATE * d_t;
+	double max_d_steer = TUG_FAST_STEER_RATE * d_t;
 	d_steer = MIN(d_steer, max_d_steer);
 	d_steer = MAX(d_steer, -max_d_steer);
 	tug->cur_steer += d_steer;

@@ -61,6 +61,9 @@
 
 #define	PB_DEBUG_INTF
 
+#define	MIN_XPLANE_VERSION	10500	/* X-Plane 10.50 */
+#define	MIN_XPLANE_VERSION_STR	"10.50"	/* X-Plane 10.50 */
+
 #define	STRAIGHT_STEER_RATE	20	/* degrees per second */
 #define	TURN_STEER_RATE		10	/* degrees per second */
 #define	MAX_FWD_SPEED		4	/* m/s [~8 knots] */
@@ -69,7 +72,11 @@
 #define	NORMAL_DECEL		0.17	/* m/s^2 */
 #define	BRAKE_PEDAL_THRESH	0.1	/* brake pedal angle, 0..1 */
 #define	FORCE_PER_TON		5000	/* max push force per ton, Newtons */
-#define	BREAKAWAY_THRESH	0.1	/* m/s */
+/*
+ * X-Plane 10's tire model is a bit less forgiving of slow creeping,
+ * so bump the minimum breakaway speed on that version.
+ */
+#define	BREAKAWAY_THRESH	(bp.xplane_version >= 1100 ? 0.1 : 0.3)
 #define	SEG_TURN_MULT		0.9	/* leave 10% for oversteer */
 #define	SPEED_COMPLETE_THRESH	0.05	/* m/s */
 #define	MAX_STEER_ANGLE		60	/* beyond this our push algos go nuts */
@@ -81,7 +88,6 @@
 #define	PB_CONN_LIFT_DURATION	9.0	/* seconds */
 #define	PB_START_DELAY		5	/* seconds */
 #define	PB_DRIVING_TURN_OFFSET	15	/* meters */
-#define	PB_LIFT_TE_RAMP_UP	0.5	/* seconds */
 #define	PB_LIFT_TE		0.075	/* fraction */
 #define	STATE_TRANS_DELAY	2	/* seconds, state transition delay */
 
@@ -115,6 +121,10 @@ typedef struct {
 } acf_t;
 
 typedef struct {
+	int			xplane_version;
+	int			xplm_version;
+	XPLMHostApplicationID	host_id;
+
 	vehicle_t	veh;
 	acf_t		acf;		/* our aircraft */
 
@@ -128,6 +138,8 @@ typedef struct {
 	/* deltas from last_* to cur_* */
 	vehicle_pos_t	d_pos;		/* delta from last_pos to cur_pos */
 	double		d_t;		/* delta time from last_t to cur_t */
+
+	double		last_steer;
 
 	double		last_force;
 
@@ -314,11 +326,12 @@ push_at_speed(double targ_speed, double max_accel)
 
 	bp.last_force = force;
 
+	tug_set_TE_override(bp.tug, B_TRUE);
 	if ((bp.cur_pos.spd > 0 && force < 0) ||
 	    (bp.cur_pos.spd < 0 && force > 0))
-		tug_set_TE_snd(bp.tug, fabs(force / force_lim));
+		tug_set_TE_snd(bp.tug, fabs(force / force_lim), bp.d_t);
 	else
-		tug_set_TE_snd(bp.tug, 0);
+		tug_set_TE_snd(bp.tug, 0, bp.d_t);
 }
 
 static bool_t
@@ -380,6 +393,15 @@ bp_state_init(void)
 {
 	memset(&bp, 0, sizeof (bp));
 	list_create(&bp.segs, sizeof (seg_t), offsetof(seg_t, node));
+
+	XPLMGetVersions(&bp.xplane_version, &bp.xplm_version,
+	    &bp.host_id);
+	if (bp.xplane_version < MIN_XPLANE_VERSION) {
+		XPLMSpeakString("Pushback failure: X-Plane version too old. "
+		    "This plugin requires at least X-Plane "
+		    MIN_XPLANE_VERSION_STR  " to operate.");
+		return (B_FALSE);
+	}
 
 	if (!read_gear_info())
 		return (B_FALSE);
@@ -621,12 +643,69 @@ bp_fini(void)
 }
 
 static void
-acf2tug_steer(double fract_deflection)
+acf2tug_steer(void)
 {
-	if (bp.cur_pos.spd < 0)
-		fract_deflection = -fract_deflection;
-	tug_set_steering(bp.tug, bp.tug->info->max_steer * fract_deflection,
-	    bp.d_t);
+	double cur_steer, d_hdg, tug_spd, tug_steer_cmd;
+	vect2_t v, c, s, isects[2];
+
+	dr_getvf(&drs.tire_steer_cmd, &cur_steer, bp.acf.nw_i, 1);
+	tug_spd = bp.cur_pos.spd / cos(DEG2RAD(fabs(cur_steer)));
+	/*
+	 * d_hdg is the total change in tug heading, which is a component of
+	 * the amount of heading change the aircraft is experiencing + the
+	 * amount of nosewheel deflection change being applied (since the
+	 * nosewheel *is* our tug).
+	 */
+	d_hdg = (bp.d_pos.hdg + (cur_steer - bp.last_steer)) / bp.d_t;
+	if (tug_spd < 0)
+		d_hdg = -d_hdg;	/* reverse steering when going backwards */
+
+	/*
+	 * We model tug steering as follows:
+	 *
+	 *        ....
+	 *            --.
+	 *              _-x (s)
+	 *        (c)_-  /.
+	 * (front) +    / .
+	 *         |   / .
+	 *  wheel  |  /.
+	 *   base  | /(v)
+	 *         |/
+	 *  (rear) + (0,0)
+	 *
+	 * Set the rear axle as our coordinate origin (0,0). Paint an infinite
+	 * vector (v) from the rear axle at an angle of d_hdg. Place a circle
+	 * around the front axle at (c) with radius tug_spd. Where the circle
+	 * intersects vector (v) is our steering target (s). If the circle
+	 * intersects at two points, pick the one furthest from (0,0). The
+	 * resulting steering command is described as an angle vector from
+	 * (c) to (s). Convert that vector into a degree value and feed that
+	 * to the tug.
+	 */
+	v = vect2_set_abs(hdg2dir(d_hdg), 1e10);
+	c = VECT2(0, bp.tug->veh.wheelbase);
+
+	switch (vect2circ_isect(v, ZERO_VECT2, c, tug_spd, B_TRUE, isects)) {
+	case 0:
+		tug_set_steering(bp.tug,
+		    bp.tug->info->max_steer * (d_hdg > 0 ? 1 : -1), bp.d_t);
+		return;
+	case 1:
+		s = isects[0];
+		break;
+	case 2:
+		s = vect2_abs(isects[0]) > vect2_abs(isects[1]) ? isects[0] :
+		    isects[1];
+		break;
+	}
+
+	tug_steer_cmd = dir2hdg(vect2_sub(s, c));
+
+	if (tug_steer_cmd >= 180)
+		tug_steer_cmd -= 360;
+
+	tug_set_steering(bp.tug, tug_steer_cmd, bp.d_t);
 }
 
 static bool_t
@@ -641,15 +720,16 @@ bp_run_push(void)
 		if (dr_getf(&drs.lbrake) > BRAKE_PEDAL_THRESH ||
 		    dr_getf(&drs.rbrake) > BRAKE_PEDAL_THRESH ||
 		    dr_getf(&drs.pbrake) != 0) {
-			tug_set_TE_snd(bp.tug, 0);
+			tug_set_TE_snd(bp.tug, 0, bp.d_t);
 			break;
 		}
 		if (drive_segs(&bp.cur_pos, &bp.veh, &bp.segs,
 		    &bp.last_mis_hdg, bp.d_t, &steer, &speed)) {
 			double steer_rate = (seg->type == SEG_TYPE_STRAIGHT ?
 			    STRAIGHT_STEER_RATE : TURN_STEER_RATE);
-			acf2tug_steer(turn_nosewheel(steer, steer_rate));
+			(void) turn_nosewheel(steer, steer_rate);
 			push_at_speed(speed, bp.veh.max_accel);
+			acf2tug_steer();
 			break;
 		}
 	}
@@ -787,8 +867,6 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			 */
 			bp.step_start_t = bp.cur_t;
 		} else  if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
-			if (dr_getf(&drs.pbrake) != 1)
-				msg_play(MSG_RDY2CONN);
 			tug_set_cradle_beeper_on(bp.tug, B_TRUE);
 			tug_set_cradle_lights_on(B_TRUE);
 			tug_set_hazard_lights_on(B_TRUE);
@@ -805,6 +883,8 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		if (d_t >= PB_CRADLE_DELAY)
 			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
 		if (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY) {
+			if (dr_getf(&drs.pbrake) != 1)
+				msg_play(MSG_RDY2CONN);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
 		}
@@ -867,21 +947,17 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		 */
 		if (d_t >= PB_CONN_LIFT_DELAY &&
 		    d_t < PB_CONN_LIFT_DELAY + PB_CONN_LIFT_DURATION) {
-			double TE_fract = ((d_t - PB_CONN_LIFT_DELAY) /
-			    PB_LIFT_TE_RAMP_UP) * PB_LIFT_TE;
-			TE_fract = MIN(TE_fract, PB_LIFT_TE);
-			tug_set_TE_snd(bp.tug, TE_fract);
+			tug_set_TE_override(bp.tug, B_TRUE);
+			tug_set_TE_snd(bp.tug, PB_LIFT_TE, bp.d_t);
 		}
 		if (d_t >= PB_CONN_LIFT_DELAY + PB_CONN_LIFT_DURATION) {
-			double TE_fract = (((PB_CONN_LIFT_DELAY +
-			    PB_CONN_LIFT_DURATION + PB_LIFT_TE_RAMP_UP) - d_t) /
-			    PB_LIFT_TE_RAMP_UP) * PB_LIFT_TE;
-			TE_fract = MAX(TE_fract, 0);
-			tug_set_TE_snd(bp.tug, TE_fract);
+			tug_set_TE_override(bp.tug, B_TRUE);
+			tug_set_TE_snd(bp.tug, 0, bp.d_t);
 			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
 		}
 
 		if (d_t >= PB_CONN_DELAY) {
+			tug_set_TE_override(bp.tug, B_FALSE);
 			msg_play(MSG_CONNECTED);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
@@ -928,8 +1004,9 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		}
 		break;
 	case PB_STEP_STOPPING: {
-		acf2tug_steer(turn_nosewheel(0, STRAIGHT_STEER_RATE));
+		(void) turn_nosewheel(0, STRAIGHT_STEER_RATE);
 		push_at_speed(0, bp.veh.max_accel);
+		acf2tug_steer();
 		if (ABS(bp.cur_pos.spd) > SPEED_COMPLETE_THRESH) {
 			/*
 			 * Keep resetting the start time to enforce a delay
@@ -950,6 +1027,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 	case PB_STEP_STOPPED:
 		turn_nosewheel(0, STRAIGHT_STEER_RATE);
 		push_at_speed(0, bp.veh.max_accel);
+		tug_set_TE_override(bp.tug, B_FALSE);
 		dr_setf(&drs.lbrake, 0.9);
 		dr_setf(&drs.rbrake, 0.9);
 		if (dr_geti(&drs.pbrake) != 1) {
@@ -1089,6 +1167,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 
 	bp.last_pos = bp.cur_pos;
 	bp.last_t = bp.cur_t;
+	dr_getvf(&drs.tire_steer_cmd, &bp.last_steer, bp.acf.nw_i, 1);
 
 	return (-1);
 }

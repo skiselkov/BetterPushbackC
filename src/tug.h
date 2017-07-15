@@ -32,6 +32,8 @@
 extern "C" {
 #endif
 
+#define	TUG_WHEELBASE(tug)	((tug)->info->rear_z - (tug)->info->front_z)
+
 typedef struct {
 	char	*tug;		/* main OBJ */
 
@@ -99,6 +101,8 @@ typedef struct {
 	bool_t		cradle_air_on;
 	bool_t		cradle_air_snd_on;
 	double		cradle_air_chg_t;
+	double		last_TE_fract;
+	bool_t		TE_override;
 
 	bool_t		cradle_beeper_snd_on;
 
@@ -130,7 +134,8 @@ bool_t tug_drive2point(tug_t *tug, vect2_t dst, double hdg);
 void tug_run(tug_t *tug, double d_t, bool_t drive_slow);
 void tug_anim(tug_t *tug, double d_t);
 void tug_draw(tug_t *tug, double cur_t);
-void tug_set_TE_snd(tug_t *tug, double TE_fract);
+void tug_set_TE_override(tug_t *tug, bool_t override);
+void tug_set_TE_snd(tug_t *tug, double TE_fract, double d_t);
 void tug_set_cradle_air_on(tug_t *tug, bool_t flag, double cur_t);
 void tug_set_cradle_beeper_on(tug_t *tug, bool_t flag);
 void tug_set_steering(tug_t *tug, double steer, double d_t);

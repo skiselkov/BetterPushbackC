@@ -33,11 +33,10 @@
 
 #include <XPLMGraphics.h>
 #include <XPLMScenery.h>
+#include <XPLMUtilities.h>
 
 #include "driving.h"
 #include "xplane.h"
-
-#define	CRAWL_SPEED		0.1	/* m/s */
 
 #define	SEG_TURN_MULT		0.9	/* leave 10% for oversteer */
 #define	SPEED_COMPLETE_THRESH	0.05	/* m/s */
@@ -46,6 +45,9 @@
 #define	HARD_STEER_ANGLE	10	/* degrees */
 #define	MAX_OFF_PATH_ANGLE	35	/* degrees */
 #define	STEERING_SENSITIVE	90	/* degrees */
+#define	MIN_SPEED_XP10		0.6	/* m/s */
+#define	CRAWL_SPEED(xpversion)		/* m/s */ \
+	((xpversion) >= 11000 ? 0.1 : MIN_SPEED_XP10)
 
 #define	STEER_GATE(x, g)	MIN(MAX((x), -g), g)
 
@@ -71,10 +73,11 @@ typedef struct {
 	avl_node_t	node;
 } route_t;
 
-static double turn_run_speed(const vehicle_t *veh, list_t *segs, double rhdg,
-    double radius, bool_t backward, const seg_t *next);
-static double straight_run_speed(const vehicle_t *veh, list_t *segs,
-    double rmng_d, bool_t backward, const seg_t *next);
+static double turn_run_speed(const int xpversion, const vehicle_t *veh,
+    list_t *segs, double rhdg, double radius, bool_t backward,
+    const seg_t *next);
+static double straight_run_speed(const int xpversion, const vehicle_t *veh,
+    list_t *segs, double rmng_d, bool_t backward, const seg_t *next);
 
 int
 compute_segs(const vehicle_t *veh, vect2_t start_pos, double start_hdg,
@@ -298,15 +301,15 @@ drive_on_line(const vehicle_pos_t *pos, const vehicle_t *veh,
 }
 
 static double
-next_seg_speed(const vehicle_t *veh, list_t *segs, const seg_t *next,
-    bool_t cur_backward)
+next_seg_speed(const int xpversion, const vehicle_t *veh, list_t *segs,
+    const seg_t *next, bool_t cur_backward)
 {
 	if (next != NULL && next->backward == cur_backward) {
 		if (next->type == SEG_TYPE_STRAIGHT) {
-			return (straight_run_speed(veh, segs, next->len,
-			    next->backward,list_next(segs, next)));
+			return (straight_run_speed(xpversion, veh, segs,
+			    next->len, next->backward,list_next(segs, next)));
 		} else {
-			return (turn_run_speed(veh, segs,
+			return (turn_run_speed(xpversion, veh, segs,
 			    rel_hdg(next->start_hdg, next->end_hdg),
 			    next->turn.r, next->backward,
 			    list_next(segs, next)));
@@ -316,7 +319,7 @@ next_seg_speed(const vehicle_t *veh, list_t *segs, const seg_t *next,
 		 * At the end of the operation or when reversing direction,
 		 * target a nearly stopped speed.
 		 */
-		return (CRAWL_SPEED);
+		return (CRAWL_SPEED(xpversion));
 	}
 }
 
@@ -328,27 +331,38 @@ next_seg_speed(const vehicle_t *veh, list_t *segs, const seg_t *next,
  * side-loading. This means the tighter the turn, the slower our speed.
  */
 static double
-turn_run_speed(const vehicle_t *veh, list_t *segs, double rhdg,
-    double radius, bool_t backward, const seg_t *next)
+turn_run_speed(const int xpversion, const vehicle_t *veh, list_t *segs,
+    double rhdg, double radius, bool_t backward, const seg_t *next)
 {
 	double rmng_d = (2 * M_PI * radius) * (rhdg / 360.0);
-	double spd = straight_run_speed(veh, segs, rmng_d, backward, next);
+	double spd = straight_run_speed(xpversion, veh, segs, rmng_d,
+	    backward, next);
 	double rmng_t = rmng_d / spd;
 	double ang_vel = rhdg / rmng_t;
 
 	spd *= MIN(veh->max_ang_vel / ang_vel, 1);
+	if (xpversion < 11000) {
+		/*
+		 * X-Plane 10's tire model is much sticker, so don't slow down
+		 * too much or we are going to stick to the ground.
+		 */
+		if (spd > 0 && spd < MIN_SPEED_XP10)
+			spd = MIN_SPEED_XP10;
+		else if (spd < 0 && spd > -MIN_SPEED_XP10)
+			spd = -MIN_SPEED_XP10;
+	}
 
 	return (spd);
 }
 
 static double
-straight_run_speed(const vehicle_t *veh, list_t *segs, double rmng_d,
-    bool_t backward, const seg_t *next)
+straight_run_speed(const int xpversion, const vehicle_t *veh, list_t *segs,
+    double rmng_d, bool_t backward, const seg_t *next)
 {
 	double next_spd, cruise_spd, spd;
 	double ts[2];
 
-	next_spd = next_seg_speed(veh, segs, next, backward);
+	next_spd = next_seg_speed(xpversion, veh, segs, next, backward);
 	cruise_spd = (backward ? veh->max_rev_spd : veh->max_fwd_spd);
 
 	/*
@@ -452,6 +466,9 @@ drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
     double *last_mis_hdg, double d_t, double *out_steer, double *out_speed)
 {
 	seg_t *seg = list_head(segs);
+	int xpversion;
+
+	XPLMGetVersions(&xpversion, NULL, NULL);
 
 	ASSERT(seg != NULL);
 	if (seg->type == SEG_TYPE_STRAIGHT) {
@@ -459,8 +476,8 @@ drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
 		    vect2_neg(hdg2dir(seg->start_hdg));
 		double len = vect2_dotprod(vect2_sub(pos->pos, seg->start_pos),
 		    dir);
-		double speed = straight_run_speed(veh, segs, seg->len - len,
-		    seg->backward, list_next(segs, seg));
+		double speed = straight_run_speed(xpversion, veh, segs,
+		    seg->len - len, seg->backward, list_next(segs, seg));
 		double hdg = (!seg->backward ? seg->start_hdg :
 		    normalize_hdg(seg->start_hdg + 180));
 
@@ -480,7 +497,7 @@ drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
 		    normalize_hdg(seg->end_hdg + 180));
 		double end_brg = fabs(rel_hdg(end_hdg, dir2hdg(
 		    vect2_sub(pos->pos, seg->end_pos))));
-		double speed = turn_run_speed(veh, segs, ABS(rhdg),
+		double speed = turn_run_speed(xpversion, veh, segs, ABS(rhdg),
 		    seg->turn.r, seg->backward, list_next(segs, seg));
 
 		/*
