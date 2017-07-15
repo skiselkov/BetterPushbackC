@@ -27,13 +27,8 @@ LIST(SORT ALL_SRC)
 
 if(APPLE)
 	add_executable(bp ${ALL_SRC})
-elseif(UNIX)
+else()
 	add_library(bp SHARED ${ALL_SRC})
-elseif(WIN32)
-	add_library(bp MODULE ${ALL_SRC})
-	SET(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /MD")
-	SET(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELEASE} /MD")
-	SET(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} /MDd")
 endif()
 
 include_directories(bp PUBLIC "${LIBACFUTILS}/src")
@@ -60,51 +55,53 @@ if(APPLE)
 	include_directories(bp PUBLIC "../libpng/libpng-mac-64/include")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -arch x86_64 -Wno-deprecated")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mmacosx-version-min=10.7")
-endif(APPLE)
-if(WIN32)
-	target_include_directories(bp PUBLIC
-	    "..\\SDK\\CHeaders\\XPLM" "..\\SDK\\CHeaders\\Widgets"
-	    "..\\SDK\\CHeaders\\Wrappers")
-endif(WIN32)
+elseif(UNIX)
+	include_directories(bp PUBLIC "../libpng/libpng-linux-64/include")
+endif()
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DXPLM200=1 -DXPLM210=1")
 if(APPLE)
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DAPL=1 -DIBM=0 -DLIN=0")
-elseif(UNIX)
+else()
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DAPL=0 -DIBM=0 -DLIN=1")
-elseif(WIN32)
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DAPL=0 -DIBM=1 -DLIN=0 \
-	    -D_CRT_SECURE_NO_WARNINGS /bigobj")
 endif()
 
-#linking
+# linking
+# Careful: order matters in target_link_libraries. Dependencies must be
+# ordered as first symbol callers and then as symbol providers (i.e.
+# libpng16 depends on libz, so linking must be first: libpng, then libz).
 link_libraries(m)
 if(APPLE)
-	set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH} ../SDK/Libraries/Mac/)
+	set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH} ../SDK/Libraries/Mac/
+	    ../zlib/zlib-mac-64 ../libpng/libpng-mac-64/.libs
+	    ${LIBACFUTILS}/qmake/mac64)
 	FIND_LIBRARY(XPLM_LIBRARY XPLM ../SDK/Libraries/Mac/)
 	FIND_LIBRARY(XPWIDGETS_LIBRARY XPWidgets ../SDK/Libraries/Mac/)
 	FIND_LIBRARY(OPENGL_LIBRARY OpenGL)
 	FIND_LIBRARY(OPENAL_LIBRARY OpenAL)
-	FIND_LIBRARY(LIBPNG_LIBRARY png)
-	target_link_libraries(bp ${OPENAL_LIBRARY} ${OPENGL_LIBRARY}
-	    ${XPLM_LIBRARY} ${LIBPNG_LIBRARY})
-elseif(WIN32)
-	set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH}
-	    "..\\SDK\\Libraries\\Win\\")
-	FIND_LIBRARY(XPLM_LIBRARY XPLM_64
-	    "..\\SDK\\Libraries\\Win\\")
-	FIND_LIBRARY(XPWIDGETS_LIBRARY XPWidgets_64
-	    "..\\SDK\\Libraries\\Win\\")
-	target_link_libraries(bp ${OPENAL_LIBRARY}
-	    ${XPLM_LIBRARY} ${XPWIDGETS_LIBRARY})
-endif()
-
-if(APPLE)
-	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} \
-	    -L${LIBACFUTILS}/qmake/mac64 -lacfutils")
+	FIND_LIBRARY(LIBACFUTILS_LIBRARY acfutils)
+	FIND_LIBRARY(LIBPNG_LIBRARY png16)
+	FIND_LIBRARY(ZLIB_LIBRARY z)
+	target_link_libraries(bp
+	    ${LIBACFUTILS_LIBRARY}
+	    ${OPENAL_LIBRARY}
+	    ${OPENGL_LIBRARY}
+	    ${XPLM_LIBRARY}
+	    ${LIBPNG_LIBRARY}
+	    ${ZLIB_LIBRARY}
+	    )
 else()
-	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} \
-	    -L${LIBACFUTILS}/qmake/lin64 -lacfutils")
+	set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH}
+	    ../zlib/zlib-linux-64 ../libpng/libpng-linux-64/.libs
+	    ${LIBACFUTILS}/qmake/lin64)
+	FIND_LIBRARY(LIBACFUTILS_LIBRARY acfutils)
+	FIND_LIBRARY(LIBPNG_LIBRARY png16)
+	FIND_LIBRARY(ZLIB_LIBRARY z)
+	target_link_libraries(bp
+	    ${LIBACFUTILS_LIBRARY}
+	    ${LIBPNG_LIBRARY}
+	    ${ZLIB_LIBRARY}
+	    )
 endif()
 
 SET_TARGET_PROPERTIES(bp PROPERTIES PREFIX "")
@@ -115,13 +112,11 @@ if(APPLE)
 	SET_TARGET_PROPERTIES(bp PROPERTIES LINK_FLAGS
 	    "${CMAKE_SHARED_LINKER_FLAGS} -fPIC -fvisibility=hidden \
 	    -bundle")
-elseif(UNIX)
+else()
 	set(OUTPUT_FILENAME "lin.xpl")
 	SET_TARGET_PROPERTIES(bp PROPERTIES LINK_FLAGS
 	    "${CMAKE_SHARED_LINKER_FLAGS} -rdynamic -nodefaultlibs \
 	    -undefined_warning -fPIC -fvisibility=hidden")
-elseif(WIN32)
-	set(OUTPUT_FILENAME "win.xpl")
 endif()
 
 set_target_properties(bp PROPERTIES RUNTIME_OUTPUT_DIRECTORY
