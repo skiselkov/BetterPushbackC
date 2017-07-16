@@ -99,6 +99,9 @@ BEGIN {
 		if (!in_anim)
 			print("ANIM_end");
 		print("## UNFUCKERY END ##");
+	} else if ($0 ~ /^UNFUCK_LITERAL\>/) {
+		$1 = "";
+		print $0;
 	} else {
 		print;
 	}
