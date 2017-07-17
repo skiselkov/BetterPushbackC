@@ -70,15 +70,15 @@ typedef enum {
 	ANIM_DRIVER_ORIENTATION,
 	ANIM_CAB_POSITION,
 	TUG_NUM_ANIMS
-} ANIM_t;
+} anim_t;
 
 typedef struct {
 	const char	*name;
 	dr_t		dr;
 	float		value;
-} ANIM_info_t;
+} anim_info_t;
 
-static ANIM_info_t anim[TUG_NUM_ANIMS] = {
+static anim_info_t anim[TUG_NUM_ANIMS] = {
     { .name = "bp/anim/front_drive" },
     { .name = "bp/anim/front_steer" },
     { .name = "bp/anim/rear_drive" },
@@ -425,7 +425,7 @@ tug_glob_init(void)
 {
 	VERIFY(!inited);
 
-	for (ANIM_t a = 0; a < TUG_NUM_ANIMS; a++) {
+	for (anim_t a = 0; a < TUG_NUM_ANIMS; a++) {
 		dr_create_f(&anim[a].dr, &anim[a].value, B_FALSE, "%s",
 		    anim[a].name);
 	}
@@ -445,7 +445,7 @@ tug_glob_fini(void)
 	if (!inited)
 		return;
 
-	for (ANIM_t a = 0; a < TUG_NUM_ANIMS; a++)
+	for (anim_t a = 0; a < TUG_NUM_ANIMS; a++)
 		dr_delete(&anim[a].dr);
 
 	inited = B_FALSE;
