@@ -35,8 +35,9 @@
 #include "tug.h"
 #include "xplane.h"
 
-#define BP_PLUGIN_NAME		"BetterPushback 1.0"
-#define BP_PLUGIN_SIG		"skiselkov.BetterPushback1.0"
+#define	BP_PLUGIN_VERSION	"0.14"
+#define BP_PLUGIN_NAME		"BetterPushback " BP_PLUGIN_VERSION
+#define BP_PLUGIN_SIG		"skiselkov.BetterPushback." BP_PLUGIN_VERSION
 #define BP_PLUGIN_DESCRIPTION	"Generic automated pushback plugin"
 
 static bool_t		inited = B_FALSE;
@@ -59,6 +60,39 @@ static char		plugindir[512];
 const char *const	bp_xpdir = xpdir;
 const char *const	bp_plugindir = plugindir;
 
+/*
+ * These datarefs are for syncing two instances of BetterPushback over the
+ * net via syncing addons such as smartcopilot. This works as follows:
+ * 1) Master/slave must not be switched during pushback (undefined behavior
+ *	may result). It's possible to observe if BetterPushback is running by
+ *	monitoring the read-only boolean "bp/started" dataref. This dataref
+ *	must NOT be synced, it's only a hint to smartcopilot whether
+ *	switching is safe.
+ * 2) The boolean dataref "bp/slave_mode" must be set to 0 on the master and
+ *	1 on the slave.
+ * 3) The boolean dataref "bp/op_complete" must be synced from master to
+ *	slave. This signals to bp_run() that the pushback stage needs to
+ *	progress to either PB_STEP_STOPPING if the tug has already attached,
+ *	or immediately to bp_complete() if it has not. The master sets this
+ *	dataref in response to either a "Stop" command request, or when it
+ *	has processed all pushback segments. The slave cannot set this
+ *	(master controls when pushback stops).
+ * 4) The string dataref "bp/tug_name" must be synced from master to slave.
+ *	This string identifies which tug model the master selected (since tug
+ *	selection is non-deterministic). The slave then instances its tug
+ *	object using tug_alloc_man. Both master and slave must have identical
+ *	tug libraries, otherwise sync fails.
+ * 5) The command "BetterPushback/start" should be synced from mater to slave.
+ *	There's no need to sync any other commands. The planning GUI is
+ *	disabled on the slave machine and stopping of the pushback can only be
+ *	performed by the master machine.
+ */
+static dr_t		bp_started_dr, slave_mode_dr, op_complete_dr;
+static dr_t		bp_tug_name_dr;
+bool_t			bp_started = B_FALSE, slave_mode = B_FALSE;
+bool_t			op_complete = B_FALSE;
+char			bp_tug_name[64] = { 0 };
+
 static int
 start_pb_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 {
@@ -69,13 +103,14 @@ start_pb_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	XPLMCommandOnce(stop_cam);
 	if (!bp_init())
 		return (1);
-	if (bp_num_segs() == 0) {
+	if (bp_num_segs() == 0 && !slave_mode) {
 		if (!bp_cam_start())
 			return (1);
 		msg_play(MSG_PLAN_START);
 		start_after_cam = B_TRUE;
 		return (1);
 	}
+	op_complete = B_FALSE;
 	if (!bp_start())
 		return (1);
 
@@ -92,9 +127,12 @@ stop_pb_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 {
 	UNUSED(cmd);
 	UNUSED(refcon);
+	if (slave_mode)
+		return (1);
 	if (phase != xplm_CommandEnd || !bp_init())
 		return (1);
 	(void) bp_stop();
+	op_complete = B_TRUE;
 	return (1);
 }
 
@@ -103,6 +141,8 @@ start_cam_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 {
 	UNUSED(cmd);
 	UNUSED(refcon);
+	if (slave_mode)
+		return (1);
 	if (phase != xplm_CommandEnd || !bp_init() || !bp_cam_start()) {
 		start_after_cam = B_FALSE;
 		return (1);
@@ -119,6 +159,8 @@ stop_cam_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 {
 	UNUSED(cmd);
 	UNUSED(refcon);
+	if (slave_mode)
+		return (1);
 	if (phase != xplm_CommandEnd || !bp_init() || !bp_cam_stop())
 		return (1);
 	XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_TRUE);
@@ -149,6 +191,26 @@ bp_done_notify(void)
 	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
 	XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_TRUE);
 	XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
+
+	bp_tug_name[0] = '\0';
+}
+
+void
+slave_mode_cb(dr_t *dr)
+{
+	UNUSED(dr);
+	VERIFY(!bp_started);
+	if (slave_mode) {
+		XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_FALSE);
+		XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
+		XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_FALSE);
+		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
+	} else {
+		XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_TRUE);
+		XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
+		XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_TRUE);
+		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
+	}
 }
 
 PLUGIN_API int
@@ -201,6 +263,16 @@ XPluginStart(char *name, char *sig, char *desc)
 
 	tug_glob_init();
 
+	dr_create_i(&bp_started_dr, (int *)&bp_started, B_FALSE,
+	    "bp/started");
+	dr_create_i(&slave_mode_dr, (int *)&slave_mode, B_TRUE,
+	    "bp/slave_mode");
+	slave_mode_dr.write_cb = slave_mode_cb;
+	dr_create_i(&op_complete_dr, (int *)&op_complete, B_TRUE,
+	    "bp/op_complete");
+	dr_create_b(&bp_tug_name_dr, bp_tug_name, sizeof (bp_tug_name),
+	    B_TRUE, "bp/tug_name");
+
 	return (1);
 }
 
@@ -208,6 +280,10 @@ PLUGIN_API void
 XPluginStop(void)
 {
 	tug_glob_fini();
+	dr_delete(&bp_started_dr);
+	dr_delete(&slave_mode_dr);
+	dr_delete(&op_complete_dr);
+	dr_delete(&bp_tug_name_dr);
 }
 
 PLUGIN_API void
@@ -280,6 +356,8 @@ XPluginReceiveMessage(XPLMPluginID from, int msg, void *param)
 	case XPLM_MSG_PLANE_UNLOADED:
 		/* Force a reinit to re-read aircraft size params */
 		bp_fini();
+		slave_mode = B_FALSE;
+		bp_tug_name[0] = '\0';
 		break;
 	}
 }

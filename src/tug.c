@@ -68,6 +68,7 @@ typedef enum {
 	ANIM_REVERSE_LIGHTS,
 	ANIM_HAZARD_LIGHTS,
 	ANIM_DRIVER_ORIENTATION,
+	ANIM_CAB_POSITION,
 	TUG_NUM_ANIMS
 } ANIM_t;
 
@@ -88,7 +89,8 @@ static ANIM_info_t anim[TUG_NUM_ANIMS] = {
     { .name = "bp/anim/cradle_lights" },
     { .name = "bp/anim/reverse_lights" },
     { .name = "bp/anim/hazard_lights" },
-    { .name = "bp/anim/driver_orientation" }
+    { .name = "bp/anim/driver_orientation" },
+    { .name = "bp/anim/cab_position" }
 };
 
 static bool_t cradle_lights_req = B_FALSE;
@@ -133,6 +135,7 @@ tug_info_compar(const void *a, const void *b)
 static void
 tug_info_free(tug_info_t *ti)
 {
+	free(ti->tug_name);
 	free(ti->tug);
 	free(ti->arpt);
 	free(ti->engine_snd);
@@ -142,7 +145,7 @@ tug_info_free(tug_info_t *ti)
 }
 
 static tug_info_t *
-tug_info_read(const char *tugdir)
+tug_info_read(const char *tugdir, const char *tug_name)
 {
 	tug_info_t *ti = NULL;
 	char *cfgfilename = mkpathname(tugdir, "info.cfg", NULL);
@@ -157,6 +160,7 @@ tug_info_read(const char *tugdir)
 	}
 
 	ti = calloc(1, sizeof (*ti));
+	ti->tug_name = strdup(tug_name);
 	ti->front_z = NAN;
 	ti->rear_z = NAN;
 	ti->lift_wall_z = NAN;
@@ -360,7 +364,7 @@ tug_info_select(double mtow, double ng_len, double tirrad, const char *arpt)
 			continue;
 
 		tugpath = mkpathname(tugdir, de->d_name, NULL);
-		ti = tug_info_read(tugpath);
+		ti = tug_info_read(tugpath, de->d_name);
 		/* A debug flag means we always pick this tug. */
 		if (ti != NULL && (ti->anim_debug || ti->drive_debug ||
 		    ti->quick_debug)) {
@@ -421,8 +425,10 @@ tug_glob_init(void)
 {
 	VERIFY(!inited);
 
-	for (ANIM_t a = 0; a < TUG_NUM_ANIMS; a++)
-		dr_create_f(&anim[a].dr, &anim[a].value, B_FALSE, anim[a].name);
+	for (ANIM_t a = 0; a < TUG_NUM_ANIMS; a++) {
+		dr_create_f(&anim[a].dr, &anim[a].value, B_FALSE, "%s",
+		    anim[a].name);
+	}
 
 	fdr_find(&sun_pitch_dr, "sim/graphics/scenery/sun_pitch_degrees");
 
@@ -463,8 +469,8 @@ tug_available(double mtow, double ng_len, double tirrad, const char *arpt)
 	return (B_FALSE);
 }
 
-tug_t *
-tug_alloc(double mtow, double ng_len, double tirrad, const char *arpt)
+static tug_t *
+tug_alloc_common(tug_info_t *ti, double tirrad)
 {
 	tug_t *tug;
 
@@ -473,12 +479,7 @@ tug_alloc(double mtow, double ng_len, double tirrad, const char *arpt)
 	tug = calloc(1, sizeof (*tug));
 	list_create(&tug->segs, sizeof (seg_t), offsetof(seg_t, node));
 
-	/* Select a matching tug from our repertoire */
-	tug->info = tug_info_select(mtow, ng_len, tirrad, arpt);
-	if (tug->info == NULL)
-		goto errout;
-
-	tug->info = tug->info;
+	tug->info = ti;
 	tug->tirrad = tirrad;
 
 	tug->veh.wheelbase = MAX(TUG_WHEELBASE(tug), TUG_MIN_WHEELBASE);
@@ -573,6 +574,30 @@ tug_alloc(double mtow, double ng_len, double tirrad, const char *arpt)
 errout:
 	tug_free(tug);
 	return (NULL);
+}
+
+tug_t *
+tug_alloc_man(const char *tug_name, double tirrad)
+{
+	char *tug_path = mkpathname(bp_xpdir, bp_plugindir, "objects", "tugs",
+	    tug_name, NULL);
+	tug_info_t *ti = tug_info_read(tug_path, tug_name);
+
+	free(tug_path);
+	if (ti == NULL)
+		return (NULL);
+
+	return (tug_alloc_common(ti, tirrad));
+}
+
+tug_t *
+tug_alloc_auto(double mtow, double ng_len, double tirrad, const char *arpt)
+{
+	/* Auto-select a matching tug from our repertoire */
+	tug_info_t *ti = tug_info_select(mtow, ng_len, tirrad, arpt);
+	if (ti == NULL)
+		return (NULL);
+	return (tug_alloc_common(ti, tirrad));
 }
 
 void

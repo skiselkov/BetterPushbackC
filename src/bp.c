@@ -1,4 +1,4 @@
-/*t
+/*
  * CDDL HEADER START
  *
  * The contents of this file are subject to the terms of the
@@ -101,6 +101,7 @@
 
 typedef enum {
 	PB_STEP_OFF,
+	PB_STEP_TUG_LOAD,
 	PB_STEP_START,
 	PB_STEP_DRIVING_UP_CLOSE,
 	PB_STEP_OPENING_CRADLE,
@@ -181,7 +182,7 @@ static struct {
 	dr_t	view_is_ext;
 } drs;
 
-static bool_t inited = B_FALSE, cam_inited = B_FALSE, started = B_FALSE;
+static bool_t inited = B_FALSE, cam_inited = B_FALSE;
 static bool_t floop_registered = B_FALSE;
 static bp_state_t bp;
 
@@ -505,6 +506,10 @@ draw_tugs(XPLMDrawingPhase phase, int before, void *refcon)
 	UNUSED(before);
 	UNUSED(refcon);
 
+	ASSERT(bp.tug != NULL || slave_mode);
+	if (bp.tug == NULL)
+		return (1);
+
 	if (list_head(&bp.tug->segs) == NULL &&
 	    bp.step >= PB_STEP_CONNECTING && bp.step <= PB_STEP_DISCONNECTING) {
 		double hdg, tug_hdg, tug_spd, steer;
@@ -547,7 +552,7 @@ bp_can_start(char **reason)
 	}
 
 	seg = list_head(&bp.segs);
-	if (seg == NULL) {
+	if (seg == NULL && !slave_mode) {
 		if (reason != NULL) {
 			*reason = "Pushback failure: please first plan your "
 			    "pushback to tell me where you want to go.";
@@ -562,9 +567,8 @@ bool_t
 bp_start(void)
 {
 	char *reason;
-	char icao[8] = { 0 };
 
-	if (started)
+	if (bp_started)
 		return (B_TRUE);
 	if (!bp_can_start(&reason)) {
 		XPLMSpeakString(reason);
@@ -575,38 +579,18 @@ bp_start(void)
 	bp.last_pos = bp.cur_pos;
 	bp.last_t = bp.cur_t;
 
-	bp.step = PB_STEP_START;
+	bp.step = 1;
 	bp.step_start_t = bp.cur_t;
-
-	(void) find_nearest_airport(icao);
-	bp.tug = tug_alloc(dr_getf(&drs.mtow), dr_getf(&drs.leg_len),
-	    dr_getf(&drs.tirrad), strcmp(icao, "") != 0 ? icao : NULL);
-	if (bp.tug == NULL) {
-		XPLMSpeakString("Pushback failure: no suitable tug for your "
-		    "aircraft.");
-		return (B_FALSE);
-	}
-	if (!bp.tug->info->drive_debug) {
-		vect2_t p_start, dir;
-		dir = hdg2dir(bp.cur_pos.hdg);
-		p_start = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-		    -bp.acf.nw_z + TUG_APPCH_LONG_DIST));
-		p_start = vect2_add(p_start, vect2_scmul(vect2_norm(dir,
-		    B_TRUE), 10 * bp.tug->veh.wheelbase));
-		tug_set_pos(bp.tug, p_start, normalize_hdg(bp.cur_pos.hdg - 90),
-		    bp.tug->veh.max_fwd_spd);
-	} else {
-		tug_set_pos(bp.tug, bp.cur_pos.pos, bp.cur_pos.hdg, 0);
-	}
 
 	XPLMRegisterFlightLoopCallback(bp_run, -1, NULL);
 	floop_registered = B_TRUE;
 	XPLMRegisterDrawCallback(draw_tugs, TUG_DRAWING_PHASE,
 	    TUG_DRAWING_PHASE_BEFORE, NULL);
 
-	route_save(&bp.segs);
+	if (!slave_mode)
+		route_save(&bp.segs);
 
-	started = B_TRUE;
+	bp_started = B_TRUE;
 
 	return (B_TRUE);
 }
@@ -616,7 +600,7 @@ bp_stop(void)
 {
 	seg_t *seg;
 
-	if (!started)
+	if (!bp_started)
 		return (B_FALSE);
 	/* Delete all pushback segments, that'll stop us */
 	while ((seg = list_remove_head(&bp.segs)) != NULL)
@@ -657,7 +641,11 @@ acf2tug_steer(void)
 	dr_getvf(&drs.tire_steer_cmd, &cur_steer, bp.acf.nw_i, 1);
 	tug_spd = bp.cur_pos.spd / cos(DEG2RAD(fabs(cur_steer)));
 
-	if (tug_spd == 0) {
+	/*
+	 * When we're nearly stopped, the steering algorithm can command
+	 * weird deflections. Neutralize steering when we're nearly stopped.
+	 */
+	if (fabs(tug_spd) <= 0.01) {
 		tug_set_steering(bp.tug, 0, bp.d_t);
 		return;
 	}
@@ -751,21 +739,25 @@ bp_run_push(void)
 static void
 bp_complete(void)
 {
-	if (!started)
+	if (!bp_started)
 		return;
 
-	started = B_FALSE;
+	bp_started = B_FALSE;
 
-	tug_free(bp.tug);
-	bp.tug = NULL;
+	if (bp.tug != NULL) {
+		tug_free(bp.tug);
+		bp.tug = NULL;
+	}
 
 	XPLMUnregisterDrawCallback(draw_tugs, TUG_DRAWING_PHASE,
 	    TUG_DRAWING_PHASE_BEFORE, NULL);
 
-	dr_seti(&drs.override_steer, 0);
-	dr_setf(&drs.lbrake, 0);
-	dr_setf(&drs.rbrake, 0);
-	dr_setvf(&drs.leg_len, &bp.acf.nw_len, bp.acf.nw_i, 1);
+	if (!slave_mode) {
+		dr_seti(&drs.override_steer, 0);
+		dr_setf(&drs.lbrake, 0);
+		dr_setf(&drs.rbrake, 0);
+		dr_setvf(&drs.leg_len, &bp.acf.nw_len, bp.acf.nw_i, 1);
+	}
 
 	bp_done_notify();
 	/*
@@ -773,7 +765,6 @@ bp_complete(void)
 	 * next time.
 	 */
 	bp_state_init();
-
 }
 
 static float
@@ -783,8 +774,6 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 	UNUSED(elapsed2);
 	UNUSED(counter);
 	UNUSED(refcon);
-
-	ASSERT(bp.tug != NULL);
 
 	bp_gather();
 
@@ -796,24 +785,30 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 	bp.d_pos.spd = bp.cur_pos.spd - bp.last_pos.spd;
 	bp.d_t = bp.cur_t - bp.last_t;
 
-	ASSERT(bp.tug != NULL);
-	/* drive extra slowly while approaching & moving away from acf */
-	tug_run(bp.tug, bp.d_t, bp.step == PB_STEP_DRIVING_UP_CONNECT ||
-	    bp.step == PB_STEP_MOVING_AWAY);
-	tug_anim(bp.tug, bp.d_t);
+	ASSERT(bp.tug != NULL || bp.step <= PB_STEP_TUG_LOAD);
+	if (bp.tug != NULL) {
+		/* drive slowly while approaching & moving away from acf */
+		tug_run(bp.tug, bp.d_t,
+		    bp.step == PB_STEP_DRIVING_UP_CONNECT ||
+		    bp.step == PB_STEP_MOVING_AWAY);
+		tug_anim(bp.tug, bp.d_t);
+	}
 
-	if (bp.step >= PB_STEP_DRIVING_UP_CONNECT &&
-	    bp.step <= PB_STEP_MOVING_AWAY)
-		dr_seti(&drs.override_steer, 1);
-	else
-		dr_seti(&drs.override_steer, 0);
+	if (!slave_mode) {
+		if (bp.step >= PB_STEP_DRIVING_UP_CONNECT &&
+		    bp.step <= PB_STEP_MOVING_AWAY)
+			dr_seti(&drs.override_steer, 1);
+		else
+			dr_seti(&drs.override_steer, 0);
+	}
 
 	/*
 	 * If we have no segs, means the user stopped the operation.
 	 * Jump to the appropriate state. If we haven't connected yet,
 	 * just disappear. If we have, jump to the stopping state.
 	 */
-	if (list_head(&bp.segs) == NULL) {
+	if ((!slave_mode && list_head(&bp.segs) == NULL) ||
+	    (slave_mode && op_complete)) {
 		if (bp.step < PB_STEP_CONNECTING) {
 			bp_complete();
 			return (0);
@@ -826,7 +821,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 	/*
 	 * When performing quick debugging, skip the whole driving-up phase.
 	 */
-	if (bp.tug->info->quick_debug) {
+	if (!slave_mode && bp.tug != NULL && bp.tug->info->quick_debug) {
 		if (bp.step < PB_STEP_CONNECTED) {
 			bp.step = PB_STEP_CONNECTED;
 			tug_set_lift_pos(1);
@@ -848,6 +843,74 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 	switch (bp.step) {
 	case PB_STEP_OFF:
 		VERIFY(bp.step != PB_STEP_OFF);
+	case PB_STEP_TUG_LOAD: {
+		ASSERT3P(bp.tug, ==, NULL);
+		if (!slave_mode) {
+			char icao[8] = { 0 };
+			(void) find_nearest_airport(icao);
+			bp.tug = tug_alloc_auto(dr_getf(&drs.mtow),
+			    dr_getf(&drs.leg_len), bp.acf.tirrad,
+			    strcmp(icao, "") != 0 ? icao : NULL);
+			if (bp.tug == NULL) {
+				XPLMSpeakString("Pushback failure: no suitable "
+				    "tug for your aircraft.");
+				bp_complete();
+				return (0);
+			}
+			strlcpy(bp_tug_name, bp.tug->info->tug_name,
+			    sizeof (bp_tug_name));
+		} else {
+			char tug_name[sizeof (bp_tug_name)];
+			char *ext;
+
+			/* make sure the tug name is properly terminated */
+			memcpy(tug_name, bp_tug_name, sizeof (tug_name));
+			tug_name[sizeof (tug_name) - 1] = '\0';
+
+			/* wait until the tug name has been synced */
+			if (strcmp(tug_name, "") == 0)
+				break;
+
+			/* security check - must not contain a dir separator */
+			if (strchr(tug_name, '/') != NULL ||
+			    strchr(tug_name, '\\') != NULL)
+				break;
+
+			/* sanity check - must end in '.tug' */
+			ext = strrchr(tug_name, '.');
+			if (ext == NULL || strcmp(&ext[1], "tug") != 0)
+				break;
+
+			bp.tug = tug_alloc_man(tug_name, bp.acf.tirrad);
+			if (bp.tug == NULL) {
+				char msg[128];
+				snprintf(msg, sizeof (msg), "Pushback failure: "
+				    "master requested tug \"%s\", which we "
+				    "don't have in our library. Please sync "
+				    "your tug libraries before trying again.",
+				    tug_name);
+				XPLMSpeakString(msg);
+				bp_complete();
+				return (0);
+			}
+		}
+		if (!bp.tug->info->drive_debug) {
+			vect2_t p_start, dir;
+			dir = hdg2dir(bp.cur_pos.hdg);
+			p_start = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
+			    -bp.acf.nw_z + TUG_APPCH_LONG_DIST));
+			p_start = vect2_add(p_start, vect2_scmul(vect2_norm(dir,
+			    B_TRUE), 10 * bp.tug->veh.wheelbase));
+			tug_set_pos(bp.tug, p_start,
+			    normalize_hdg(bp.cur_pos.hdg - 90),
+			    bp.tug->veh.max_fwd_spd);
+		} else {
+			tug_set_pos(bp.tug, bp.cur_pos.pos, bp.cur_pos.hdg, 0);
+		}
+		bp.step++;
+		bp.step_start_t = bp.cur_t;
+		break;
+	}
 	case PB_STEP_START:
 		if (!bp.tug->info->drive_debug) {
 			vect2_t left_off, p_end, dir;
@@ -924,8 +987,10 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		}
 		break;
 	case PB_STEP_DRIVING_UP_CONNECT:
-		dr_setf(&drs.lbrake, 0.9);
-		dr_setf(&drs.rbrake, 0.9);
+		if (!slave_mode) {
+			dr_setf(&drs.lbrake, 0.9);
+			dr_setf(&drs.rbrake, 0.9);
+		}
 		if (!tug_is_stopped(bp.tug)) {
 			/*
 			 * Keep resetting the start time to enforce a state
@@ -945,9 +1010,11 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		double lift_fract = (d_t - PB_CONN_LIFT_DELAY) /
 		    PB_CONN_LIFT_DURATION;
 
-		dr_setvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1);
-		dr_setf(&drs.lbrake, 0.9);
-		dr_setf(&drs.rbrake, 0.9);
+		if (!slave_mode) {
+			dr_setvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1);
+			dr_setf(&drs.lbrake, 0.9);
+			dr_setf(&drs.rbrake, 0.9);
+		}
 
 		cradle_closed_fract = MAX(MIN(cradle_closed_fract, 1), 0);
 		lift_fract = MAX(MIN(lift_fract, 1), 0);
@@ -957,7 +1024,8 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 
 		/* Iterate the lift */
 		lift = (bp.tug->info->lift_height * lift_fract) + bp.acf.nw_len;
-		dr_setvf(&drs.leg_len, &lift, 0, 1);
+		if (!slave_mode)
+			dr_setvf(&drs.leg_len, &lift, 0, 1);
 
 		/*
 		 * While lifting, we iterate a ramp-up and ramp-down of the
@@ -991,20 +1059,30 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			 */
 			bp.step_start_t = bp.cur_t;
 		} else if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
-			seg_t *seg = list_head(&bp.segs);
+			if (!slave_mode) {
+				seg_t *seg = list_head(&bp.segs);
 
-			ASSERT(seg != NULL);
-			if (seg->backward)
+				ASSERT(seg != NULL);
+				if (seg->backward)
+					msg_play(MSG_START_PB);
+				else
+					msg_play(MSG_START_TOW);
+			} else {
+				/*
+				 * Since we don't know the segs, we'll just
+				 * assume it's going to be backward (as that's
+				 * the most likely direction anyhow).
+				 */
 				msg_play(MSG_START_PB);
-			else
-				msg_play(MSG_START_TOW);
+			}
 
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
 		}
 		break;
 	case PB_STEP_STARTING:
-		dr_seti(&drs.override_steer, 1);
+		if (!slave_mode)
+			dr_seti(&drs.override_steer, 1);
 		if (bp.cur_t - bp.step_start_t >= PB_START_DELAY) {
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
@@ -1014,17 +1092,31 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		}
 		break;
 	case PB_STEP_PUSHING:
-		dr_setf(&drs.lbrake, 0);
-		dr_setf(&drs.rbrake, 0);
-		dr_seti(&drs.override_steer, 1);
-		if (!bp_run_push()) {
-			bp.step++;
-			bp.step_start_t = bp.cur_t;
+		if (!slave_mode) {
+			dr_setf(&drs.lbrake, 0);
+			dr_setf(&drs.rbrake, 0);
+			dr_seti(&drs.override_steer, 1);
+			if (!bp_run_push()) {
+				bp.step++;
+				bp.step_start_t = bp.cur_t;
+				op_complete = B_TRUE;
+			}
+		} else {
+			/*
+			 * Since in slave mode we don't actually know our
+			 * tractive effort, just simulate it by following
+			 * the aircraft's speed of motion.
+			 */
+			tug_set_TE_override(bp.tug, B_FALSE);
+			/* in slave mode we don't do anything, just following */
+			acf2tug_steer();
 		}
 		break;
 	case PB_STEP_STOPPING: {
-		(void) turn_nosewheel(0, STRAIGHT_STEER_RATE);
-		push_at_speed(0, bp.veh.max_accel);
+		if (!slave_mode) {
+			(void) turn_nosewheel(0, STRAIGHT_STEER_RATE);
+			push_at_speed(0, bp.veh.max_accel);
+		}
 		acf2tug_steer();
 		if (ABS(bp.cur_pos.spd) > SPEED_COMPLETE_THRESH) {
 			/*
@@ -1033,8 +1125,10 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			 */
 			bp.step_start_t = bp.cur_t;
 		} else {
-			dr_setf(&drs.lbrake, 0.9);
-			dr_setf(&drs.rbrake, 0.9);
+			if (!slave_mode) {
+				dr_setf(&drs.lbrake, 0.9);
+				dr_setf(&drs.rbrake, 0.9);
+			}
 			if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
 				msg_play(MSG_OP_COMPLETE);
 				bp.step++;
@@ -1044,11 +1138,13 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		break;
 	}
 	case PB_STEP_STOPPED:
-		turn_nosewheel(0, STRAIGHT_STEER_RATE);
-		push_at_speed(0, bp.veh.max_accel);
+		if (!slave_mode) {
+			turn_nosewheel(0, STRAIGHT_STEER_RATE);
+			push_at_speed(0, bp.veh.max_accel);
+			dr_setf(&drs.lbrake, 0.9);
+			dr_setf(&drs.rbrake, 0.9);
+		}
 		acf2tug_steer();
-		dr_setf(&drs.lbrake, 0.9);
-		dr_setf(&drs.rbrake, 0.9);
 		if (dr_geti(&drs.pbrake) == 0) {
 			/*
 			 * Keep resetting the start time to enforce a delay
@@ -1068,11 +1164,12 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		    PB_CONN_LIFT_DURATION;
 		double lift;
 
-		turn_nosewheel(0, STRAIGHT_STEER_RATE);
+		if (!slave_mode) {
+			turn_nosewheel(0, STRAIGHT_STEER_RATE);
+			dr_setf(&drs.lbrake, 0.9);
+			dr_setf(&drs.rbrake, 0.9);
+		}
 		acf2tug_steer();
-
-		dr_setf(&drs.lbrake, 0.9);
-		dr_setf(&drs.rbrake, 0.9);
 
 		cradle_closed_fract = MAX(MIN(cradle_closed_fract, 1), 0);
 		lift_fract = MAX(MIN(lift_fract, 1), 0);
@@ -1083,7 +1180,8 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		/* Iterate the lift */
 		lift = bp.tug->info->lift_height * lift_fract;
 		lift += bp.acf.nw_len;
-		dr_setvf(&drs.leg_len, &lift, 0, 1);
+		if (!slave_mode)
+			dr_setvf(&drs.leg_len, &lift, 0, 1);
 
 		if (rmng_t < PB_CONN_LIFT_DURATION + PB_CONN_LIFT_DELAY &&
 		    rmng_t > PB_CONN_LIFT_DELAY) {
@@ -1100,8 +1198,10 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			vect2_t dir, p;
 
 			dir = hdg2dir(bp.cur_pos.hdg);
-			dr_setf(&drs.lbrake, 0);
-			dr_setf(&drs.rbrake, 0);
+			if (!slave_mode) {
+				dr_setf(&drs.lbrake, 0);
+				dr_setf(&drs.rbrake, 0);
+			}
 
 			/*
 			 * turn_p is offset 2x wheelbase forward and
@@ -1994,7 +2094,7 @@ bp_cam_start(void)
 		    "set the parking brake first.");
 		return (B_FALSE);
 	}
-	if (started) {
+	if (bp_started) {
 		XPLMSpeakString("Can't start planner: pushback already in "
 		    "progress. Please stop the pushback operation first.");
 		return (B_FALSE);

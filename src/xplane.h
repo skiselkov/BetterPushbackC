@@ -33,6 +33,10 @@ extern "C" {
 
 extern const char *const bp_xpdir;
 extern const char *const bp_plugindir;
+extern bool_t bp_started;
+extern bool_t slave_mode;
+extern bool_t op_complete;
+extern char bp_tug_name[64];
 
 /*
  * X-Plane-specific plugin hooks.

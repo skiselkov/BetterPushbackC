@@ -1,0 +1,5 @@
+Can pull aircraft weighing up to 300,000kg / 660,000lb
+Engine output of 360kW / 490ps
+Maximum NLG load of 340kN / 76,500lbf
+Length of 8,550 mm / 337in
+Width of 3,500 mm / 138in

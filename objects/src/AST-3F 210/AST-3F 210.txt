@@ -1,0 +1,7 @@
+Manufacturer: Goldhofer
+Length: 6.99 m
+Width: 3.00 m
+Height: 1.65 m
+Power: 210 HP
+Can be used with aircraft from the ERJ to the B767
+Vehicle numbers: 223, 225, 226

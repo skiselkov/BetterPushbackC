@@ -1,0 +1,7 @@
+Manufacturer: Goldhofer
+Length: 9.49 m
+Width: 4.50 m
+Height: 1.65-2.20 m
+Power: 680 HP
+Can be used with aircraft from the A300 to the A380
+Vehicle numbers: 390, 391, 392
