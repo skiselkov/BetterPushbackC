@@ -255,13 +255,13 @@ XPluginDisable(void)
 	if (!inited)
 		return;
 
-	msg_fini();
-	openal_fini();
 	XPLMUnregisterCommandHandler(start_pb, start_pb_handler, 1, NULL);
 	XPLMUnregisterCommandHandler(stop_pb, stop_pb_handler, 1, NULL);
 	XPLMUnregisterCommandHandler(start_cam, start_pb_handler, 1, NULL);
 	XPLMUnregisterCommandHandler(stop_cam, stop_pb_handler, 1, NULL);
 	bp_fini();
+	msg_fini();
+	openal_fini();
 
 	XPLMDestroyMenu(root_menu);
 	XPLMRemoveMenuItem(XPLMFindPluginsMenu(), plugins_menu_item);
@@ -276,7 +276,6 @@ XPluginReceiveMessage(XPLMPluginID from, int msg, void *param)
 	UNUSED(param);
 
 	switch (msg) {
-	case XPLM_MSG_LIVERY_LOADED:
 	case XPLM_MSG_AIRPORT_LOADED:
 	case XPLM_MSG_PLANE_UNLOADED:
 		/* Force a reinit to re-read aircraft size params */

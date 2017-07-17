@@ -182,6 +182,7 @@ static struct {
 } drs;
 
 static bool_t inited = B_FALSE, cam_inited = B_FALSE, started = B_FALSE;
+static bool_t floop_registered = B_FALSE;
 static bp_state_t bp;
 
 static void bp_complete(void);
@@ -599,6 +600,7 @@ bp_start(void)
 	}
 
 	XPLMRegisterFlightLoopCallback(bp_run, -1, NULL);
+	floop_registered = B_TRUE;
 	XPLMRegisterDrawCallback(draw_tugs, TUG_DRAWING_PHASE,
 	    TUG_DRAWING_PHASE_BEFORE, NULL);
 
@@ -632,6 +634,10 @@ bp_fini(void)
 		return;
 
 	bp_complete();
+	if (floop_registered) {
+		XPLMUnregisterFlightLoopCallback(bp_run, NULL);
+		floop_registered = B_FALSE;
+	}
 
 	while ((seg = list_remove_head(&bp.segs)) != NULL)
 		free(seg);
@@ -753,9 +759,8 @@ bp_complete(void)
 	tug_free(bp.tug);
 	bp.tug = NULL;
 
-	XPLMUnregisterFlightLoopCallback((XPLMFlightLoop_f)bp_run, NULL);
-	XPLMUnregisterDrawCallback((XPLMDrawCallback_f) draw_tugs,
-	    TUG_DRAWING_PHASE, TUG_DRAWING_PHASE_BEFORE, NULL);
+	XPLMUnregisterDrawCallback(draw_tugs, TUG_DRAWING_PHASE,
+	    TUG_DRAWING_PHASE_BEFORE, NULL);
 
 	dr_seti(&drs.override_steer, 0);
 	dr_setf(&drs.lbrake, 0);
@@ -1179,6 +1184,10 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 	case PB_STEP_DRIVING_AWAY:
 		if (tug_is_stopped(bp.tug)) {
 			bp_complete();
+			/*
+			 * Can't unregister floop from within, so just tell
+			 * X-Plane to not call us anymore.
+			 */
 			return (0);
 		}
 		break;
