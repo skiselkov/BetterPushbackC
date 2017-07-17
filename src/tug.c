@@ -489,6 +489,7 @@ tug_alloc(double mtow, double ng_len, double tirrad, const char *arpt)
 	tug->veh.max_ang_vel = TUG_MAX_ANG_VEL;
 	tug->veh.max_accel = tug->info->max_accel;
 	tug->veh.max_decel = tug->info->max_decel;
+	tug->veh.xp10_bug_ign = B_TRUE;
 
 	/* veh_slow is identical to 'veh', but with a much slower speed */
 	tug->veh_slow = tug->veh;
@@ -902,7 +903,12 @@ tug_set_steering(tug_t *tug, double req_steer, double d_t)
 	double max_d_steer = TUG_FAST_STEER_RATE * d_t;
 	d_steer = MIN(d_steer, max_d_steer);
 	d_steer = MAX(d_steer, -max_d_steer);
-	tug->cur_steer += d_steer;
+	if (tug->cur_steer + d_steer > tug->info->max_steer)
+		tug->cur_steer = tug->info->max_steer;
+	else if (tug->cur_steer + d_steer < -tug->info->max_steer)
+		tug->cur_steer = -tug->info->max_steer;
+	else
+		tug->cur_steer += d_steer;
 	tug->steer_override = (list_head(&tug->segs) == NULL);
 }
 

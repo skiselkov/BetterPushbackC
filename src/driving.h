@@ -119,6 +119,7 @@ typedef struct {
 	double	max_ang_vel;	/* max turn angular velocity, deg/s */
 	double	max_accel;	/* max acceleration, m/s^2 */
 	double	max_decel;	/* max deceleration, m/s^2 */
+	bool_t	xp10_bug_ign;	/* ignore X-Plane 10 stickiness bug */
 } vehicle_t;
 
 int compute_segs(const vehicle_t *veh, vect2_t start_pos, double start_hdg,

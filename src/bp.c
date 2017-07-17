@@ -76,11 +76,12 @@
  * X-Plane 10's tire model is a bit less forgiving of slow creeping,
  * so bump the minimum breakaway speed on that version.
  */
-#define	BREAKAWAY_THRESH	(bp.xplane_version >= 1100 ? 0.1 : 0.3)
+#define	BREAKAWAY_THRESH	(bp.xplane_version >= 1100 ? 0.1 : 0.5)
 #define	SEG_TURN_MULT		0.9	/* leave 10% for oversteer */
 #define	SPEED_COMPLETE_THRESH	0.05	/* m/s */
-#define	MAX_STEER_ANGLE		60	/* beyond this our push algos go nuts */
-#define	MIN_STEER_ANGLE		30	/* minimum sensible tire steer angle */
+/* beyond this our push algos go nuts */
+#define	MAX_STEER_ANGLE		(bp.xplane_version < 11000 ? 50 : 70)
+#define	MIN_STEER_ANGLE		40	/* minimum sensible tire steer angle */
 #define	MAX_ANG_VEL		2.5	/* degrees per second */
 #define	PB_CRADLE_DELAY		10	/* seconds */
 #define	PB_CONN_DELAY		25.0	/* seconds */
@@ -92,6 +93,11 @@
 #define	STATE_TRANS_DELAY	2	/* seconds, state transition delay */
 
 #define	MAX_ARPT_DIST		10000	/* meters */
+
+#define	TUG_DRAWING_PHASE		xplm_Phase_Objects
+#define	TUG_DRAWING_PHASE_BEFORE	1
+
+#define	TUG_APPCH_LONG_DIST	(6 * bp.tug->veh.wheelbase)
 
 typedef enum {
 	PB_STEP_OFF,
@@ -178,6 +184,7 @@ static struct {
 static bool_t inited = B_FALSE, cam_inited = B_FALSE, started = B_FALSE;
 static bp_state_t bp;
 
+static void bp_complete(void);
 static float bp_run(float elapsed, float elapsed2, int counter, void *refcon);
 static bool_t load_buttons(void);
 static void unload_buttons(void);
@@ -582,9 +589,9 @@ bp_start(void)
 		vect2_t p_start, dir;
 		dir = hdg2dir(bp.cur_pos.hdg);
 		p_start = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-		    3 * bp.veh.wheelbase));
+		    -bp.acf.nw_z + TUG_APPCH_LONG_DIST));
 		p_start = vect2_add(p_start, vect2_scmul(vect2_norm(dir,
-		    B_TRUE), 3 * bp.veh.wheelbase));
+		    B_TRUE), 10 * bp.tug->veh.wheelbase));
 		tug_set_pos(bp.tug, p_start, normalize_hdg(bp.cur_pos.hdg - 90),
 		    bp.tug->veh.max_fwd_spd);
 	} else {
@@ -592,7 +599,8 @@ bp_start(void)
 	}
 
 	XPLMRegisterFlightLoopCallback(bp_run, -1, NULL);
-	XPLMRegisterDrawCallback(draw_tugs, xplm_Phase_Objects, 1, NULL);
+	XPLMRegisterDrawCallback(draw_tugs, TUG_DRAWING_PHASE,
+	    TUG_DRAWING_PHASE_BEFORE, NULL);
 
 	route_save(&bp.segs);
 
@@ -623,15 +631,7 @@ bp_fini(void)
 	if (!inited)
 		return;
 
-	bp_stop();
-
-	dr_seti(&drs.override_steer, 0);
-
-	if (started) {
-		XPLMUnregisterFlightLoopCallback((XPLMFlightLoop_f)bp_run,
-		    NULL);
-		started = B_FALSE;
-	}
+	bp_complete();
 
 	while ((seg = list_remove_head(&bp.segs)) != NULL)
 		free(seg);
@@ -650,6 +650,11 @@ acf2tug_steer(void)
 
 	dr_getvf(&drs.tire_steer_cmd, &cur_steer, bp.acf.nw_i, 1);
 	tug_spd = bp.cur_pos.spd / cos(DEG2RAD(fabs(cur_steer)));
+
+	if (tug_spd == 0) {
+		tug_set_steering(bp.tug, 0, bp.d_t);
+		return;
+	}
 	/*
 	 * d_hdg is the total change in tug heading, which is a component of
 	 * the amount of heading change the aircraft is experiencing + the
@@ -740,15 +745,22 @@ bp_run_push(void)
 static void
 bp_complete(void)
 {
+	if (!started)
+		return;
+
 	started = B_FALSE;
+
 	tug_free(bp.tug);
 	bp.tug = NULL;
+
+	XPLMUnregisterFlightLoopCallback((XPLMFlightLoop_f)bp_run, NULL);
 	XPLMUnregisterDrawCallback((XPLMDrawCallback_f) draw_tugs,
-	    xplm_Phase_Objects, 1, NULL);
+	    TUG_DRAWING_PHASE, TUG_DRAWING_PHASE_BEFORE, NULL);
 
 	dr_seti(&drs.override_steer, 0);
 	dr_setf(&drs.lbrake, 0);
 	dr_setf(&drs.rbrake, 0);
+	dr_setvf(&drs.leg_len, &bp.acf.nw_len, bp.acf.nw_i, 1);
 
 	bp_done_notify();
 	/*
@@ -756,6 +768,7 @@ bp_complete(void)
 	 * next time.
 	 */
 	bp_state_init();
+
 }
 
 static float
@@ -837,11 +850,12 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			dir = hdg2dir(bp.cur_pos.hdg);
 
 			left_off = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-			    3 * bp.veh.wheelbase));
+			    -bp.acf.nw_z + TUG_APPCH_LONG_DIST));
 			left_off = vect2_add(left_off, vect2_scmul(
-			    vect2_norm(dir, B_FALSE), PB_DRIVING_TURN_OFFSET));
+			    vect2_norm(dir, B_FALSE),
+			    2 * bp.tug->veh.wheelbase));
 			p_end = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-			    (-bp.acf.nw_z) + 2 * bp.tug->veh.wheelbase));
+			    (-bp.acf.nw_z) + bp.tug->veh.wheelbase));
 
 			VERIFY(tug_drive2point(bp.tug, left_off,
 			    normalize_hdg(bp.cur_pos.hdg - 90)));
@@ -883,7 +897,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		if (d_t >= PB_CRADLE_DELAY)
 			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
 		if (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY) {
-			if (dr_getf(&drs.pbrake) != 1)
+			if (dr_getf(&drs.pbrake) == 0)
 				msg_play(MSG_RDY2CONN);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
@@ -891,7 +905,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		break;
 	}
 	case PB_STEP_WAITING_FOR_PBRAKE:
-		if (dr_getf(&drs.pbrake) == 1) {
+		if (dr_getf(&drs.pbrake) != 0) {
 			vect2_t p_end, dir;
 
 			dir = hdg2dir(bp.cur_pos.hdg);
@@ -965,7 +979,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		break;
 	}
 	case PB_STEP_CONNECTED:
-		if (dr_geti(&drs.pbrake) == 1) {
+		if (dr_geti(&drs.pbrake) != 0) {
 			/*
 			 * Keep resetting the start time to enforce
 			 * the state delay after the parking brake is released.
@@ -1027,10 +1041,10 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 	case PB_STEP_STOPPED:
 		turn_nosewheel(0, STRAIGHT_STEER_RATE);
 		push_at_speed(0, bp.veh.max_accel);
-		tug_set_TE_override(bp.tug, B_FALSE);
+		acf2tug_steer();
 		dr_setf(&drs.lbrake, 0.9);
 		dr_setf(&drs.rbrake, 0.9);
-		if (dr_geti(&drs.pbrake) != 1) {
+		if (dr_geti(&drs.pbrake) == 0) {
 			/*
 			 * Keep resetting the start time to enforce a delay
 			 * when the parking brake is set.
@@ -1048,6 +1062,9 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		double lift_fract = (rmng_t - PB_CONN_LIFT_DELAY) /
 		    PB_CONN_LIFT_DURATION;
 		double lift;
+
+		turn_nosewheel(0, STRAIGHT_STEER_RATE);
+		acf2tug_steer();
 
 		dr_setf(&drs.lbrake, 0.9);
 		dr_setf(&drs.rbrake, 0.9);
@@ -1086,8 +1103,9 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			 * 1x wheelbase to the right
 			 */
 			p = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-			    -bp.acf.nw_z + 2 * bp.tug->veh.wheelbase));
+			    -bp.acf.nw_z + bp.tug->veh.wheelbase));
 
+			tug_set_TE_override(bp.tug, B_FALSE);
 			(void) tug_drive2point(bp.tug, p, bp.cur_pos.hdg);
 
 			bp.step++;
@@ -1114,9 +1132,10 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
 
 		if (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY) {
-			vect2_t turn_p, abeam_p, end_p;
+			vect2_t turn_p, abeam_p, end_p, dir, norm_dir;
 			double turn_hdg, back_hdg;
-			vect2_t dir, norm_dir;
+			double square_side = MAX(5 * bp.tug->veh.wheelbase,
+			    1.5 * bp.veh.wheelbase);
 
 			dir = hdg2dir(bp.cur_pos.hdg);
 			norm_dir = vect2_norm(dir, B_TRUE);
@@ -1125,15 +1144,15 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			 * turn_p is offset 2x wheelbase forward and
 			 * 1x wheelbase to the right
 			 */
-			turn_p = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-			    2 * bp.veh.wheelbase + PB_DRIVING_TURN_OFFSET));
+			turn_p = vect2_add(bp.tug->pos.pos, vect2_scmul(dir,
+			    5 * bp.tug->veh.wheelbase));
 			turn_p = vect2_add(turn_p, vect2_scmul(norm_dir,
-			    bp.veh.wheelbase));
+			    square_side));
 			turn_hdg = normalize_hdg(bp.cur_pos.hdg + 90);
 
 			/* abeam_p is on right wing, 3x wheelbase away */
 			abeam_p = vect2_add(bp.cur_pos.pos,
-			    vect2_scmul(norm_dir, 3 * bp.veh.wheelbase));
+			    vect2_scmul(norm_dir, 2 * square_side));
 			back_hdg = normalize_hdg(bp.cur_pos.hdg + 180);
 
 			/*
@@ -1141,7 +1160,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			 * the right.
 			 */
 			end_p = vect2_add(abeam_p, vect2_scmul(dir,
-			    -3 * bp.veh.wheelbase));
+			    -3 * square_side));
 
 			msg_play(MSG_DONE);
 
@@ -1194,6 +1213,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 #define	MIN_BUTTON_SCALE	0.5
 
 #define	PREDICTION_DRAWING_PHASE	xplm_Phase_Airplanes
+#define	PREDICTION_DRAWING_PHASE_BEFORE	0
 
 typedef struct {
 	const char	*name;
@@ -1993,8 +2013,8 @@ bp_cam_start(void)
 	cursor_hdg = dr_getf(&drs.hdg);
 	XPLMControlCamera(xplm_ControlCameraForever, cam_ctl, NULL);
 
-	XPLMRegisterDrawCallback(draw_prediction, PREDICTION_DRAWING_PHASE, 0,
-	    NULL);
+	XPLMRegisterDrawCallback(draw_prediction, PREDICTION_DRAWING_PHASE,
+	    PREDICTION_DRAWING_PHASE_BEFORE, NULL);
 
 	for (int i = 0; view_cmds[i].name != NULL; i++) {
 		view_cmds[i].cmd = XPLMFindCommand(view_cmds[i].name);
@@ -2029,7 +2049,7 @@ bp_cam_stop(void)
 	list_destroy(&pred_segs);
 
 	XPLMUnregisterDrawCallback(draw_prediction, PREDICTION_DRAWING_PHASE,
-	    0, NULL);
+	    PREDICTION_DRAWING_PHASE_BEFORE, NULL);
 	XPLMDestroyWindow(fake_win);
 
 	for (int i = 0; view_cmds[i].name != NULL; i++) {
