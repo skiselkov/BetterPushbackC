@@ -55,6 +55,7 @@
 #define	LIGHTS_ON_SUN_ANGLE	5	/* degrees, sets vehicle lights on */
 
 #define	DRIVER_TURN_TIME	0.75	/* seconds for driver to turn around */
+#define	CAB_LIFT_TIME		4	/* seconds for cab to lift/lower */
 
 typedef enum {
 	ANIM_FRONT_DRIVE,
@@ -77,6 +78,50 @@ typedef struct {
 	dr_t		dr;
 	float		value;
 } anim_info_t;
+
+
+/*
+ * These are the datarefs that drive animation of the tug. Their meanings are:
+ *
+ * bp/anim/front_drive: 0.0 - 1.0: front wheels rolling forward, one full
+ *	360-degree rotation.
+ * bp/anim/front_steer: 0.0 - 1.0: front wheels steering, full left: 0.0,
+ *	straight: 0.5, full right: 1.0. To simulate all-wheel steering, simply
+ *	animate all wheels using this dataref. Currently BP doesn't support
+ *	switching steering modes, so animate the tug with one steering mode
+ *	only.
+ * bp/anim/rear_drive: 0.0 - 1.0: same as front_drive, but for rear wheels
+ * bp/anim/lift: 0.0 - 1.0: main lifting mechanism motion from full down
+ *	(0.0) to full up (1.0). The height of the lift is defined in the
+ *	tug's info.cfg file.
+ * bp/anim/lift_arm: 0.0 - 1.0: the arms grasping the nosewheel from fully
+ *	closed (0.0) to fully open (1.0). 0.0 closed should correspond to
+ *	the smallest wheel size that the tug can handle, and 1.0 to the fully
+ *	open position, so that the tug can attach to the aircraft. Somewhere
+ *	in between is the maximum wheel size the tug can support. This
+ *	animation value is defined by the "max_tirrad_f" parameter in the
+ *	tug's info.cfg file.
+ * bp/anim/tire_sense: 0.0 - 1.0: many tugs feature a set of tire-sensing
+ *	arms that adjust according to the nosewheel size. 0.0 is for minimum
+ *	tire size and 1.0 for maximum.
+ * bp/anim/vehicle_lights: 0/1: a show/hide flag that is set to 0 to hide
+ *	night lights and 1 to show them (BP sets this when the sun gets so
+ *	low that X-Plane turns on global night lighting).
+ * bp/anim/cradle_lights: 0/1: a show/hide flag that is set to 0 hide the
+ *	lights illuminating the lift cradle and 1 to show them.
+ * bp/anim/reverse_lights: 0/1: a show/hide flag to indicate whether to show
+ *	the white reverse light.
+ * bp/anim/hazard_lights: 0/1: a show/hide flag to indicate whether to show
+ *	the rotating hazard beacon light.
+ * bp/anim/driver_orientation: 0.0 - 1.0: the driver's orientation from
+ *	0.0 (forward) to 1.0 (backward). BP uses this to animate the driver
+ *	turning their seat around to face backward when reversing.
+ * bp/anim/cab_position: 0.0 - 1.0: for tugs with elevating cabs, 0.0 is
+ *	the cab fully down and 1.0 is the cab fully up. BP sets this at the
+ *	same time as the driver, i.e. the cab either raises or lowers
+ *	depending on the direction the tug is moving (down - forward, up -
+ *	backward).
+ */
 
 static anim_info_t anim[TUG_NUM_ANIMS] = {
     { .name = "bp/anim/front_drive" },
@@ -750,11 +795,17 @@ tug_anim(tug_t *tug, double d_t)
 			anim[ANIM_DRIVER_ORIENTATION].value = MIN(1,
 			    anim[ANIM_DRIVER_ORIENTATION].value +
 			    d_t / DRIVER_TURN_TIME);
+			anim[ANIM_CAB_POSITION].value = MIN(1,
+			    anim[ANIM_CAB_POSITION].value +
+			    d_t / CAB_LIFT_TIME);
 		} else if (tug->pos.spd > 0.1) {
 			anim[ANIM_REVERSE_LIGHTS].value = B_FALSE;
 			anim[ANIM_DRIVER_ORIENTATION].value = MAX(0,
 			    anim[ANIM_DRIVER_ORIENTATION].value -
 			    d_t * DRIVER_TURN_TIME);
+			anim[ANIM_CAB_POSITION].value = MAX(0,
+			    anim[ANIM_CAB_POSITION].value -
+			    d_t * CAB_LIFT_TIME);
 		}
 		anim[ANIM_CRADLE_LIGHTS].value = (cradle_lights_req &&
 		    dr_getf(&sun_pitch_dr) < LIGHTS_ON_SUN_ANGLE);
@@ -770,6 +821,7 @@ tug_anim(tug_t *tug, double d_t)
 		anim[ANIM_LIFT_ARM].value = value;
 		anim[ANIM_TIRE_SENSE].value = value;
 		anim[ANIM_DRIVER_ORIENTATION].value = value;
+		anim[ANIM_CAB_POSITION].value = value;
 
 		value = (mt / 1000000) % 2;
 		anim[ANIM_VEHICLE_LIGHTS].value = value;
