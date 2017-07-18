@@ -512,7 +512,7 @@ tug_alloc_common(tug_info_t *ti, double tirrad)
 	}
 	wav_set_loop(tug->engine_snd, B_TRUE);
 
-	if (tug->info->engine_snd != NULL) {
+	if (tug->info->air_snd != NULL) {
 		tug->air_snd = wav_load(tug->info->air_snd, "tug_air");
 		if (tug->air_snd == NULL) {
 			logMsg("Error loading tug sound %s",
@@ -848,25 +848,29 @@ tug_draw(tug_t *tug, double cur_t)
 
 	wav_set_gain(tug->engine_snd, gain);
 
-	wav_set_gain(tug->beeper_snd, gain);
+	if (tug->beeper_snd != NULL)
+		wav_set_gain(tug->beeper_snd, gain);
 
-	if (tug->cradle_air_on) {
-		double ramp = MIN((cur_t - tug->cradle_air_chg_t) /
-		    TUG_CRADLE_CHG_D_T, 1);
-		wav_set_gain(tug->air_snd, gain * ramp *
-		    TUG_CRADLE_AIR_MOD);
-		if (!tug->cradle_air_snd_on) {
-			wav_play(tug->air_snd);
-			tug->cradle_air_snd_on = B_TRUE;
+	if (tug->air_snd != NULL) {
+		if (tug->cradle_air_on) {
+			double ramp = MIN((cur_t - tug->cradle_air_chg_t) /
+			    TUG_CRADLE_CHG_D_T, 1);
+			wav_set_gain(tug->air_snd, gain * ramp *
+			    TUG_CRADLE_AIR_MOD);
+			if (!tug->cradle_air_snd_on) {
+				wav_play(tug->air_snd);
+				tug->cradle_air_snd_on = B_TRUE;
+			}
+		} else if (cur_t - tug->cradle_air_chg_t <=
+		    TUG_CRADLE_CHG_D_T) {
+			double ramp = 1 - ((cur_t - tug->cradle_air_chg_t) /
+			    TUG_CRADLE_CHG_D_T);
+			wav_set_gain(tug->air_snd, gain * ramp *
+			    TUG_CRADLE_AIR_MOD);
+		} else if (tug->cradle_air_snd_on) {
+			wav_stop(tug->air_snd);
+			tug->cradle_air_snd_on = B_FALSE;
 		}
-	} else if (cur_t - tug->cradle_air_chg_t <= TUG_CRADLE_CHG_D_T) {
-		double ramp = 1 - ((cur_t - tug->cradle_air_chg_t) /
-		    TUG_CRADLE_CHG_D_T);
-		wav_set_gain(tug->air_snd, gain * ramp *
-		    TUG_CRADLE_AIR_MOD);
-	} else if (tug->cradle_air_snd_on) {
-		wav_stop(tug->air_snd);
-		tug->cradle_air_snd_on = B_FALSE;
 	}
 
 	XPLMDestroyProbe(probe);
@@ -914,10 +918,12 @@ tug_set_cradle_air_on(tug_t *tug, bool_t flag, double cur_t)
 void
 tug_set_cradle_beeper_on(tug_t *tug, bool_t flag)
 {
-	if (flag && !tug->cradle_beeper_snd_on)
-		wav_play(tug->beeper_snd);
-	else if (!flag && tug->cradle_beeper_snd_on)
-		wav_stop(tug->beeper_snd);
+	if (tug->beeper_snd != NULL) {
+		if (flag && !tug->cradle_beeper_snd_on)
+			wav_play(tug->beeper_snd);
+		else if (!flag && tug->cradle_beeper_snd_on)
+			wav_stop(tug->beeper_snd);
+	}
 	tug->cradle_beeper_snd_on = flag;
 }
 

@@ -356,7 +356,13 @@ read_gear_info(void)
 	/* First determine where the gears are */
 	for (int i = 0, n = dr_getvi(&drs.gear_types, gear_types, 0, 10);
 	    i < n; i++) {
-		if (gear_types[i] != 0)
+		/*
+		 * Gear types are:
+		 * 0) nothing
+		 * 1) skid
+		 * 2+) wheel based gear in various arrangements
+		 */
+		if (gear_types[i] >= 2)
 			gear_is[n_gear++] = i;
 	}
 

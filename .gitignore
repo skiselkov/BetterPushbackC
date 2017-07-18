@@ -12,8 +12,9 @@ src/cmake_install.cmake
 docs
 cmdfiles
 xplane2blender.log
-objects/src/AST-3F.png
-objects/src/AST-3F_bump.png
+objects/src/AST-3F 210/AST-3F.png
+objects/src/AST-3F 210/AST-3F_bump.png
+objects/src/AST-1X 680/AST-1X.png
 *.blend1
 BetterPushback
 libpng-mac-32
