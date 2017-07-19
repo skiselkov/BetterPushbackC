@@ -180,14 +180,17 @@ static struct {
 
 	dr_t	camera_fov_h, camera_fov_v;
 	dr_t	view_is_ext;
+	dr_t	visibility;
+	dr_t	cloud_types[3];
+	dr_t	use_real_wx;
 } drs;
 
 static bool_t inited = B_FALSE, cam_inited = B_FALSE;
 static bool_t floop_registered = B_FALSE;
 static bp_state_t bp;
 
-static void bp_complete(void);
 static float bp_run(float elapsed, float elapsed2, int counter, void *refcon);
+static void bp_complete(void);
 static bool_t load_buttons(void);
 static void unload_buttons(void);
 static int key_sniffer(char inChar, XPLMKeyFlags inFlags, char inVirtualKey,
@@ -493,6 +496,11 @@ bp_init(void)
 	fdr_find(&drs.camera_fov_v,
 	    "sim/graphics/view/vertical_field_of_view_deg");
 	fdr_find(&drs.view_is_ext, "sim/graphics/view/view_is_external");
+	fdr_find(&drs.visibility, "sim/weather/visibility_reported_m");
+	fdr_find(&drs.cloud_types[0], "sim/weather/cloud_type[0]");
+	fdr_find(&drs.cloud_types[1], "sim/weather/cloud_type[1]");
+	fdr_find(&drs.cloud_types[2], "sim/weather/cloud_type[2]");
+	fdr_find(&drs.use_real_wx, "sim/weather/use_real_weather_bool");
 
 	if (!bp_state_init())
 		return (B_FALSE);
@@ -512,9 +520,15 @@ draw_tugs(XPLMDrawingPhase phase, int before, void *refcon)
 	UNUSED(before);
 	UNUSED(refcon);
 
-	ASSERT(bp.tug != NULL || slave_mode);
-	if (bp.tug == NULL)
+	if (bp.tug == NULL) {
+		/*
+		 * If we have no tug loaded, we must either be in the
+		 * tug-selection phase, or be slaved to a master instance
+		 * which has not yet notified us which tug to use.
+		 */
+		ASSERT(bp.step <= PB_STEP_TUG_LOAD || slave_mode);
 		return (1);
+	}
 
 	if (list_head(&bp.tug->segs) == NULL &&
 	    bp.step >= PB_STEP_CONNECTING && bp.step <= PB_STEP_DISCONNECTING) {
@@ -569,6 +583,14 @@ bp_can_start(char **reason)
 	return (B_TRUE);
 }
 
+static void
+bp_delete_all_segs(void)
+{
+	seg_t *seg;
+	while ((seg = list_remove_head(&bp.segs)) != NULL)
+		free(seg);
+}
+
 bool_t
 bp_start(void)
 {
@@ -604,13 +626,10 @@ bp_start(void)
 bool_t
 bp_stop(void)
 {
-	seg_t *seg;
-
 	if (!bp_started)
 		return (B_FALSE);
-	/* Delete all pushback segments, that'll stop us */
-	while ((seg = list_remove_head(&bp.segs)) != NULL)
-		free(seg);
+
+	bp_delete_all_segs();
 
 	return (B_TRUE);
 }
@@ -618,8 +637,6 @@ bp_stop(void)
 void
 bp_fini(void)
 {
-	seg_t *seg;
-
 	if (!inited)
 		return;
 
@@ -629,8 +646,7 @@ bp_fini(void)
 		floop_registered = B_FALSE;
 	}
 
-	while ((seg = list_remove_head(&bp.segs)) != NULL)
-		free(seg);
+	bp_delete_all_segs();
 	list_destroy(&bp.segs);
 
 	unload_buttons();
@@ -742,6 +758,10 @@ bp_run_push(void)
 	return (seg != NULL);
 }
 
+/*
+ * Tears down a pushback session. This resets all state variables, unloads the
+ * tug model and prepares us for another start.
+ */
 static void
 bp_complete(void)
 {
@@ -1327,6 +1347,8 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 
 #define	MIN_BUTTON_SCALE	0.5
 
+#define	BP_PLANNER_VISIBILITY	40000	/* meters */
+
 #define	PREDICTION_DRAWING_PHASE	xplm_Phase_Airplanes
 #define	PREDICTION_DRAWING_PHASE_BEFORE	0
 
@@ -1353,6 +1375,9 @@ static XPLMCommandRef	circle_view_cmd;
 static XPLMWindowID	fake_win;
 static vect2_t		cursor_world_pos;
 static bool_t		force_root_win_focus = B_TRUE;
+static float		saved_visibility;
+static int		saved_cloud_types[3];
+static bool_t		saved_real_wx;
 
 static view_cmd_info_t view_cmds[] = {
     { .name = "sim/general/left", .incr = VECT3(-INCR_MED, 0, 0) },
@@ -2039,13 +2064,10 @@ key_sniffer(char inChar, XPLMKeyFlags inFlags, char inVirtualKey, void *refcon)
 	case XPLM_VK_RETURN:
 		XPLMCommandOnce(XPLMFindCommand("BetterPushback/stop_planner"));
 		return (0);
-	case XPLM_VK_ESCAPE: {
-		seg_t *seg;
-		while ((seg = list_remove_head(&bp.segs)) != NULL)
-			free(seg);
+	case XPLM_VK_ESCAPE:
+		bp_delete_all_segs();
 		XPLMCommandOnce(XPLMFindCommand("BetterPushback/stop_planner"));
 		return (0);
-	}
 	case XPLM_VK_CLEAR:
 	case XPLM_VK_BACK:
 	case XPLM_VK_DELETE:
@@ -2145,6 +2167,23 @@ bp_cam_start(void)
 		    dr_getf(&drs.hdg), &bp.segs);
 	}
 
+	/*
+	 * While the planner is active, we override the current visibility
+	 * and real weather usage, so that the user can clearly see the path
+	 * while planning. After we're done, we'll restore the settings.
+	 */
+	saved_visibility = dr_getf(&drs.visibility);
+	saved_cloud_types[0] = dr_geti(&drs.cloud_types[0]);
+	saved_cloud_types[1] = dr_geti(&drs.cloud_types[1]);
+	saved_cloud_types[2] = dr_geti(&drs.cloud_types[2]);
+	saved_real_wx = dr_geti(&drs.use_real_wx);
+
+	dr_setf(&drs.visibility, BP_PLANNER_VISIBILITY);
+	dr_seti(&drs.cloud_types[0], 0);
+	dr_seti(&drs.cloud_types[1], 0);
+	dr_seti(&drs.cloud_types[2], 0);
+	dr_seti(&drs.use_real_wx, 0);
+
 	cam_inited = B_TRUE;
 
 	return (B_TRUE);
@@ -2176,6 +2215,12 @@ bp_cam_stop(void)
 	cockpit_view_cmd = XPLMFindCommand("sim/view/3d_cockpit_cmnd_look");
 	ASSERT(cockpit_view_cmd != NULL);
 	XPLMCommandOnce(cockpit_view_cmd);
+
+	dr_setf(&drs.visibility, saved_visibility);
+	dr_seti(&drs.cloud_types[0], saved_cloud_types[0]);
+	dr_seti(&drs.cloud_types[1], saved_cloud_types[1]);
+	dr_seti(&drs.cloud_types[2], saved_cloud_types[2]);
+	dr_seti(&drs.use_real_wx, saved_real_wx);
 
 	cam_inited = B_FALSE;
 

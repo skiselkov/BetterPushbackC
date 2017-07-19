@@ -23,6 +23,7 @@
 #include <XPLMMenus.h>
 #include <XPLMUtilities.h>
 #include <XPLMPlugin.h>
+#include <XPLMProcessing.h>
 
 #include <acfutils/assert.h>
 #include <acfutils/acfutils.h>
@@ -35,10 +36,17 @@
 #include "tug.h"
 #include "xplane.h"
 
-#define	BP_PLUGIN_VERSION	"0.16"
+#define	BP_PLUGIN_VERSION	"0.17"
 #define BP_PLUGIN_NAME		"BetterPushback " BP_PLUGIN_VERSION
 #define BP_PLUGIN_SIG		"skiselkov.BetterPushback." BP_PLUGIN_VERSION
 #define BP_PLUGIN_DESCRIPTION	"Generic automated pushback plugin"
+
+#define	SMARTCOPILOT_CHECK_INTVAL	1	/* second */
+enum {
+	SMARTCOPILOT_STATE_OFF = 0,	/* disconnected */
+	SMARTCOPILOT_STATE_SLAVE = 1,	/* connected and we're slave */
+	SMARTCOPILOT_STATE_MASTER = 2	/* connected and we're master */
+};
 
 static bool_t		inited = B_FALSE;
 
@@ -59,6 +67,9 @@ static char		xpdir[512];
 static char		plugindir[512];
 const char *const	bp_xpdir = xpdir;
 const char *const	bp_plugindir = plugindir;
+
+static bool_t		smartcopilot_present;
+static dr_t		smartcopilot_state;
 
 /*
  * These datarefs are for syncing two instances of BetterPushback over the
@@ -117,7 +128,7 @@ start_pb_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_FALSE);
 	XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
 	XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_FALSE);
-	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_TRUE);
+	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, !slave_mode);
 
 	return (1);
 }
@@ -187,10 +198,12 @@ menu_cb(void *inMenuRef, void *inItemRef)
 void
 bp_done_notify(void)
 {
-	XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_TRUE);
-	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
-	XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_TRUE);
-	XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
+	if (!slave_mode) {
+		XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_TRUE);
+		XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
+		XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_TRUE);
+		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
+	}
 
 	bp_tug_name[0] = '\0';
 }
@@ -200,7 +213,9 @@ slave_mode_cb(dr_t *dr)
 {
 	UNUSED(dr);
 	VERIFY(!bp_started);
+
 	if (slave_mode) {
+		bp_fini();
 		XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_FALSE);
 		XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
 		XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_FALSE);
@@ -211,6 +226,56 @@ slave_mode_cb(dr_t *dr)
 		XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_TRUE);
 		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
 	}
+}
+
+static float
+smartcopilot_check(float elapsed, float elapsed2, int counter, void *refcon)
+{
+	UNUSED(elapsed);
+	UNUSED(elapsed2);
+	UNUSED(counter);
+	UNUSED(refcon);
+
+	if (!smartcopilot_present)
+		return (1);
+
+	ASSERT(smartcopilot_present);
+
+	if (dr_geti(&smartcopilot_state) == SMARTCOPILOT_STATE_SLAVE &&
+	    !slave_mode) {
+		if (bp_started) {
+			XPLMSpeakString("Pushback failure: smartcopilot "
+			    "attempted to switch master/slave or network "
+			    "connection lost. Stopping operation.");
+		}
+		/*
+		 * If we were in master mode, stop the camera, flush out all
+		 * pushback segments and inhibit all menu items. The master
+		 * will control us.
+		 */
+		bp_fini();
+		XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_FALSE);
+		XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
+		XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_FALSE);
+		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
+		slave_mode = B_TRUE;
+	} else if (dr_geti(&smartcopilot_state) != SMARTCOPILOT_STATE_SLAVE &&
+	    slave_mode) {
+		if (bp_started) {
+			XPLMSpeakString("Pushback failure: smartcopilot "
+			    "attempted to switch master/slave or network "
+			    "connection lost. Stopping operation.");
+		}
+		/* If we were in slave mode, reenable the menu items. */
+		bp_fini();
+		XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_TRUE);
+		XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
+		XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_TRUE);
+		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
+		slave_mode = B_FALSE;
+	}
+
+	return (SMARTCOPILOT_CHECK_INTVAL);
 }
 
 PLUGIN_API int
@@ -286,16 +351,16 @@ XPluginStop(void)
 	dr_delete(&bp_tug_name_dr);
 }
 
-PLUGIN_API void
+PLUGIN_API int
 XPluginEnable(void)
 {
 	ASSERT(!inited);
 
 	if (!openal_init())
-		return;
+		return (0);
 	if (!msg_init()) {
 		openal_fini();
-		return;
+		return (0);
 	}
 
 	XPLMRegisterCommandHandler(start_pb, start_pb_handler, 1, NULL);
@@ -322,7 +387,15 @@ XPluginEnable(void)
 	XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_TRUE);
 	XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
 
+	smartcopilot_present = dr_find(&smartcopilot_state, "scp/api/ismaster");
+	if (smartcopilot_present) {
+		XPLMRegisterFlightLoopCallback(smartcopilot_check,
+		    SMARTCOPILOT_CHECK_INTVAL, NULL);
+	}
+
 	inited = B_TRUE;
+
+	return (1);
 }
 
 PLUGIN_API void
@@ -342,6 +415,9 @@ XPluginDisable(void)
 	XPLMDestroyMenu(root_menu);
 	XPLMRemoveMenuItem(XPLMFindPluginsMenu(), plugins_menu_item);
 
+	if (smartcopilot_present)
+		XPLMUnregisterFlightLoopCallback(smartcopilot_check, NULL);
+
 	inited = B_FALSE;
 }
 
@@ -356,7 +432,6 @@ XPluginReceiveMessage(XPLMPluginID from, int msg, void *param)
 	case XPLM_MSG_PLANE_UNLOADED:
 		/* Force a reinit to re-read aircraft size params */
 		bp_fini();
-		slave_mode = B_FALSE;
 		bp_tug_name[0] = '\0';
 		break;
 	}
