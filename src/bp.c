@@ -43,6 +43,7 @@
 #include <XPLMNavigation.h>
 #include <XPLMScenery.h>
 #include <XPLMUtilities.h>
+#include <XPLMPlanes.h>
 #include <XPLMProcessing.h>
 
 #include <acfutils/assert.h>
@@ -80,7 +81,7 @@
 #define	SEG_TURN_MULT		0.9	/* leave 10% for oversteer */
 #define	SPEED_COMPLETE_THRESH	0.05	/* m/s */
 /* beyond this our push algos go nuts */
-#define	MAX_STEER_ANGLE		(bp.xplane_version < 11000 ? 50 : 70)
+#define	MAX_STEER_ANGLE		(bp.xplane_version < 11000 ? 50 : 65)
 #define	MIN_STEER_ANGLE		40	/* minimum sensible tire steer angle */
 #define	MAX_ANG_VEL		2.5	/* degrees per second */
 #define	PB_CRADLE_DELAY		10	/* seconds */
@@ -159,6 +160,11 @@ typedef struct {
 	list_t		segs;
 } bp_state_t;
 
+typedef struct {
+	const char	*acf;
+	const char	*author;
+} acf_info_t;
+
 static struct {
 	dr_t	lbrake, rbrake;
 	dr_t	pbrake;
@@ -184,6 +190,8 @@ static struct {
 	dr_t	visibility;
 	dr_t	cloud_types[3];
 	dr_t	use_real_wx;
+
+	dr_t	author;
 } drs;
 
 static bool_t inited = B_FALSE, cam_inited = B_FALSE;
@@ -196,6 +204,31 @@ static bool_t load_buttons(void);
 static void unload_buttons(void);
 static int key_sniffer(char inChar, XPLMKeyFlags inFlags, char inVirtualKey,
     void *refcon);
+
+static const acf_info_t incompatible_acf[] = {
+    { .acf = "757-200.acf", .author = "FlightFactor and StepToSky" },
+    { .acf = "757-200_xp11.acf", .author = "FlightFactor and StepToSky" },
+    { .acf = NULL, .author = NULL }
+};
+
+static bool_t
+acf_is_compatible(void)
+{
+	char my_acf[512], my_path[512];
+	char my_author[512];
+
+	XPLMGetNthAircraftModel(0, my_acf, my_path);
+	dr_gets(&drs.author, my_author, sizeof (my_author));
+
+	for (int i = 0; incompatible_acf[i].acf != NULL; i++) {
+		if (strcmp(incompatible_acf[i].acf, my_acf) == 0 &&
+		    (incompatible_acf[i].author == NULL ||
+		    strcmp(incompatible_acf[i].author, my_author) == 0))
+			return (B_FALSE);
+	}
+
+	return (B_TRUE);
+}
 
 /*
  * Locates the airport nearest to our current location, but which is also
@@ -505,6 +538,8 @@ bp_init(void)
 	fdr_find(&drs.cloud_types[2], "sim/weather/cloud_type[2]");
 	fdr_find(&drs.use_real_wx, "sim/weather/use_real_weather_bool");
 
+	fdr_find(&drs.author, "sim/aircraft/view/acf_author");
+
 	if (!bp_state_init())
 		return (B_FALSE);
 
@@ -561,6 +596,13 @@ bool_t
 bp_can_start(char **reason)
 {
 	seg_t *seg;
+
+	if (!acf_is_compatible()) {
+		if (reason != NULL)
+			*reason = "Pushback failure: aircraft is not "
+			    "compatible with BetterPushback.";
+		return (B_FALSE);
+	}
 
 	if (dr_getf(&drs.gear_deploy) != 1) {
 		if (reason != NULL)
@@ -2101,6 +2143,12 @@ bp_cam_start(void)
 
 	if (cam_inited || !bp_init())
 		return (B_FALSE);
+
+	if (!acf_is_compatible()) {
+		XPLMSpeakString("Pushback failure: aircraft is incompatible "
+		    "with BetterPushback.");
+		return (B_FALSE);
+	}
 
 	(void) find_nearest_airport(icao);
 	if (!tug_available(dr_getf(&drs.mtow), dr_getf(&drs.leg_len),
