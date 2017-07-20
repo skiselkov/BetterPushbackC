@@ -124,6 +124,7 @@ typedef struct {
 	double		nw_z;
 	double		main_z;
 	double		nw_len;
+	unsigned	nw_type;
 	double		tirrad;
 } acf_t;
 
@@ -350,9 +351,8 @@ static bool_t
 read_gear_info(void)
 {
 	double tire_z[10];
-	int gear_steers[10], gear_types[10];
+	int gear_steers[10], gear_types[10], gear_is[10];
 	int n_gear = 0;
-	int gear_is[10];
 
 	bp.acf.nw_i = -1;
 
@@ -361,9 +361,10 @@ read_gear_info(void)
 	    i < n; i++) {
 		/*
 		 * Gear types are:
-		 * 0) nothing
-		 * 1) skid
-		 * 2+) wheel based gear in various arrangements
+		 * 0) Nothing.
+		 * 1) Skid.
+		 * 2+) Wheel based gear in various arrangements. A tug can
+		 *	provide a filter for this.
 		 */
 		if (gear_types[i] >= 2)
 			gear_is[n_gear++] = i;
@@ -395,6 +396,8 @@ read_gear_info(void)
 	/* Nose gear strut length and tire radius */
 	VERIFY3S(dr_getvf(&drs.leg_len, &bp.acf.nw_len, bp.acf.nw_i, 1), ==, 1);
 	VERIFY3S(dr_getvf(&drs.tirrad, &bp.acf.tirrad, bp.acf.nw_i, 1), ==, 1);
+	/* read nosewheel type */
+	bp.acf.nw_type = gear_types[bp.acf.nw_i];
 
 	/* Compute main gear Z deflection as mean of all main gears */
 	for (int i = 0; i < n_gear; i++) {
@@ -876,6 +879,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			(void) find_nearest_airport(icao);
 			bp.tug = tug_alloc_auto(dr_getf(&drs.mtow),
 			    dr_getf(&drs.leg_len), bp.acf.tirrad,
+			    bp.acf.nw_type,
 			    strcmp(icao, "") != 0 ? icao : NULL);
 			if (bp.tug == NULL) {
 				XPLMSpeakString("Pushback failure: no suitable "
@@ -949,7 +953,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			    vect2_norm(dir, B_FALSE),
 			    2 * bp.tug->veh.wheelbase));
 			p_end = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-			    (-bp.acf.nw_z) + bp.tug->veh.wheelbase));
+			    (-bp.acf.nw_z) + bp.tug->info->apch_dist));
 
 			VERIFY(tug_drive2point(bp.tug, left_off,
 			    normalize_hdg(bp.cur_pos.hdg - 90)));
@@ -1229,12 +1233,8 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 				dr_setf(&drs.rbrake, 0);
 			}
 
-			/*
-			 * turn_p is offset 2x wheelbase forward and
-			 * 1x wheelbase to the right
-			 */
 			p = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-			    -bp.acf.nw_z + bp.tug->veh.wheelbase));
+			    -bp.acf.nw_z + bp.tug->info->apch_dist));
 
 			tug_set_TE_override(bp.tug, B_FALSE);
 			(void) tug_drive2point(bp.tug, p, bp.cur_pos.hdg);
@@ -2104,7 +2104,8 @@ bp_cam_start(void)
 
 	(void) find_nearest_airport(icao);
 	if (!tug_available(dr_getf(&drs.mtow), dr_getf(&drs.leg_len),
-	    dr_getf(&drs.tirrad), strcmp(icao, "") != 0 ? icao : NULL)) {
+	    dr_getf(&drs.tirrad), bp.acf.nw_type,
+	    strcmp(icao, "") != 0 ? icao : NULL)) {
 		XPLMSpeakString("Pushback failure: no suitable tug for your "
 		    "aircraft.");
 		return (B_FALSE);

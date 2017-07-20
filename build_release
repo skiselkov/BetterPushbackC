@@ -50,10 +50,11 @@ DIST_FILES=(
     'objects/tugs/AST-3F.tug/beeper.wav'	''
     'objects/tugs/AST-3F.tug/engine.wav'	''
     'objects/tugs/AST-3F.tug/info.cfg'		''
-#    'objects/tugs/AST-1X.tug/AST-1X.obj'	''
-#    'objects/tugs/AST-1X.tug/AST-1X_tex.png'	'//PNG2DDS//'
-#    'objects/tugs/AST-1X.tug/engine.wav'	''
-#    'objects/tugs/AST-1X.tug/info.cfg'		''
+    'objects/tugs/AST-1X.tug/AST-1X.obj'	''
+    'objects/tugs/AST-1X.tug/AST-1X_tex.png'	'//PNG2DDS//'
+    'objects/tugs/AST-1X.tug/beeper.wav'	''
+    'objects/tugs/AST-1X.tug/engine.wav'	''
+    'objects/tugs/AST-1X.tug/info.cfg'		''
 )
 
 function install_xtra_files() {

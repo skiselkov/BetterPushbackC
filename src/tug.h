@@ -64,6 +64,12 @@ typedef struct {
 	double	min_mtow;	/* min allowable acf MTOW, kg */
 	double	max_mtow;	/* max allowable acf MTOW, kg */
 	double	min_nlg_len;	/* min acf nose landing gear length, meters */
+	double	apch_dist;	/* how close we apch to open cradle, meters */
+
+	unsigned	num_fwd_gears;
+	unsigned	num_rev_gears;
+	unsigned	gear_compat;
+
 	char	*arpt;		/* airport ICAO */
 
 	char	*engine_snd;	/* engine noise WAV */
@@ -126,10 +132,10 @@ void tug_glob_init(void);
 void tug_glob_fini(void);
 
 bool_t tug_available(double mtow, double ng_len, double tirrad,
-    const char *arpt);
+    unsigned gear_type, const char *arpt);
 tug_t *tug_alloc_man(const char *tug_name, double tirrad);
 tug_t *tug_alloc_auto(double mtow, double ng_len, double tirrad,
-    const char *arpt);
+    unsigned gear_type, const char *arpt);
 void tug_free(tug_t *tug);
 
 void tug_set_pos(tug_t *tug, vect2_t pos, double hdg, double spd);

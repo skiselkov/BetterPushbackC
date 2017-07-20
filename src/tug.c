@@ -47,7 +47,8 @@
 #define	TUG_SND_MAX_DIST	15	/* meters */
 #define	VOLUME_INSIDE_MODIFIER	0.2
 
-#define	TUG_TE_RAMP_UP_DELAY	3	/* seconds */
+#define	TUG_TE_RAMP_UP_DELAY		3	/* seconds */
+#define	TUG_TE_FAST_RAMP_UP_DELAY	1	/* seconds */
 
 #define	TUG_CRADLE_CHG_D_T	0.5
 #define	TUG_CRADLE_AIR_MOD	0.5
@@ -209,12 +210,16 @@ tug_info_read(const char *tugdir, const char *tug_name)
 	ti->front_z = NAN;
 	ti->rear_z = NAN;
 	ti->lift_wall_z = NAN;
+	ti->apch_dist = NAN;
 
 	/* set some defaults */
 	ti->max_fwd_speed = TUG_MAX_FWD_SPD;
 	ti->max_rev_speed = TUG_MAX_REV_SPD;
 	ti->max_accel = TUG_MAX_ACCEL;
 	ti->max_decel = TUG_MAX_DECEL;
+	ti->num_fwd_gears = 1;
+	ti->num_rev_gears = 1;
+	ti->gear_compat = UINT_MAX;
 
 	while (!feof(fp)) {
 		if (fscanf(fp, "%255s", option) != 1)
@@ -249,9 +254,9 @@ tug_info_read(const char *tugdir, const char *tug_name)
 			goto errout; \
 		} \
 	} while (0)
-#define	READ_REAL(optname, result) \
+#define	READ_NUMBER(fmt, optname, result) \
 	do { \
-		if (fscanf(fp, "%lf", (result)) != 1) { \
+		if (fscanf(fp, fmt, (result)) != 1) { \
 			logMsg("Malformed tug config file %s: expected " \
 			    "number following '" optname "'", cfgfilename); \
 			goto errout; \
@@ -261,41 +266,49 @@ tug_info_read(const char *tugdir, const char *tug_name)
 		if (strcmp(option, "tug_obj") == 0) {
 			READ_FILENAME("tug_obj", ti->tug);
 		} else if (strcmp(option, "max_steer") == 0) {
-			READ_REAL("max_steer", &ti->max_steer);
+			READ_NUMBER("%lf", "max_steer", &ti->max_steer);
 		} else if (strcmp(option, "max_fwd_speed") == 0) {
-			READ_REAL("max_fwd_speed", &ti->max_fwd_speed);
+			READ_NUMBER("%lf", "max_fwd_speed", &ti->max_fwd_speed);
 		} else if (strcmp(option, "max_rev_speed") == 0) {
-			READ_REAL("max_rev_speed", &ti->max_rev_speed);
+			READ_NUMBER("%lf", "max_rev_speed", &ti->max_rev_speed);
 		} else if (strcmp(option, "max_accel") == 0) {
-			READ_REAL("max_accel", &ti->max_accel);
+			READ_NUMBER("%lf", "max_accel", &ti->max_accel);
 		} else if (strcmp(option, "max_decel") == 0) {
-			READ_REAL("max_decel", &ti->max_decel);
+			READ_NUMBER("%lf", "max_decel", &ti->max_decel);
 		} else if (strcmp(option, "front_z") == 0) {
-			READ_REAL("front_z", &ti->front_z);
+			READ_NUMBER("%lf", "front_z", &ti->front_z);
 		} else if (strcmp(option, "front_r") == 0) {
-			READ_REAL("front_r", &ti->front_radius);
+			READ_NUMBER("%lf", "front_r", &ti->front_radius);
 		} else if (strcmp(option, "rear_z") == 0) {
-			READ_REAL("rear_z", &ti->rear_z);
+			READ_NUMBER("%lf", "rear_z", &ti->rear_z);
 		} else if (strcmp(option, "rear_r") == 0) {
-			READ_REAL("rear_r", &ti->rear_radius);
+			READ_NUMBER("%lf", "rear_r", &ti->rear_radius);
 		} else if (strcmp(option, "lift_wall_z") == 0) {
-			READ_REAL("lift_wall_z", &ti->lift_wall_z);
+			READ_NUMBER("%lf", "lift_wall_z", &ti->lift_wall_z);
 		} else if (strcmp(option, "max_tirrad") == 0) {
-			READ_REAL("max_tirrad", &ti->max_tirrad);
+			READ_NUMBER("%lf", "max_tirrad", &ti->max_tirrad);
 		} else if (strcmp(option, "max_tirrad_f") == 0) {
-			READ_REAL("max_tirrad_f", &ti->max_tirrad_f);
+			READ_NUMBER("%lf", "max_tirrad_f", &ti->max_tirrad_f);
 		} else if (strcmp(option, "min_tirrad") == 0) {
-			READ_REAL("min_tirrad", &ti->min_tirrad);
+			READ_NUMBER("%lf", "min_tirrad", &ti->min_tirrad);
 		} else if (strcmp(option, "height") == 0) {
-			READ_REAL("height", &ti->height);
+			READ_NUMBER("%lf", "height", &ti->height);
 		} else if (strcmp(option, "min_mtow") == 0) {
-			READ_REAL("min_mtow", &ti->min_mtow);
+			READ_NUMBER("%lf", "min_mtow", &ti->min_mtow);
 		} else if (strcmp(option, "max_mtow") == 0) {
-			READ_REAL("max_mtow", &ti->max_mtow);
+			READ_NUMBER("%lf", "max_mtow", &ti->max_mtow);
 		} else if (strcmp(option, "min_nlg_len") == 0) {
-			READ_REAL("min_nlg_len", &ti->min_nlg_len);
+			READ_NUMBER("%lf", "min_nlg_len", &ti->min_nlg_len);
 		} else if (strcmp(option, "lift_height") == 0) {
-			READ_REAL("lift_height", &ti->lift_height);
+			READ_NUMBER("%lf", "lift_height", &ti->lift_height);
+		} else if (strcmp(option, "apch_dist") == 0) {
+			READ_NUMBER("%lf", "apch_dist", &ti->apch_dist);
+		} else if (strcmp(option, "num_fwd_gears") == 0) {
+			READ_NUMBER("%u", "num_fwd_gears", &ti->num_fwd_gears);
+		} else if (strcmp(option, "num_rev_gears") == 0) {
+			READ_NUMBER("%u", "num_rev_gears", &ti->num_rev_gears);
+		} else if (strcmp(option, "gear_compat") == 0) {
+			READ_NUMBER("%x", "gear_compat", &ti->gear_compat);
 		} else if (strcmp(option, "arpt") == 0) {
 			READ_FILENAME("arpt", ti->arpt);
 		} else if (strcmp(option, "engine_snd") == 0) {
@@ -336,6 +349,8 @@ tug_info_read(const char *tugdir, const char *tug_name)
 	VALIDATE_TUG((field) == NULL, (optname))
 #define	VALIDATE_TUG_REAL(field, optname) \
 	VALIDATE_TUG((field) <= 0.0, (optname))
+#define	VALIDATE_TUG_INT(field, optname) \
+	VALIDATE_TUG((field) <= 0, (optname))
 #define	VALIDATE_TUG_REAL_NAN(field, optname) \
 	VALIDATE_TUG(isnan(field), (optname))
 
@@ -361,6 +376,9 @@ tug_info_read(const char *tugdir, const char *tug_name)
 	}
 	VALIDATE_TUG_REAL(ti->min_nlg_len, "min_nlg_len");
 	VALIDATE_TUG_REAL(ti->lift_height, "lift_height");
+	VALIDATE_TUG_REAL_NAN(ti->apch_dist, "apch_dist");
+	VALIDATE_TUG_INT(ti->num_fwd_gears, "num_fwd_gears");
+	VALIDATE_TUG_INT(ti->num_rev_gears, "num_rev_gears");
 	VALIDATE_TUG_STR(ti->engine_snd, "engine_snd");
 
 #undef	VALIDATE_TUG_STR
@@ -381,7 +399,8 @@ errout:
 }
 
 static tug_info_t *
-tug_info_select(double mtow, double ng_len, double tirrad, const char *arpt)
+tug_info_select(double mtow, double ng_len, double tirrad, unsigned gear_type,
+    const char *arpt)
 {
 	char *tugdir;
 	DIR *dirp;
@@ -430,7 +449,8 @@ tug_info_select(double mtow, double ng_len, double tirrad, const char *arpt)
 		    mtow <= ti->max_mtow && ti->min_nlg_len <= ng_len &&
 		    ti->min_tirrad <= tirrad && ti->max_tirrad >= tirrad &&
 		    (arpt == NULL || ti->arpt == NULL ||
-		    strcmp(arpt, ti->arpt) == 0)) {
+		    strcmp(arpt, ti->arpt) == 0) &&
+		    ((1 << gear_type) & ti->gear_compat) != 0) {
 			avl_add(&tis, ti);
 		}
 		free(tugpath);
@@ -502,9 +522,10 @@ tug_glob_fini(void)
  * without having to actually load the tug object.
  */
 bool_t
-tug_available(double mtow, double ng_len, double tirrad, const char *arpt)
+tug_available(double mtow, double ng_len, double tirrad, unsigned gear_type,
+    const char *arpt)
 {
-	tug_info_t *ti = tug_info_select(mtow, ng_len, tirrad, arpt);
+	tug_info_t *ti = tug_info_select(mtow, ng_len, tirrad, gear_type, arpt);
 
 	if (ti != NULL) {
 		tug_info_free(ti);
@@ -636,10 +657,11 @@ tug_alloc_man(const char *tug_name, double tirrad)
 }
 
 tug_t *
-tug_alloc_auto(double mtow, double ng_len, double tirrad, const char *arpt)
+tug_alloc_auto(double mtow, double ng_len, double tirrad, unsigned gear_type,
+    const char *arpt)
 {
 	/* Auto-select a matching tug from our repertoire */
-	tug_info_t *ti = tug_info_select(mtow, ng_len, tirrad, arpt);
+	tug_info_t *ti = tug_info_select(mtow, ng_len, tirrad, gear_type, arpt);
 	if (ti == NULL)
 		return (NULL);
 	return (tug_alloc_common(ti, tirrad));
@@ -767,8 +789,41 @@ tug_run(tug_t *tug, double d_t, bool_t drive_slow)
 	}
 
 	if (!tug->TE_override) {
-		tug_set_TE_snd(tug, (ABS(tug->pos.spd) /
-		    tug->info->max_fwd_speed) / 4, d_t);
+		/*
+		 * In real vehicles gears are not evenly spaced, but since
+		 * we don't really drive like a real car and to
+		 * exaggerate the shifting effect, we simply space the gears.
+		 * evenly.
+		 */
+		int n_gears = (tug->pos.spd >= 0 ? tug->info->num_fwd_gears :
+		    tug->info->num_rev_gears);
+		int gear = n_gears;
+		double max_spd = (tug->pos.spd >= 0 ? tug->info->max_fwd_speed :
+		    tug->info->max_rev_speed);
+		double spd = ABS(tug->pos.spd);
+		double TE = 0;
+
+		/*
+		 * Select the lowest applicable gear by simply going over the
+		 * gears from highest to lowest. The lowest gear is simply the
+		 * last one where our actual speed is below maximum speed for
+		 * that gear ratio.
+		 */
+		while (gear > 0) {
+			double max_gear_spd = max_spd / ((n_gears + 1) - gear);
+			double min_gear_spd = max_gear_spd / 5;
+
+			if (spd > max_gear_spd)
+				break;
+			TE = MAX((spd - min_gear_spd) / (max_gear_spd -
+			    min_gear_spd), 0);
+			gear--;
+		}
+		/*
+		 * Reduce the TE pitch by a factor of 4 so we don't quite
+		 * whine at our maximum rpm at max speed.
+		 */
+		tug_set_TE_snd(tug, TE / 4, d_t);
 	}
 }
 
@@ -802,10 +857,10 @@ tug_anim(tug_t *tug, double d_t)
 			anim[ANIM_REVERSE_LIGHTS].value = B_FALSE;
 			anim[ANIM_DRIVER_ORIENTATION].value = MAX(0,
 			    anim[ANIM_DRIVER_ORIENTATION].value -
-			    d_t * DRIVER_TURN_TIME);
+			    d_t / DRIVER_TURN_TIME);
 			anim[ANIM_CAB_POSITION].value = MAX(0,
 			    anim[ANIM_CAB_POSITION].value -
-			    d_t * CAB_LIFT_TIME);
+			    d_t / CAB_LIFT_TIME);
 		}
 		anim[ANIM_CRADLE_LIGHTS].value = (cradle_lights_req &&
 		    dr_getf(&sun_pitch_dr) < LIGHTS_ON_SUN_ANGLE);
@@ -951,8 +1006,13 @@ tug_set_TE_snd(tug_t *tug, double TE_fract, double d_t)
 	 * ramp up from idle to max power.
 	 */
 	d_TE_fract = TE_fract - tug->last_TE_fract;
-	d_TE_fract = MIN(d_TE_fract, d_t / TUG_TE_RAMP_UP_DELAY);
-	d_TE_fract = MAX(d_TE_fract, -d_t / TUG_TE_RAMP_UP_DELAY);
+	if (tug->TE_override) {
+		d_TE_fract = MIN(d_TE_fract, d_t / TUG_TE_RAMP_UP_DELAY);
+		d_TE_fract = MAX(d_TE_fract, -d_t / TUG_TE_RAMP_UP_DELAY);
+	} else {
+		d_TE_fract = MIN(d_TE_fract, d_t / TUG_TE_FAST_RAMP_UP_DELAY);
+		d_TE_fract = MAX(d_TE_fract, -d_t / TUG_TE_FAST_RAMP_UP_DELAY);
+	}
 	tug->last_TE_fract += d_TE_fract;
 
 	wav_set_pitch(tug->engine_snd, 0.5 + tug->last_TE_fract);
