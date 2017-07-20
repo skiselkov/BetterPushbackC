@@ -239,8 +239,6 @@ smartcopilot_check(float elapsed, float elapsed2, int counter, void *refcon)
 	if (!smartcopilot_present)
 		return (1);
 
-	ASSERT(smartcopilot_present);
-
 	if (dr_geti(&smartcopilot_state) == SMARTCOPILOT_STATE_SLAVE &&
 	    !slave_mode) {
 		if (bp_started) {
@@ -387,11 +385,8 @@ XPluginEnable(void)
 	XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_TRUE);
 	XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
 
-	smartcopilot_present = dr_find(&smartcopilot_state, "scp/api/ismaster");
-	if (smartcopilot_present) {
-		XPLMRegisterFlightLoopCallback(smartcopilot_check,
-		    SMARTCOPILOT_CHECK_INTVAL, NULL);
-	}
+	XPLMRegisterFlightLoopCallback(smartcopilot_check,
+	    SMARTCOPILOT_CHECK_INTVAL, NULL);
 
 	inited = B_TRUE;
 
@@ -414,9 +409,7 @@ XPluginDisable(void)
 
 	XPLMDestroyMenu(root_menu);
 	XPLMRemoveMenuItem(XPLMFindPluginsMenu(), plugins_menu_item);
-
-	if (smartcopilot_present)
-		XPLMUnregisterFlightLoopCallback(smartcopilot_check, NULL);
+	XPLMUnregisterFlightLoopCallback(smartcopilot_check, NULL);
 
 	inited = B_FALSE;
 }
@@ -429,8 +422,11 @@ XPluginReceiveMessage(XPLMPluginID from, int msg, void *param)
 
 	switch (msg) {
 	case XPLM_MSG_AIRPORT_LOADED:
+	case XPLM_MSG_PLANE_LOADED:
 	case XPLM_MSG_PLANE_UNLOADED:
 		/* Force a reinit to re-read aircraft size params */
+		smartcopilot_present = dr_find(&smartcopilot_state,
+		    "scp/api/ismaster");
 		bp_fini();
 		bp_tug_name[0] = '\0';
 		break;
