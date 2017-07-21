@@ -624,15 +624,13 @@ tug_alloc_common(tug_info_t *ti, double tirrad)
 
 	/*
 	 * Initial state is:
-	 * 1) lift in upper position
-	 * 2) arms fully closed
-	 * 3) cradle lights off
-	 * 4) hazard lights off
+	 * 1) everything at 0, except:
+	 * 2) lift fully raised
 	 */
+	for (anim_t a = 0; a < TUG_NUM_ANIMS; a++)
+		anim[a].value = 0;
 	anim[ANIM_LIFT].value = 1;
-	anim[ANIM_LIFT_ARM].value = 0;
-	anim[ANIM_CRADLE_LIGHTS].value = 0;
-	anim[ANIM_HAZARD_LIGHTS].value = 0;
+	cradle_lights_req = B_FALSE;
 
 	glob_tug = tug;
 

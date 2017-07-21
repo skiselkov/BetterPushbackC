@@ -100,6 +100,8 @@
 
 #define	TUG_APPCH_LONG_DIST	(6 * bp.tug->veh.wheelbase)
 
+#define	MIN_RADIO_VOLUME_THRESH	0.1
+
 typedef enum {
 	PB_STEP_OFF,
 	PB_STEP_TUG_LOAD,
@@ -204,6 +206,8 @@ static bool_t load_buttons(void);
 static void unload_buttons(void);
 static int key_sniffer(char inChar, XPLMKeyFlags inFlags, char inVirtualKey,
     void *refcon);
+
+static bool_t radio_volume_warn = B_FALSE;
 
 static const acf_info_t incompatible_acf[] = {
     { .acf = "757-200.acf", .author = "FlightFactor and StepToSky" },
@@ -497,6 +501,24 @@ bp_state_init(void)
 bool_t
 bp_init(void)
 {
+	dr_t radio_vol, sound_on;
+
+	/*
+	 * Due to numerous spurious bug reports of missing ground crew audio,
+	 * check that the user hasn't turned down the radio volume and just
+	 * forgotten about it. Warn the user if the volume is very low.
+	 */
+	fdr_find(&sound_on, "sim/operation/sound/sound_on");
+	fdr_find(&radio_vol, "sim/operation/sound/radio_volume_ratio");
+	if (dr_getf(&radio_vol) < MIN_RADIO_VOLUME_THRESH &&
+	    dr_geti(&sound_on) == 1 && !radio_volume_warn) {
+		XPLMSpeakString("Pushback advisory: you have your radio "
+		    "volume turned very low and may not be able to hear "
+		    "ground crew. Please increase your radio volume in "
+		    "the X-Plane sound preferences.");
+		radio_volume_warn = B_TRUE;
+	}
+
 	if (inited)
 		return (B_TRUE);
 
@@ -702,6 +724,8 @@ bp_fini(void)
 	list_destroy(&bp.segs);
 
 	unload_buttons();
+
+	radio_volume_warn = B_FALSE;
 
 	inited = B_FALSE;
 }

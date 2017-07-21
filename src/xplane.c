@@ -36,7 +36,7 @@
 #include "tug.h"
 #include "xplane.h"
 
-#define	BP_PLUGIN_VERSION	"0.19"
+#define	BP_PLUGIN_VERSION	"0.21"
 #define BP_PLUGIN_NAME		"BetterPushback " BP_PLUGIN_VERSION
 #define BP_PLUGIN_SIG		"skiselkov.BetterPushback." BP_PLUGIN_VERSION
 #define BP_PLUGIN_DESCRIPTION	"Generic automated pushback plugin"
