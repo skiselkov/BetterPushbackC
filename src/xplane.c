@@ -117,11 +117,16 @@ start_pb_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	if (bp_num_segs() == 0 && !slave_mode) {
 		if (!bp_cam_start())
 			return (1);
+		XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_FALSE);
+		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_TRUE);
+		XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_FALSE);
+		XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
 		msg_play(MSG_PLAN_START);
 		start_after_cam = B_TRUE;
 		return (1);
 	}
 	op_complete = B_FALSE;
+	late_plan_requested = B_FALSE;
 	if (!bp_start())
 		return (1);
 
@@ -152,7 +157,7 @@ start_cam_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 {
 	UNUSED(cmd);
 	UNUSED(refcon);
-	if (slave_mode)
+	if (slave_mode || late_plan_requested)
 		return (1);
 	if (phase != xplm_CommandEnd || !bp_init() || !bp_cam_start()) {
 		start_after_cam = B_FALSE;
@@ -178,13 +183,36 @@ stop_cam_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
 	XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_TRUE);
 	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
-	if (start_after_cam) {
+	if (late_plan_requested) {
+		/*
+		 * We could be coming through in one of two cases:
+		 * 1) When the user hits the "connect first" button. In that
+		 *	case we want to enable the "Start Pushback" menu item
+		 *	to let them finish the plan & start the pushback.
+		 * 2) When BP was already started with late_play_requested
+		 *	before and we're stopping a second pushback camera
+		 *	invocation due to the user hitting "Start pushback"
+		 *	from step 1. We know that by checking the number of
+		 *	pushback segments. If there's a plan there, the
+		 *	pushback will automatically resume and we want to
+		 *	disable the "Start pushback" menu again.
+		 */
+		if (!bp_start())
+			return (1);
+		XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_FALSE);
+		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
+		XPLMEnableMenuItem(root_menu, start_pb_menu_item,
+		    bp_num_segs() == 0);
+		XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_TRUE);
+	} else if (start_after_cam) {
 		if (bp_num_segs() != 0)
 			XPLMCommandOnce(start_pb);
-		start_after_cam = B_FALSE;
-	} else if (bp_can_start(NULL)) {
+	} else if (bp_can_start(NULL) && !late_plan_requested) {
 		msg_play(MSG_PLAN_END);
 	}
+
+	start_after_cam = B_FALSE;
+
 	return (1);
 }
 

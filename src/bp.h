@@ -37,6 +37,8 @@ unsigned bp_num_segs(void);
 bool_t bp_cam_start(void);
 bool_t bp_cam_stop(void);
 
+extern bool_t late_plan_requested;
+
 #ifdef	__cplusplus
 }
 #endif

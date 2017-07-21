@@ -211,6 +211,16 @@ static const acf_info_t incompatible_acf[] = {
     { .acf = NULL, .author = NULL }
 };
 
+/*
+ * This flag is set by the planner if the user clicked on the "connect first"
+ * button. This commands us to start pushback without a plan, but stop just
+ * short of actually starting to move the aircraft. This is used when the
+ * pushback direction isn't known ahead of time and the tower assigns the
+ * direction at the last moment. The user can attach the tug and wait for
+ * pushback clearance, then do a quick plan and immediately commence pushing.
+ */
+bool_t late_plan_requested = B_FALSE;
+
 static bool_t
 acf_is_compatible(void)
 {
@@ -617,7 +627,7 @@ bp_can_start(char **reason)
 	}
 
 	seg = list_head(&bp.segs);
-	if (seg == NULL && !slave_mode) {
+	if (seg == NULL && !late_plan_requested && !slave_mode) {
 		if (reason != NULL) {
 			*reason = "Pushback failure: please first plan your "
 			    "pushback to tell me where you want to go.";
@@ -660,7 +670,7 @@ bp_start(void)
 	XPLMRegisterDrawCallback(draw_tugs, TUG_DRAWING_PHASE,
 	    TUG_DRAWING_PHASE_BEFORE, NULL);
 
-	if (!slave_mode)
+	if (!slave_mode && !late_plan_requested)
 		route_save(&bp.segs);
 
 	bp_started = B_TRUE;
@@ -675,6 +685,7 @@ bp_stop(void)
 		return (B_FALSE);
 
 	bp_delete_all_segs();
+	late_plan_requested = B_FALSE;
 
 	return (B_TRUE);
 }
@@ -814,6 +825,7 @@ bp_complete(void)
 		return;
 
 	bp_started = B_FALSE;
+	late_plan_requested = B_FALSE;
 
 	if (bp.tug != NULL) {
 		tug_free(bp.tug);
@@ -878,8 +890,9 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 	 * Jump to the appropriate state. If we haven't connected yet,
 	 * just disappear. If we have, jump to the stopping state.
 	 */
-	if ((!slave_mode && list_head(&bp.segs) == NULL) ||
-	    (slave_mode && op_complete)) {
+	if (!late_plan_requested &&
+	    ((!slave_mode && list_head(&bp.segs) == NULL) ||
+	    (slave_mode && op_complete))) {
 		if (bp.step < PB_STEP_CONNECTING) {
 			bp_complete();
 			return (0);
@@ -1116,14 +1129,37 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		}
 
 		if (d_t >= PB_CONN_DELAY) {
+			if (late_plan_requested) {
+				/*
+				 * The user requsted a late plan, so this is as
+				 * far as we can go without segments. Also wait
+				 * for the camera to stop.
+				 */
+				if (!slave_mode) {
+					dr_setf(&drs.lbrake, 0.9);
+					dr_setf(&drs.rbrake, 0.9);
+				}
+				if (list_head(&bp.segs) == NULL || cam_inited)
+					break;
+				late_plan_requested = B_FALSE;
+				/*
+				 * We normally save the route during bp_start,
+				 * but since the user requested late planning,
+				 * we need to save it now.
+				 */
+				route_save(&bp.segs);
+			}
+
 			tug_set_TE_override(bp.tug, B_FALSE);
-			msg_play(MSG_CONNECTED);
+			if (!late_plan_requested)
+				msg_play(MSG_CONNECTED);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
 		}
 		break;
 	}
 	case PB_STEP_CONNECTED:
+
 		if (dr_geti(&drs.pbrake) != 0) {
 			/*
 			 * Keep resetting the start time to enforce
@@ -1477,6 +1513,10 @@ static button_t buttons[] = {
     { .filename = "", .vk = -1, .tex = 0, .tex_data = NULL, .h = 64 },
     {
 	.filename = "cancel_plan.png", .vk = XPLM_VK_ESCAPE, .tex = 0,
+	.tex_data = NULL
+    },
+    {
+	.filename = "conn_first.png", .vk = XPLM_VK_SPACE, .tex = 0,
 	.tex_data = NULL
     },
     { .filename = NULL }
@@ -2120,6 +2160,11 @@ key_sniffer(char inChar, XPLMKeyFlags inFlags, char inVirtualKey, void *refcon)
 			list_remove_tail(&bp.segs);
 			free(seg);
 		}
+		return (0);
+	case XPLM_VK_SPACE:
+		bp_delete_all_segs();
+		late_plan_requested = B_TRUE;
+		XPLMCommandOnce(XPLMFindCommand("BetterPushback/stop_planner"));
 		return (0);
 	}
 
