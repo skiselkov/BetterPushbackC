@@ -826,6 +826,7 @@ bp_complete(void)
 
 	bp_started = B_FALSE;
 	late_plan_requested = B_FALSE;
+	plan_complete = B_FALSE;
 
 	if (bp.tug != NULL) {
 		tug_free(bp.tug);
@@ -848,6 +849,20 @@ bp_complete(void)
 	 * next time.
 	 */
 	bp_state_init();
+}
+
+/*
+ * Returns B_TRUE when the late plan phase can be exited. This occurs when:
+ * 1) if the machine is a master, the user must have completed the plan
+ *	AND exited the pushback camera.
+ * 2) if the machine is a slave, the plan_completed flag is synced from the
+ *	master machine.
+ */
+static bool_t
+late_plan_end_cond(void)
+{
+	return ((!slave_mode && list_head(&bp.segs) != NULL && !cam_inited) ||
+	    (slave_mode && plan_complete));
 }
 
 static float
@@ -1139,7 +1154,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 					dr_setf(&drs.lbrake, 0.9);
 					dr_setf(&drs.rbrake, 0.9);
 				}
-				if (list_head(&bp.segs) == NULL || cam_inited)
+				if (!late_plan_end_cond())
 					break;
 				late_plan_requested = B_FALSE;
 				/*
@@ -1147,12 +1162,14 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 				 * but since the user requested late planning,
 				 * we need to save it now.
 				 */
-				route_save(&bp.segs);
+				if (!slave_mode) {
+					plan_complete = B_TRUE;
+					route_save(&bp.segs);
+				}
 			}
 
 			tug_set_TE_override(bp.tug, B_FALSE);
-			if (!late_plan_requested)
-				msg_play(MSG_CONNECTED);
+			msg_play(MSG_CONNECTED);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
 		}
@@ -2164,7 +2181,8 @@ key_sniffer(char inChar, XPLMKeyFlags inFlags, char inVirtualKey, void *refcon)
 	case XPLM_VK_SPACE:
 		bp_delete_all_segs();
 		late_plan_requested = B_TRUE;
-		XPLMCommandOnce(XPLMFindCommand("BetterPushback/stop_planner"));
+		XPLMCommandOnce(XPLMFindCommand(
+		    "BetterPushback/connect_first"));
 		return (0);
 	}
 

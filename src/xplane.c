@@ -50,7 +50,7 @@ enum {
 
 static bool_t		inited = B_FALSE;
 
-static XPLMCommandRef	start_pb, stop_pb, start_cam, stop_cam;
+static XPLMCommandRef	start_pb, stop_pb, start_cam, stop_cam, conn_first;
 static XPLMMenuID	root_menu;
 static int		plugins_menu_item;
 static int		start_pb_plan_menu_item, stop_pb_plan_menu_item;
@@ -60,6 +60,7 @@ static int start_pb_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 static int stop_pb_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 static int start_cam_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 static int stop_cam_handler(XPLMCommandRef, XPLMCommandPhase, void *);
+static int conn_first_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 
 static bool_t		start_after_cam = B_FALSE;
 
@@ -88,21 +89,27 @@ static dr_t		smartcopilot_state;
  *	dataref in response to either a "Stop" command request, or when it
  *	has processed all pushback segments. The slave cannot set this
  *	(master controls when pushback stops).
- * 4) The string dataref "bp/tug_name" must be synced from master to slave.
+ * 4) The boolean dataref "bp/plan_complete" must be synced from master to
+ *	slave. This is a signal from the master machine to the slave that
+ *	if late_plan_requested was in effect, the slave can continue with
+ *	the state transitions past the late_plan_requested limit. This is
+ *	needed because we don't transfer the route to the slave, so the
+ *	slave cannot use the presence of a route as a condition to continue.
+ * 5) The string dataref "bp/tug_name" must be synced from master to slave.
  *	This string identifies which tug model the master selected (since tug
  *	selection is non-deterministic). The slave then instances its tug
  *	object using tug_alloc_man. Both master and slave must have identical
  *	tug libraries, otherwise sync fails.
- * 5) The command "BetterPushback/start" should be synced from mater to slave.
+ * 6) The command "BetterPushback/start" should be synced from mater to slave.
  *	There's no need to sync any other commands. The planning GUI is
  *	disabled on the slave machine and stopping of the pushback can only be
  *	performed by the master machine.
  */
-static dr_t		bp_started_dr, slave_mode_dr, op_complete_dr;
-static dr_t		bp_tug_name_dr;
-bool_t			bp_started = B_FALSE, slave_mode = B_FALSE;
-bool_t			op_complete = B_FALSE;
-char			bp_tug_name[64] = { 0 };
+static dr_t	bp_started_dr, slave_mode_dr, op_complete_dr, plan_complete_dr;
+static dr_t	bp_tug_name_dr;
+bool_t		bp_started = B_FALSE, slave_mode = B_FALSE;
+bool_t		op_complete = B_FALSE, plan_complete = B_FALSE;
+char		bp_tug_name[64] = { 0 };
 
 static int
 start_pb_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
@@ -184,21 +191,6 @@ stop_cam_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_TRUE);
 	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
 	if (late_plan_requested) {
-		/*
-		 * We could be coming through in one of two cases:
-		 * 1) When the user hits the "connect first" button. In that
-		 *	case we want to enable the "Start Pushback" menu item
-		 *	to let them finish the plan & start the pushback.
-		 * 2) When BP was already started with late_play_requested
-		 *	before and we're stopping a second pushback camera
-		 *	invocation due to the user hitting "Start pushback"
-		 *	from step 1. We know that by checking the number of
-		 *	pushback segments. If there's a plan there, the
-		 *	pushback will automatically resume and we want to
-		 *	disable the "Start pushback" menu again.
-		 */
-		if (!bp_start())
-			return (1);
 		XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_FALSE);
 		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
 		XPLMEnableMenuItem(root_menu, start_pb_menu_item,
@@ -207,13 +199,48 @@ stop_cam_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	} else if (start_after_cam) {
 		if (bp_num_segs() != 0)
 			XPLMCommandOnce(start_pb);
-	} else if (bp_can_start(NULL) && !late_plan_requested) {
+	} else if (bp_can_start(NULL)) {
 		msg_play(MSG_PLAN_END);
 	}
 
 	start_after_cam = B_FALSE;
 
 	return (1);
+}
+
+static int
+conn_first_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
+{
+	UNUSED(cmd);
+	UNUSED(refcon);
+	if (phase != xplm_CommandEnd || !bp_init() || bp_started)
+		return (1);
+	(void) bp_cam_stop();
+	/*
+	 * We could be coming through in one of two cases:
+	 * 1) When the user hits the "connect first" button. In that
+	 *	case we want to enable the "Start Pushback" menu item
+	 *	to let them finish the plan & start the pushback.
+	 * 2) When BP was already started with late_play_requested
+	 *	before and we're stopping a second pushback camera
+	 *	invocation due to the user hitting "Start pushback"
+	 *	from step 1. We know that by checking the number of
+	 *	pushback segments. If there's a plan there, the
+	 *	pushback will automatically resume and we want to
+	 *	disable the "Start pushback" menu again.
+	 */
+	if (!bp_start())
+		return (1);
+	if (!slave_mode) {
+		XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_FALSE);
+		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
+		XPLMEnableMenuItem(root_menu, start_pb_menu_item,
+		    bp_num_segs() == 0);
+		XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_TRUE);
+	}
+	late_plan_requested = B_TRUE;
+
+	return (B_TRUE);
 }
 
 static void
@@ -351,6 +378,8 @@ XPluginStart(char *name, char *sig, char *desc)
 	    "Start BetterPushback planner");
 	stop_cam = XPLMCreateCommand("BetterPushback/stop_planner",
 	    "Stop BetterPushback planner");
+	conn_first = XPLMCreateCommand("BetterPushback/connect_first",
+	    "Connect tug before entering pushback plan");
 
 	tug_glob_init();
 
@@ -361,6 +390,8 @@ XPluginStart(char *name, char *sig, char *desc)
 	slave_mode_dr.write_cb = slave_mode_cb;
 	dr_create_i(&op_complete_dr, (int *)&op_complete, B_TRUE,
 	    "bp/op_complete");
+	dr_create_i(&plan_complete_dr, (int *)&plan_complete, B_TRUE,
+	    "bp/plan_complete");
 	dr_create_b(&bp_tug_name_dr, bp_tug_name, sizeof (bp_tug_name),
 	    B_TRUE, "bp/tug_name");
 
@@ -393,6 +424,7 @@ XPluginEnable(void)
 	XPLMRegisterCommandHandler(stop_pb, stop_pb_handler, 1, NULL);
 	XPLMRegisterCommandHandler(start_cam, start_cam_handler, 1, NULL);
 	XPLMRegisterCommandHandler(stop_cam, stop_cam_handler, 1, NULL);
+	XPLMRegisterCommandHandler(conn_first, conn_first_handler, 1, NULL);
 
 	plugins_menu_item = XPLMAppendMenuItem(XPLMFindPluginsMenu(),
 	    "Better Pushback", NULL, 1);
@@ -431,6 +463,7 @@ XPluginDisable(void)
 	XPLMUnregisterCommandHandler(stop_pb, stop_pb_handler, 1, NULL);
 	XPLMUnregisterCommandHandler(start_cam, start_pb_handler, 1, NULL);
 	XPLMUnregisterCommandHandler(stop_cam, stop_pb_handler, 1, NULL);
+	XPLMUnregisterCommandHandler(conn_first, conn_first_handler, 1, NULL);
 	bp_fini();
 	msg_fini();
 	openal_fini();
