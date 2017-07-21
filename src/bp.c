@@ -397,8 +397,6 @@ read_gear_info(void)
 	int gear_steers[10], gear_types[10], gear_is[10];
 	int n_gear = 0;
 
-	bp.acf.nw_i = -1;
-
 	/* First determine where the gears are */
 	for (int i = 0, n = dr_getvi(&drs.gear_types, gear_types, 0, 10);
 	    i < n; i++) {
@@ -413,18 +411,18 @@ read_gear_info(void)
 			gear_is[n_gear++] = i;
 	}
 
-	/* Next determine which gear steers - must be only one! */
+	/* Read nosegear long axis deflections */
+	VERIFY3S(dr_getvf(&drs.tire_z, tire_z, 0, 10), >=, n_gear);
+	bp.acf.nw_i = -1;
+	bp.acf.nw_z = 1e10;
+
+	/* Next determine which gear steers. Pick the one most forward. */
 	VERIFY3S(dr_getvi(&drs.gear_steers, gear_steers, 0, 10), >=, n_gear);
 	for (int i = 0; i < n_gear; i++) {
-		if (gear_steers[gear_is[i]] == 1) {
-			if (bp.acf.nw_i == -1) {
-				bp.acf.nw_i = gear_is[i];
-			} else {
-				XPLMSpeakString("Pushback failure: aircraft "
-				    "appears to have multiple steerable "
-				    "gears.");
-				return (B_FALSE);
-			}
+		if (gear_steers[gear_is[i]] == 1 &&
+		    tire_z[gear_is[i]] < bp.acf.nw_z) {
+			bp.acf.nw_i = gear_is[i];
+			bp.acf.nw_z = tire_z[gear_is[i]];
 		}
 	}
 	if (bp.acf.nw_i == -1) {
@@ -433,13 +431,11 @@ read_gear_info(void)
 		return (B_FALSE);
 	}
 
-	/* Read nosegear long axis deflections */
-	VERIFY3S(dr_getvf(&drs.tire_z, tire_z, 0, 10), >=, n_gear);
-	bp.acf.nw_z = tire_z[bp.acf.nw_i];
 	/* Nose gear strut length and tire radius */
 	VERIFY3S(dr_getvf(&drs.leg_len, &bp.acf.nw_len, bp.acf.nw_i, 1), ==, 1);
 	VERIFY3S(dr_getvf(&drs.tirrad, &bp.acf.tirrad, bp.acf.nw_i, 1), ==, 1);
-	/* read nosewheel type */
+
+	/* Read nosewheel type */
 	bp.acf.nw_type = gear_types[bp.acf.nw_i];
 
 	/* Compute main gear Z deflection as mean of all main gears */
