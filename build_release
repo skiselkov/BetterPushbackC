@@ -38,6 +38,7 @@ DIST_FILES=(
     'data/msgs/start_pb.wav'			''
     'data/msgs/start_tow.wav'			''
     'data/icons/accept_plan.png'		''
+    'data/icons/conn_first.png'			''
     'data/icons/delete_seg.png'			''
     'data/icons/place_seg.png'			''
     'data/icons/cancel_plan.png'		''
