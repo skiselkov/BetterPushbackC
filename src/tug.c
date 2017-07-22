@@ -473,10 +473,10 @@ tug_info_select(double mtow, double ng_len, double tirrad, unsigned gear_type,
 		    strcmp(arpt, ti->arpt) == 0) &&
 		    ((1 << gear_type) & ti->gear_compat) != 0) {
 			if (reason != NULL)
-			    append_format(reason, &cap, "ACCEPT");
+			    append_format(reason, &cap, "ACCEPT\n");
 			avl_add(&tis, ti);
 		} else if (reason != NULL) {
-		    append_format(reason, &cap, "REJECT");
+		    append_format(reason, &cap, "REJECT\n");
 		}
 		free(tugpath);
 	}
