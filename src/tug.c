@@ -400,7 +400,7 @@ errout:
 
 static tug_info_t *
 tug_info_select(double mtow, double ng_len, double tirrad, unsigned gear_type,
-    const char *arpt)
+    const char *arpt, char **reason)
 {
 	char *tugdir;
 	DIR *dirp;
@@ -408,10 +408,22 @@ tug_info_select(double mtow, double ng_len, double tirrad, unsigned gear_type,
 	avl_tree_t tis;
 	tug_info_t *ti, *ti_oth;
 	void *cookie = NULL;
+	size_t cap = 0;
+
+	if (reason != NULL) {
+		ASSERT3P(*reason, ==, NULL);
+		append_format(reason, &cap, "ACF: mtow: %.0f nlg_len: %.2f "
+		    "tirrad: %.3f gear_type: %u icao: %s\n", mtow, ng_len,
+		    tirrad, gear_type, arpt != NULL ? arpt : "(nil)");
+	}
 
 	tugdir = mkpathname(bp_xpdir, bp_plugindir, "objects", "tugs", NULL);
 	dirp = opendir(tugdir);
 	if (dirp == NULL) {
+#if	!IBM	/* On Windows libacfutils already prints the error */
+		logMsg("Error reading directory %s: %s", tugdir,
+		    strerror(errno));
+#endif	/* !IBM */
 		free(tugdir);
 		return (NULL);
 	}
@@ -445,13 +457,26 @@ tug_info_select(double mtow, double ng_len, double tirrad, unsigned gear_type,
 		 * 6) if the caller provided an airport identifier and the
 		 *	tug is airport-specific, then the airport ID matches
 		 */
+		if (ti != NULL && reason != NULL) {
+			append_format(reason, &cap, "%s: min_mtow: %.0f "
+			    "max_mtow: %.0f min_tirrad: %.3f max_tirrad: %.3f "
+			    "min_nlg_len: %.2f gear_compat: %x icao: %s; "
+			    "result=", de->d_name, ti->min_mtow, ti->max_mtow,
+			    ti->min_tirrad, ti->max_tirrad, ti->min_nlg_len,
+			    ti->gear_compat,
+			    ti->arpt != NULL ? ti->arpt : "(nil)");
+		}
 		if (ti != NULL && ti->min_mtow <= mtow &&
 		    mtow <= ti->max_mtow && ti->min_nlg_len <= ng_len &&
 		    ti->min_tirrad <= tirrad && ti->max_tirrad >= tirrad &&
 		    (arpt == NULL || ti->arpt == NULL ||
 		    strcmp(arpt, ti->arpt) == 0) &&
 		    ((1 << gear_type) & ti->gear_compat) != 0) {
+			if (reason != NULL)
+			    append_format(reason, &cap, "ACCEPT");
 			avl_add(&tis, ti);
+		} else if (reason != NULL) {
+		    append_format(reason, &cap, "REJECT");
 		}
 		free(tugpath);
 	}
@@ -525,7 +550,13 @@ bool_t
 tug_available(double mtow, double ng_len, double tirrad, unsigned gear_type,
     const char *arpt)
 {
-	tug_info_t *ti = tug_info_select(mtow, ng_len, tirrad, gear_type, arpt);
+	char *reason = NULL;
+	tug_info_t *ti = tug_info_select(mtow, ng_len, tirrad, gear_type, arpt,
+	    &reason);
+
+	if (ti == NULL)
+		logMsg("Failed to find a tug for you, reason:\n%s", reason);
+	free(reason);
 
 	if (ti != NULL) {
 		tug_info_free(ti);
@@ -659,9 +690,15 @@ tug_alloc_auto(double mtow, double ng_len, double tirrad, unsigned gear_type,
     const char *arpt)
 {
 	/* Auto-select a matching tug from our repertoire */
-	tug_info_t *ti = tug_info_select(mtow, ng_len, tirrad, gear_type, arpt);
-	if (ti == NULL)
+	char *reason = NULL;
+	tug_info_t *ti = tug_info_select(mtow, ng_len, tirrad, gear_type, arpt,
+	    &reason);
+	if (ti == NULL) {
+		logMsg("Failed to find a tug for you, reason:\n%s", reason);
+		free(reason);
 		return (NULL);
+	}
+	free(reason);
 	return (tug_alloc_common(ti, tirrad));
 }
 

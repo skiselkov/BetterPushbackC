@@ -215,20 +215,9 @@ conn_first_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	UNUSED(refcon);
 	if (phase != xplm_CommandEnd || !bp_init() || bp_started)
 		return (1);
+
+	late_plan_requested = B_TRUE;
 	(void) bp_cam_stop();
-	/*
-	 * We could be coming through in one of two cases:
-	 * 1) When the user hits the "connect first" button. In that
-	 *	case we want to enable the "Start Pushback" menu item
-	 *	to let them finish the plan & start the pushback.
-	 * 2) When BP was already started with late_play_requested
-	 *	before and we're stopping a second pushback camera
-	 *	invocation due to the user hitting "Start pushback"
-	 *	from step 1. We know that by checking the number of
-	 *	pushback segments. If there's a plan there, the
-	 *	pushback will automatically resume and we want to
-	 *	disable the "Start pushback" menu again.
-	 */
 	if (!bp_start())
 		return (1);
 	if (!slave_mode) {
@@ -238,7 +227,6 @@ conn_first_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 		    bp_num_segs() == 0);
 		XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_TRUE);
 	}
-	late_plan_requested = B_TRUE;
 
 	return (B_TRUE);
 }

@@ -1275,7 +1275,8 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 				dr_setf(&drs.rbrake, 0.9);
 			}
 			if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
-				msg_play(MSG_OP_COMPLETE);
+				if (dr_getf(&drs.pbrake) == 0)
+					msg_play(MSG_OP_COMPLETE);
 				bp.step++;
 				bp.step_start_t = bp.cur_t;
 			}
@@ -2200,7 +2201,6 @@ key_sniffer(char inChar, XPLMKeyFlags inFlags, char inVirtualKey, void *refcon)
 		return (0);
 	case XPLM_VK_SPACE:
 		bp_delete_all_segs();
-		late_plan_requested = B_TRUE;
 		XPLMCommandOnce(XPLMFindCommand(
 		    "BetterPushback/connect_first"));
 		return (0);
