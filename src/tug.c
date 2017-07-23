@@ -1151,6 +1151,8 @@ tug_is_stopped(const tug_t *tug)
 double
 tug_plat_h(const tug_t *tug)
 {
+	if (tug->info->lift_type != LIFT_WINCH)
+		return (0);
 	return ((1 - (tug->tirrad / (tug->info->lift_wall_z -
 	    tug->info->plat_z))) * tug->info->plat_h);
 }

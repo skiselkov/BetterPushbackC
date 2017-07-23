@@ -49,6 +49,7 @@
 #include <acfutils/assert.h>
 #include <acfutils/dr.h>
 #include <acfutils/geom.h>
+#include <acfutils/intl.h>
 #include <acfutils/math.h>
 #include <acfutils/list.h>
 #include <acfutils/time.h>
@@ -449,8 +450,8 @@ read_gear_info(void)
 		}
 	}
 	if (bp.acf.nw_i == -1) {
-		XPLMSpeakString("Pushback failure: aircraft appears to not "
-		    "have any steerable gears.");
+		XPLMSpeakString(_("Pushback failure: aircraft appears to not "
+		    "have any steerable gears."));
 		return (B_FALSE);
 	}
 
@@ -480,9 +481,11 @@ bp_state_init(void)
 	XPLMGetVersions(&bp.xplane_version, &bp.xplm_version,
 	    &bp.host_id);
 	if (bp.xplane_version < MIN_XPLANE_VERSION) {
-		XPLMSpeakString("Pushback failure: X-Plane version too old. "
-		    "This plugin requires at least X-Plane "
-		    MIN_XPLANE_VERSION_STR  " to operate.");
+		char msg[256];
+		snprintf(msg, sizeof (msg), _("Pushback failure: X-Plane "
+		    "version too old. This plugin requires at least X-Plane "
+		    "%s to operate."), MIN_XPLANE_VERSION_STR);
+		XPLMSpeakString(msg);
 		return (B_FALSE);
 	}
 
@@ -492,8 +495,8 @@ bp_state_init(void)
 	bp.veh.wheelbase = bp.acf.main_z - bp.acf.nw_z;
 	bp.veh.fixed_z_off = -bp.acf.main_z;	/* X-Plane's Z is negative */
 	if (bp.veh.wheelbase <= 0) {
-		XPLMSpeakString("Pushback failure: aircraft has non-positive "
-		    "wheelbase. Sorry, tail draggers aren't supported.");
+		XPLMSpeakString(_("Pushback failure: aircraft has non-positive "
+		    "wheelbase. Sorry, tail draggers aren't supported."));
 		return (B_FALSE);
 	}
 	bp.veh.max_steer = MIN(MAX(dr_getf(&drs.nw_steerdeg1),
@@ -531,10 +534,10 @@ bp_init(void)
 	fdr_find(&radio_vol, "sim/operation/sound/radio_volume_ratio");
 	if (dr_getf(&radio_vol) < MIN_RADIO_VOLUME_THRESH &&
 	    dr_geti(&sound_on) == 1 && !radio_volume_warn) {
-		XPLMSpeakString("Pushback advisory: you have your radio "
+		XPLMSpeakString(_("Pushback advisory: you have your radio "
 		    "volume turned very low and may not be able to hear "
 		    "ground crew. Please increase your radio volume in "
-		    "the X-Plane sound preferences.");
+		    "the X-Plane sound preferences."));
 		radio_volume_warn = B_TRUE;
 	}
 
@@ -929,8 +932,8 @@ pb_step_tug_load(void)
 		    dr_getf(&drs.leg_len), bp.acf.tirrad,
 		    bp.acf.nw_type, strcmp(icao, "") != 0 ? icao : NULL);
 		if (bp.tug == NULL) {
-			XPLMSpeakString("Pushback failure: no suitable "
-			    "tug for your aircraft.");
+			XPLMSpeakString(_("Pushback failure: no suitable "
+			    "tug for your aircraft."));
 			bp_complete();
 			return (B_FALSE);
 		}
@@ -960,11 +963,11 @@ pb_step_tug_load(void)
 
 		bp.tug = tug_alloc_man(tug_name, bp.acf.tirrad);
 		if (bp.tug == NULL) {
-			char msg[128];
-			snprintf(msg, sizeof (msg), "Pushback failure: master "
-			    "requested tug \"%s\", which we don't have in our "
-			    "in our library. Please sync your tug libraries "
-			    "before trying again.", tug_name);
+			char msg[256];
+			snprintf(msg, sizeof (msg), _("Pushback failure: "
+			    "master requested tug \"%s\", which we don't have "
+			    "in our in our library. Please sync your tug "
+			    "libraries before trying again."), tug_name);
 			XPLMSpeakString(msg);
 			bp_complete();
 			return (B_FALSE);
@@ -1083,6 +1086,101 @@ pb_step_driving_up_connect(void)
 }
 
 static void
+pb_step_connect_grab(void)
+{
+	double d_t = bp.cur_t - bp.step_start_t;
+	double cradle_closed_fract = d_t / PB_CONN_LIFT_DELAY;
+
+	cradle_closed_fract = MAX(MIN(cradle_closed_fract, 1), 0);
+	tug_set_lift_arm_pos(bp.tug, 1 - cradle_closed_fract, B_TRUE);
+
+	if (!slave_mode) {
+		/* When grabbing, keep the aircraft firmly in place */
+		dr_setf(&drs.lbrake, 0.9);
+		dr_setf(&drs.rbrake, 0.9);
+	}
+
+	if (cradle_closed_fract >= 1) {
+		bp.step++;
+		bp.step_start_t = bp.cur_t;
+	}
+}
+
+static void
+pb_step_connect_winch(void)
+{
+	double d_t = bp.cur_t - bp.step_start_t;
+	const tug_info_t *ti = bp.tug->info;
+	double winch_total, winched_dist;
+
+	/* spend some time putting the winching strap in place */
+	if (!bp.winching.complete && d_t < STATE_TRANS_DELAY)
+		return;
+
+	tug_set_lift_pos(0);
+	tug_set_winch_on(bp.tug, B_TRUE);
+
+	/* after installing the strap, wait some more to make the pbrake call */
+	if (!bp.winching.complete && d_t < 2 * STATE_TRANS_DELAY) {
+		tug_set_lift_arm_pos(bp.tug, 1.0, B_TRUE);
+		return;
+	}
+
+	if (!bp.winching.complete && pbrake_is_set()) {
+		if (!bp.winching.pbrk_rele_called) {
+			msg_play(MSG_WINCH);
+			bp.winching.pbrk_rele_called = B_TRUE;
+		}
+		return;
+	}
+
+	if (!slave_mode) {
+		/* When grabbing, keep the aircraft firmly in place */
+		dr_setf(&drs.lbrake, 0);
+		dr_setf(&drs.rbrake, 0);
+	}
+
+	winch_total = ti->lift_wall_z - ti->plat_z - bp.acf.tirrad;
+	winched_dist = vect2_dist(bp.winching.start_acf_pos, bp.cur_pos.pos);
+	if (winched_dist < winch_total && !bp.winching.complete) {
+		/*
+		 * While 'winch_total' tells us how far we need to winch,
+		 * the animation values are as a proportion of the maximum
+		 * possible winching distance (i.e. at the smallest tirrad).
+		 */
+		double x = winched_dist / (ti->lift_wall_z - ti->plat_z);
+		if (!slave_mode) {
+			double lift = ti->plat_h * x + bp.acf.nw_len;
+			push_at_speed(0.05, 0.05, B_FALSE);
+			dr_setvf(&drs.leg_len, &lift, bp.acf.nw_i, 1);
+		}
+		tug_set_lift_arm_pos(bp.tug, 1 - x, B_TRUE);
+		tug_set_TE_override(bp.tug, B_TRUE);
+		tug_set_TE_snd(bp.tug, PB_LIFT_TE, bp.d_t);
+	} else {
+		bp.winching.complete = B_TRUE;
+	}
+
+	if (bp.winching.complete) {
+		bp.step++;
+		bp.step_start_t = bp.cur_t;
+	}
+}
+
+static void
+pb_step_grab(void)
+{
+	if (!slave_mode) {
+		double steer = 0;
+		dr_setvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1);
+	}
+	if (bp.tug->info->lift_type == LIFT_GRAB)
+		pb_step_connect_grab();
+	else
+		pb_step_connect_winch();
+}
+
+static void
 pb_step_lift(void)
 {
 	double d_t = bp.cur_t - bp.step_start_t;
@@ -1138,103 +1236,10 @@ pb_step_lift(void)
 		}
 
 		tug_set_TE_override(bp.tug, B_FALSE);
-		msg_play(MSG_CONNECTED);
+		if (bp.tug->info->lift_type != LIFT_WINCH)
+			msg_play(MSG_CONNECTED);
 		bp.step++;
 		bp.step_start_t = bp.cur_t;
-	}
-}
-
-static void
-pb_step_connect_grab(void)
-{
-	double d_t = bp.cur_t - bp.step_start_t;
-	double cradle_closed_fract = d_t / PB_CONN_LIFT_DELAY;
-
-	cradle_closed_fract = MAX(MIN(cradle_closed_fract, 1), 0);
-	tug_set_lift_arm_pos(bp.tug, 1 - cradle_closed_fract, B_TRUE);
-
-	if (!slave_mode) {
-		/* When grabbing, keep the aircraft firmly in place */
-		dr_setf(&drs.lbrake, 0.9);
-		dr_setf(&drs.rbrake, 0.9);
-	}
-}
-
-static void
-pb_step_connect_winch(void)
-{
-	double d_t = bp.cur_t - bp.step_start_t;
-	const tug_info_t *ti = bp.tug->info;
-	double winch_total, winched_dist;
-
-	/* spend some time putting the winching strap in place */
-	if (!bp.winching.complete && d_t < STATE_TRANS_DELAY)
-		return;
-
-	tug_set_lift_pos(0);
-	tug_set_winch_on(bp.tug, B_TRUE);
-
-	/* after installing the strap, wait some more to make the pbrake call */
-	if (!bp.winching.complete && d_t < 2 * STATE_TRANS_DELAY) {
-		tug_set_lift_arm_pos(bp.tug, 1.0, B_TRUE);
-		return;
-	}
-
-	if (!bp.winching.complete && pbrake_is_set()) {
-		if (!bp.winching.pbrk_rele_called) {
-			XPLMSpeakString("Winching strap and adapter in "
-			    "position. Release parking brake.");
-			bp.winching.pbrk_rele_called = B_TRUE;
-		}
-		return;
-	}
-
-	if (!slave_mode) {
-		/* When grabbing, keep the aircraft firmly in place */
-		dr_setf(&drs.lbrake, 0);
-		dr_setf(&drs.rbrake, 0);
-	}
-
-	winch_total = ti->lift_wall_z - ti->plat_z - bp.acf.tirrad;
-	winched_dist = vect2_dist(bp.winching.start_acf_pos, bp.cur_pos.pos);
-	if (winched_dist < winch_total && !bp.winching.complete) {
-		/*
-		 * While 'winch_total' tells us how far we need to winch,
-		 * the animation values are as a proportion of the maximum
-		 * possible winching distance (i.e. at the smallest tirrad).
-		 */
-		double x = winched_dist / (ti->lift_wall_z - ti->plat_z);
-		if (!slave_mode) {
-			double lift = ti->plat_h * x + bp.acf.nw_len;
-			push_at_speed(0.05, 0.05, B_FALSE);
-			dr_setvf(&drs.leg_len, &lift, bp.acf.nw_i, 1);
-		}
-		tug_set_lift_arm_pos(bp.tug, 1 - x, B_TRUE);
-		tug_set_TE_override(bp.tug, B_TRUE);
-		tug_set_TE_snd(bp.tug, PB_LIFT_TE, bp.d_t);
-	} else {
-		bp.winching.complete = B_TRUE;
-	}
-
-	if (bp.winching.complete) {
-		bp.step++;
-		bp.step_start_t = bp.cur_t;
-	}
-}
-
-static void
-pb_step_grab(void)
-{
-	if (bp.tug->info->lift_type == LIFT_GRAB) {
-		if (!slave_mode) {
-			double steer = 0;
-			dr_setvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1);
-			dr_setf(&drs.lbrake, 0.9);
-			dr_setf(&drs.rbrake, 0.9);
-		}
-		pb_step_connect_grab();
-	} else {
-		pb_step_connect_winch();
 	}
 }
 
@@ -1352,7 +1357,7 @@ static void
 pb_step_lowering(void)
 {
 	double d_t = bp.cur_t - bp.step_start_t;
-	double lift_fract = 1 - ((d_t - STATE_TRANS_DELAY) /
+	double lift_fract = 1 - ((d_t - 2 * STATE_TRANS_DELAY) /
 	    PB_CONN_LIFT_DURATION);
 	double lift;
 
@@ -1362,6 +1367,9 @@ pb_step_lowering(void)
 		dr_setf(&drs.rbrake, 0.9);
 	}
 	acf2tug_steer();
+
+	if (d_t <= 2 * STATE_TRANS_DELAY)
+		return;
 
 	lift_fract = MAX(MIN(lift_fract, 1), 0);
 
@@ -1726,7 +1734,7 @@ typedef struct {
 } view_cmd_info_t;
 
 typedef struct {
-	const char	*filename;	/* PNG filename in data/icons */
+	const char	*filename;	/* PNG filename in data/icons/<lang> */
 	const int	vk;		/* function virtual key, -1 if none */
 	GLuint		tex;		/* OpenGL texture object */
 	GLbyte		*tex_data;	/* RGBA texture data */
@@ -1815,8 +1823,7 @@ static int button_hit = -1, button_lit = -1;
 static bool_t
 load_icon(button_t *btn)
 {
-	char *filename = mkpathname(bp_xpdir, bp_plugindir, "data", "icons",
-	    btn->filename, NULL);
+	char *filename;
 	FILE *fp;
 	size_t rowbytes;
 	png_bytep *rowp = NULL;
@@ -1825,6 +1832,15 @@ load_icon(button_t *btn)
 	bool_t res = B_TRUE;
 	uint8_t header[8];
 
+	/* try the localized version first */
+	filename = mkpathname(bp_xpdir, bp_plugindir, "data", "icons",
+	    acfutils_xplang2code(XPLMGetLanguage()), btn->filename, NULL);
+	if (!file_exists(filename, NULL)) {
+		/* if the localized version failed, try the English version */
+		free(filename);
+		filename = mkpathname(bp_xpdir, bp_plugindir, "data", "icons",
+		    "en", btn->filename, NULL);
+	}
 	fp = fopen(filename, "rb");
 	if (fp == NULL) {
 		logMsg("Cannot open file %s: %s", filename, strerror(errno));
@@ -2479,34 +2495,34 @@ bp_cam_start(void)
 		return (B_FALSE);
 
 	if (!acf_is_compatible()) {
-		XPLMSpeakString("Pushback failure: aircraft is incompatible "
-		    "with BetterPushback.");
+		XPLMSpeakString(_("Pushback failure: aircraft is incompatible "
+		    "with BetterPushback."));
 		return (B_FALSE);
 	}
 
 	(void) find_nearest_airport(icao);
 	if (!tug_available(dr_getf(&drs.mtow), bp.acf.nw_len, bp.acf.tirrad,
 	    bp.acf.nw_type, strcmp(icao, "") != 0 ? icao : NULL)) {
-		XPLMSpeakString("Pushback failure: no suitable tug for your "
-		    "aircraft.");
+		XPLMSpeakString(_("Pushback failure: no suitable tug for your "
+		    "aircraft."));
 		return (B_FALSE);
 	}
 
 #ifndef	PB_DEBUG_INTF
 	if (vect3_abs(VECT3(dr_getf(&drs.vx), dr_getf(&drs.vy),
 	    dr_getf(&drs.vz))) >= 1) {
-		XPLMSpeakString("Can't start planner: aircraft not "
-		    "stationary.");
+		XPLMSpeakString(_("Can't start planner: aircraft not "
+		    "stationary."));
 		return (B_FALSE);
 	}
 	if (!pbrake_is_set()) {
-		XPLMSpeakString("Can't start pushback planner: please "
-		    "set the parking brake first.");
+		XPLMSpeakString(_("Can't start pushback planner: please "
+		    "set the parking brake first."));
 		return (B_FALSE);
 	}
 	if (bp_started) {
-		XPLMSpeakString("Can't start planner: pushback already in "
-		    "progress. Please stop the pushback operation first.");
+		XPLMSpeakString(_("Can't start planner: pushback already in "
+		    "progress. Please stop the pushback operation first."));
 		return (B_FALSE);
 	}
 #endif	/* !PB_DEBUG_INTF */

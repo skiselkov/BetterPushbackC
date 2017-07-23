@@ -16,9 +16,12 @@
  * Copyright 2017 Saso Kiselkov. All rights reserved.
  */
 
+#include <XPLMUtilities.h>
+
 #include <acfutils/assert.h>
 #include <acfutils/dr.h>
 #include <acfutils/helpers.h>
+#include <acfutils/intl.h>
 #include <acfutils/log.h>
 #include <acfutils/wav.h>
 
@@ -35,6 +38,7 @@ static msg_info_t msgs[MSG_NUM_MSGS] = {
 	{ .filename = "plan_end.wav", .wav = NULL },
 	{ .filename = "driving_up.wav", .wav = NULL },
 	{ .filename = "ready2conn.wav", .wav = NULL },
+	{ .filename = "winch.wav", .wav = NULL },
 	{ .filename = "connected.wav", .wav = NULL },
 	{ .filename = "start_pb.wav", .wav = NULL },
 	{ .filename = "start_tow.wav", .wav = NULL },
@@ -55,8 +59,16 @@ msg_init(void)
 	ASSERT(!inited);
 
 	for (message_t msg = 0; msg < MSG_NUM_MSGS; msg++) {
+		/* first try the localized version */
 		path = mkpathname(bp_xpdir, bp_plugindir, "data", "msgs",
+		    acfutils_xplang2code(XPLMGetLanguage()),
 		    msgs[msg].filename, NULL);
+		if (!file_exists(path, NULL)) {
+			/* if that doesn't exist, try the English version */
+			free(path);
+			path = mkpathname(bp_xpdir, bp_plugindir, "data",
+			    "msgs", "en", msgs[msg].filename, NULL);
+		}
 		msgs[msg].wav = wav_load(path, msgs[msg].filename);
 		if (msgs[msg].wav == NULL) {
 			logMsg("BetterPushback initialization error, unable "

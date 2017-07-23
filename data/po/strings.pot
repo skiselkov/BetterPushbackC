@@ -1,0 +1,105 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2017-07-23 17:10+0200\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=CHARSET\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: bp.c:2501
+msgid "Can't start planner: aircraft not stationary."
+msgstr ""
+
+#: bp.c:2511
+msgid ""
+"Can't start planner: pushback already in progress. Please stop the pushback "
+"operation first."
+msgstr ""
+
+#: bp.c:2506
+msgid "Can't start pushback planner: please set the parking brake first."
+msgstr ""
+
+#: bp.c:537
+msgid ""
+"Pushback advisory: you have your radio volume turned very low and may not be "
+"able to hear ground crew. Please increase your radio volume in the X-Plane "
+"sound preferences."
+msgstr ""
+
+#: bp.c:485
+#, c-format
+msgid ""
+"Pushback failure: X-Plane version too old. This plugin requires at least X-"
+"Plane %s to operate."
+msgstr ""
+
+#: bp.c:453
+msgid "Pushback failure: aircraft appears to not have any steerable gears."
+msgstr ""
+
+#: bp.c:498
+msgid ""
+"Pushback failure: aircraft has non-positive wheelbase. Sorry, tail draggers "
+"aren't supported."
+msgstr ""
+
+#: bp.c:2485
+msgid "Pushback failure: aircraft is incompatible with BetterPushback."
+msgstr ""
+
+#: bp.c:967
+#, c-format
+msgid ""
+"Pushback failure: master requested tug \"%s\", which we don't have in our in "
+"our library. Please sync your tug libraries before trying again."
+msgstr ""
+
+#: bp.c:935 bp.c:2493
+msgid "Pushback failure: no suitable tug for your aircraft."
+msgstr ""
+
+#: ../xplane.c:290 ../xplane.c:308
+msgid ""
+"Pushback failure: smartcopilot attempted to switch master/slave or network "
+"connection lost. Stopping operation."
+msgstr ""
+
+#: ../xplane.c:375 ../xplane.c:441
+msgid "Start pushback"
+msgstr ""
+
+#: ../xplane.c:377 ../xplane.c:443
+msgid "Stop pushback"
+msgstr ""
+
+#: ../xplane.c:379
+msgid "Start pushback planner"
+msgstr ""
+
+#: ../xplane.c:381
+msgid "Stop pushback planner"
+msgstr ""
+
+#: ../xplane.c:383
+msgid "Connect tug before entering pushback plan"
+msgstr ""
+
+#: ../xplane.c:437
+msgid "Pre-plan pushback"
+msgstr ""
+
+#: ../xplane.c:439
+msgid "Close pushback planner"
+msgstr ""

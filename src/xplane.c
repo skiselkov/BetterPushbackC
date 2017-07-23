@@ -28,6 +28,7 @@
 #include <acfutils/assert.h>
 #include <acfutils/acfutils.h>
 #include <acfutils/helpers.h>
+#include <acfutils/intl.h>
 #include <acfutils/log.h>
 #include <acfutils/wav.h>
 
@@ -285,9 +286,9 @@ smartcopilot_check(float elapsed, float elapsed2, int counter, void *refcon)
 	if (dr_geti(&smartcopilot_state) == SMARTCOPILOT_STATE_SLAVE &&
 	    !slave_mode) {
 		if (bp_started) {
-			XPLMSpeakString("Pushback failure: smartcopilot "
+			XPLMSpeakString(_("Pushback failure: smartcopilot "
 			    "attempted to switch master/slave or network "
-			    "connection lost. Stopping operation.");
+			    "connection lost. Stopping operation."));
 		}
 		/*
 		 * If we were in master mode, stop the camera, flush out all
@@ -303,9 +304,9 @@ smartcopilot_check(float elapsed, float elapsed2, int counter, void *refcon)
 	} else if (dr_geti(&smartcopilot_state) != SMARTCOPILOT_STATE_SLAVE &&
 	    slave_mode) {
 		if (bp_started) {
-			XPLMSpeakString("Pushback failure: smartcopilot "
+			XPLMSpeakString(_("Pushback failure: smartcopilot "
 			    "attempted to switch master/slave or network "
-			    "connection lost. Stopping operation.");
+			    "connection lost. Stopping operation."));
 		}
 		/* If we were in slave mode, reenable the menu items. */
 		bp_fini();
@@ -322,6 +323,7 @@ smartcopilot_check(float elapsed, float elapsed2, int counter, void *refcon)
 PLUGIN_API int
 XPluginStart(char *name, char *sig, char *desc)
 {
+	char *po_file;
 	char *p;
 
 	acfutils_logfunc = XPLMDebugString;
@@ -346,6 +348,10 @@ XPluginStart(char *name, char *sig, char *desc)
 			*p = '\0';
 	}
 
+	/*
+	 * Now we strip a leading xpdir from plugindir, so that now plugindir
+	 * will be relative to X-Plane's root directory.
+	 */
 	if (strstr(plugindir, xpdir) == plugindir) {
 		int xpdir_len = strlen(xpdir);
 		int plugindir_len = strlen(plugindir);
@@ -357,17 +363,23 @@ XPluginStart(char *name, char *sig, char *desc)
 	strcpy(sig, BP_PLUGIN_SIG);
 	strcpy(desc, BP_PLUGIN_DESCRIPTION);
 
+	/* We need the i18n support really early, so init early */
+	po_file = mkpathname(xpdir, plugindir, "data", "po",
+	    acfutils_xplang2code(XPLMGetLanguage()), "strings.po", NULL);
+	(void) acfutils_xlate_init(po_file);
+	free(po_file);
+
 	/* We can't delete commands, so put their creation here */
 	start_pb = XPLMCreateCommand("BetterPushback/start",
-	    "Start BetterPushback");
+	    _("Start pushback"));
 	stop_pb = XPLMCreateCommand("BetterPushback/stop",
-	    "Stop BetterPushback");
+	    _("Stop pushback"));
 	start_cam = XPLMCreateCommand("BetterPushback/start_planner",
-	    "Start BetterPushback planner");
+	    _("Start pushback planner"));
 	stop_cam = XPLMCreateCommand("BetterPushback/stop_planner",
-	    "Stop BetterPushback planner");
+	    _("Stop pushback planner"));
 	conn_first = XPLMCreateCommand("BetterPushback/connect_first",
-	    "Connect tug before entering pushback plan");
+	    _("Connect tug before entering pushback plan"));
 
 	tug_glob_init();
 
@@ -389,6 +401,7 @@ XPluginStart(char *name, char *sig, char *desc)
 PLUGIN_API void
 XPluginStop(void)
 {
+	acfutils_xlate_fini();
 	tug_glob_fini();
 	dr_delete(&bp_started_dr);
 	dr_delete(&slave_mode_dr);
@@ -420,13 +433,13 @@ XPluginEnable(void)
 	    plugins_menu_item, menu_cb, NULL);
 
 	start_pb_plan_menu_item = XPLMAppendMenuItem(root_menu,
-	    "Pre-plan pushback", start_cam, 1);
+	    _("Pre-plan pushback"), start_cam, 1);
 	stop_pb_plan_menu_item = XPLMAppendMenuItem(root_menu,
-	    "Close pushback planner", stop_cam, 1);
-	start_pb_menu_item = XPLMAppendMenuItem(root_menu, "Start pushback",
-	    start_pb, 1);
-	stop_pb_menu_item = XPLMAppendMenuItem(root_menu, "Stop pushback",
-	    stop_pb, 1);
+	    _("Close pushback planner"), stop_cam, 1);
+	start_pb_menu_item = XPLMAppendMenuItem(root_menu,
+	    _("Start pushback"), start_pb, 1);
+	stop_pb_menu_item = XPLMAppendMenuItem(root_menu,
+	    _("Stop pushback"), stop_pb, 1);
 
 	XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_TRUE);
 	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
