@@ -85,6 +85,7 @@
 #define	MIN_STEER_ANGLE		40	/* minimum sensible tire steer angle */
 #define	MAX_ANG_VEL		2.5	/* degrees per second */
 #define	PB_CRADLE_DELAY		10	/* seconds */
+#define	PB_WINCH_DELAY		10	/* seconds */
 #define	PB_CONN_DELAY		25.0	/* seconds */
 #define	PB_CONN_LIFT_DELAY	13.0	/* seconds */
 #define	PB_CONN_LIFT_DURATION	9.0	/* seconds */
@@ -110,13 +111,15 @@ typedef enum {
 	PB_STEP_OPENING_CRADLE,
 	PB_STEP_WAITING_FOR_PBRAKE,
 	PB_STEP_DRIVING_UP_CONNECT,
-	PB_STEP_CONNECTING,
+	PB_STEP_GRABBING,
+	PB_STEP_LIFTING,
 	PB_STEP_CONNECTED,
 	PB_STEP_STARTING,
 	PB_STEP_PUSHING,
 	PB_STEP_STOPPING,
 	PB_STEP_STOPPED,
-	PB_STEP_DISCONNECTING,
+	PB_STEP_LOWERING,
+	PB_STEP_UNGRABBING,
 	PB_STEP_MOVING_AWAY,
 	PB_STEP_CLOSING_CRADLE,
 	PB_STEP_DRIVING_AWAY
@@ -138,6 +141,13 @@ typedef struct {
 
 	vehicle_t	veh;
 	acf_t		acf;		/* our aircraft */
+
+	struct {
+		vect2_t	start_acf_pos;
+		bool_t	pbrk_rele_called;
+		bool_t	pbrk_set_called;
+		bool_t	complete;
+	} winching;
 
 	vehicle_pos_t	cur_pos;
 	vehicle_pos_t	last_pos;
@@ -169,10 +179,11 @@ typedef struct {
 
 static struct {
 	dr_t	lbrake, rbrake;
-	dr_t	pbrake;
+	dr_t	pbrake, pbrake_rat;
 	dr_t	rot_force_N;
 	dr_t	axial_force;
 	dr_t	local_x, local_y, local_z;
+	dr_t	local_vx, local_vy, local_vz;
 	dr_t	lat, lon;
 	dr_t	hdg;
 	dr_t	vx, vy, vz;
@@ -224,6 +235,12 @@ static const acf_info_t incompatible_acf[] = {
  * pushback clearance, then do a quick plan and immediately commence pushing.
  */
 bool_t late_plan_requested = B_FALSE;
+
+static bool_t
+pbrake_is_set(void)
+{
+	return (dr_getf(&drs.pbrake) != 0 || dr_getf(&drs.pbrake_rat) != 0);
+}
 
 static bool_t
 acf_is_compatible(void)
@@ -319,7 +336,7 @@ turn_nosewheel(double req_angle, double rate)
 }
 
 static void
-push_at_speed(double targ_speed, double max_accel)
+push_at_speed(double targ_speed, double max_accel, bool_t allow_snd_ctl)
 {
 	double force_lim, force_incr, force, angle_rad, accel_now, d_v, Fx, Fz;
 
@@ -386,12 +403,14 @@ push_at_speed(double targ_speed, double max_accel)
 
 	bp.last_force = force;
 
-	tug_set_TE_override(bp.tug, B_TRUE);
-	if ((bp.cur_pos.spd > 0 && force < 0) ||
-	    (bp.cur_pos.spd < 0 && force > 0))
-		tug_set_TE_snd(bp.tug, fabs(force / force_lim), bp.d_t);
-	else
-		tug_set_TE_snd(bp.tug, 0, bp.d_t);
+	if (allow_snd_ctl) {
+		tug_set_TE_override(bp.tug, B_TRUE);
+		if ((bp.cur_pos.spd > 0 && force < 0) ||
+		    (bp.cur_pos.spd < 0 && force > 0))
+			tug_set_TE_snd(bp.tug, fabs(force / force_lim), bp.d_t);
+		else
+			tug_set_TE_snd(bp.tug, 0, bp.d_t);
+	}
 }
 
 static bool_t
@@ -528,11 +547,15 @@ bp_init(void)
 	fdr_find(&drs.rbrake, "sim/cockpit2/controls/right_brake_ratio");
 	if (!dr_find(&drs.pbrake, "model/controls/park_break"))
 		fdr_find(&drs.pbrake, "sim/flightmodel/controls/parkbrake");
+	fdr_find(&drs.pbrake_rat, "sim/cockpit2/controls/parking_brake_ratio");
 	fdr_find(&drs.rot_force_N, "sim/flightmodel/forces/N_plug_acf");
 	fdr_find(&drs.axial_force, "sim/flightmodel/forces/faxil_plug_acf");
 	fdr_find(&drs.local_x, "sim/flightmodel/position/local_x");
 	fdr_find(&drs.local_y, "sim/flightmodel/position/local_y");
 	fdr_find(&drs.local_z, "sim/flightmodel/position/local_z");
+	fdr_find(&drs.local_vx, "sim/flightmodel/position/local_vx");
+	fdr_find(&drs.local_vy, "sim/flightmodel/position/local_vy");
+	fdr_find(&drs.local_vz, "sim/flightmodel/position/local_vz");
 	fdr_find(&drs.lat, "sim/flightmodel/position/latitude");
 	fdr_find(&drs.lon, "sim/flightmodel/position/longitude");
 	fdr_find(&drs.hdg, "sim/flightmodel/position/psi");
@@ -597,7 +620,7 @@ draw_tugs(XPLMDrawingPhase phase, int before, void *refcon)
 	}
 
 	if (list_head(&bp.tug->segs) == NULL &&
-	    bp.step >= PB_STEP_CONNECTING && bp.step <= PB_STEP_DISCONNECTING) {
+	    bp.step >= PB_STEP_GRABBING && bp.step <= PB_STEP_UNGRABBING) {
 		double hdg, tug_hdg, tug_spd, steer;
 		vect2_t pos, dir, off_v, tug_pos;
 
@@ -606,13 +629,24 @@ draw_tugs(XPLMDrawingPhase phase, int before, void *refcon)
 		dr_getvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1);
 		tug_hdg = normalize_hdg(hdg + steer);
 		dir = hdg2dir(hdg);
-		off_v = vect2_scmul(hdg2dir(tug_hdg),
-		    (-bp.tug->info->lift_wall_z) + bp.acf.tirrad);
-		tug_pos = vect2_add(vect2_add(pos, vect2_scmul(dir,
-		    -bp.acf.nw_z)), off_v);
-		tug_spd = bp.cur_pos.spd / cos(DEG2RAD(fabs(steer)));
-
-		tug_set_pos(bp.tug, tug_pos, tug_hdg, tug_spd);
+		if (bp.step == PB_STEP_GRABBING &&
+		    bp.tug->info->lift_type == LIFT_WINCH) {
+			/*
+			 * When winching the aircraft forward, we keep the tug
+			 * in a fixed position relative to where the aircraft
+			 * was when the winching operation started.
+			 */
+			tug_set_pos(bp.tug, vect2_add(bp.winching.start_acf_pos,
+			    vect2_scmul(hdg2dir(hdg), (-bp.acf.nw_z) +
+			    (-bp.tug->info->plat_z))), hdg, 0);
+		} else {
+			off_v = vect2_scmul(hdg2dir(tug_hdg),
+			    (-bp.tug->info->lift_wall_z) + bp.acf.tirrad);
+			tug_pos = vect2_add(vect2_add(pos, vect2_scmul(dir,
+			    -bp.acf.nw_z)), off_v);
+			tug_spd = bp.cur_pos.spd / cos(DEG2RAD(fabs(steer)));
+			tug_set_pos(bp.tug, tug_pos, tug_hdg, tug_spd);
+		}
 	}
 
 	tug_draw(bp.tug, bp.cur_t);
@@ -816,7 +850,7 @@ bp_run_push(void)
 		/* Pilot pressed brake pedals or set parking brake, stop */
 		if (dr_getf(&drs.lbrake) > BRAKE_PEDAL_THRESH ||
 		    dr_getf(&drs.rbrake) > BRAKE_PEDAL_THRESH ||
-		    dr_getf(&drs.pbrake) != 0) {
+		    pbrake_is_set()) {
 			tug_set_TE_snd(bp.tug, 0, bp.d_t);
 			break;
 		}
@@ -825,7 +859,7 @@ bp_run_push(void)
 			double steer_rate = (seg->type == SEG_TYPE_STRAIGHT ?
 			    STRAIGHT_STEER_RATE : TURN_STEER_RATE);
 			(void) turn_nosewheel(steer, steer_rate);
-			push_at_speed(speed, bp.veh.max_accel);
+			push_at_speed(speed, bp.veh.max_accel, B_TRUE);
 			acf2tug_steer();
 			break;
 		}
@@ -885,6 +919,587 @@ late_plan_end_cond(void)
 	    (slave_mode && plan_complete));
 }
 
+static bool_t
+pb_step_tug_load(void)
+{
+	if (!slave_mode) {
+		char icao[8] = { 0 };
+		(void) find_nearest_airport(icao);
+		bp.tug = tug_alloc_auto(dr_getf(&drs.mtow),
+		    dr_getf(&drs.leg_len), bp.acf.tirrad,
+		    bp.acf.nw_type, strcmp(icao, "") != 0 ? icao : NULL);
+		if (bp.tug == NULL) {
+			XPLMSpeakString("Pushback failure: no suitable "
+			    "tug for your aircraft.");
+			bp_complete();
+			return (B_FALSE);
+		}
+		strlcpy(bp_tug_name, bp.tug->info->tug_name,
+		    sizeof (bp_tug_name));
+	} else {
+		char tug_name[sizeof (bp_tug_name)];
+		char *ext;
+
+		/* make sure the tug name is properly terminated */
+		memcpy(tug_name, bp_tug_name, sizeof (tug_name));
+		tug_name[sizeof (tug_name) - 1] = '\0';
+
+		/* wait until the tug name has been synced */
+		if (strcmp(tug_name, "") == 0)
+			return (B_TRUE);
+
+		/* security check - must not contain a dir separator */
+		if (strchr(tug_name, '/') != NULL ||
+		    strchr(tug_name, '\\') != NULL)
+			return (B_TRUE);
+
+		/* sanity check - must end in '.tug' */
+		ext = strrchr(tug_name, '.');
+		if (ext == NULL || strcmp(&ext[1], "tug") != 0)
+			return (B_TRUE);
+
+		bp.tug = tug_alloc_man(tug_name, bp.acf.tirrad);
+		if (bp.tug == NULL) {
+			char msg[128];
+			snprintf(msg, sizeof (msg), "Pushback failure: master "
+			    "requested tug \"%s\", which we don't have in our "
+			    "in our library. Please sync your tug libraries "
+			    "before trying again.", tug_name);
+			XPLMSpeakString(msg);
+			bp_complete();
+			return (B_FALSE);
+		}
+	}
+	if (!bp.tug->info->drive_debug) {
+		vect2_t p_start, dir;
+		dir = hdg2dir(bp.cur_pos.hdg);
+		p_start = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
+		    -bp.acf.nw_z + TUG_APPCH_LONG_DIST));
+		p_start = vect2_add(p_start, vect2_scmul(vect2_norm(dir,
+		    B_TRUE), 10 * bp.tug->veh.wheelbase));
+		tug_set_pos(bp.tug, p_start, normalize_hdg(bp.cur_pos.hdg - 90),
+		    bp.tug->veh.max_fwd_spd);
+	} else {
+		tug_set_pos(bp.tug, bp.cur_pos.pos, bp.cur_pos.hdg, 0);
+	}
+	bp.step++;
+	bp.step_start_t = bp.cur_t;
+
+	return (B_TRUE);
+}
+
+static void
+pb_step_start(void)
+{
+	if (!bp.tug->info->drive_debug) {
+		vect2_t left_off, p_end, dir;
+
+		dir = hdg2dir(bp.cur_pos.hdg);
+
+		left_off = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
+		    -bp.acf.nw_z + TUG_APPCH_LONG_DIST));
+		left_off = vect2_add(left_off, vect2_scmul(
+		    vect2_norm(dir, B_FALSE), 2 * bp.tug->veh.wheelbase));
+		p_end = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
+		    (-bp.acf.nw_z) + bp.tug->info->apch_dist));
+
+		VERIFY(tug_drive2point(bp.tug, left_off,
+		    normalize_hdg(bp.cur_pos.hdg - 90)));
+		VERIFY(tug_drive2point(bp.tug, p_end, bp.cur_pos.hdg));
+	} else {
+		for (seg_t *seg = list_head(&bp.segs); seg != NULL;
+		    seg = list_next(&bp.segs, seg)) {
+			seg_t *seg2 = calloc(1, sizeof (*seg2));
+			memcpy(seg2, seg, sizeof (*seg2));
+			list_insert_tail(&bp.tug->segs, seg2);
+		}
+	}
+
+	msg_play(MSG_DRIVING_UP);
+	bp.step++;
+	bp.step_start_t = bp.cur_t;
+}
+
+static void
+pb_step_driving_up_close(void)
+{
+	if (!tug_is_stopped(bp.tug)) {
+		/*
+		 * Keep resetting the start time to enforce the state
+		 * transition delay once the tug stops.
+		 */
+		bp.step_start_t = bp.cur_t;
+	} else  if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
+		tug_set_cradle_beeper_on(bp.tug, B_TRUE);
+		tug_set_cradle_lights_on(B_TRUE);
+		tug_set_hazard_lights_on(B_TRUE);
+		bp.step++;
+		bp.step_start_t = bp.cur_t;
+	}
+}
+
+static void
+pb_step_waiting_for_pbrake(void)
+{
+	vect2_t p_end, dir;
+
+	if (!pbrake_is_set())
+		return;
+
+	dir = hdg2dir(bp.cur_pos.hdg);
+	if (bp.tug->info->lift_type == LIFT_GRAB) {
+		p_end = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
+		    (-bp.acf.nw_z) + (-bp.tug->info->lift_wall_z) +
+		    bp.acf.tirrad));
+	} else {
+		vect2_t d = vect2_neg(hdg2dir(bp.tug->pos.hdg));
+		p_end = vect2_add(bp.tug->pos.pos, vect2_scmul(d,
+		    bp.tug->info->apch_dist + bp.tug->info->plat_z));
+	}
+	(void) tug_drive2point(bp.tug, p_end, bp.cur_pos.hdg);
+	bp.step++;
+	bp.step_start_t = bp.cur_t;
+}
+
+static void
+pb_step_driving_up_connect(void)
+{
+	if (!slave_mode) {
+		dr_setf(&drs.lbrake, 0.9);
+		dr_setf(&drs.rbrake, 0.9);
+	}
+	if (!tug_is_stopped(bp.tug)) {
+		/*
+		 * Keep resetting the start time to enforce a state
+		 * transition delay once the tug stops.
+		 */
+		bp.step_start_t = bp.cur_t;
+	} else if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
+		tug_set_cradle_beeper_on(bp.tug, B_TRUE);
+		bp.winching.start_acf_pos = bp.cur_pos.pos;
+		bp.step++;
+		bp.step_start_t = bp.cur_t;
+	}
+}
+
+static void
+pb_step_lift(void)
+{
+	double d_t = bp.cur_t - bp.step_start_t;
+	double lift;
+	double lift_fract = d_t / PB_CONN_LIFT_DURATION;
+
+	lift_fract = MAX(MIN(lift_fract, 1), 0);
+	tug_set_lift_pos(lift_fract);
+
+	/* Iterate the lift */
+	lift = (bp.tug->info->lift_height * lift_fract) + bp.acf.nw_len +
+	    tug_plat_h(bp.tug);
+	if (!slave_mode) {
+		dr_setf(&drs.lbrake, 0.9);
+		dr_setf(&drs.rbrake, 0.9);
+		dr_setvf(&drs.leg_len, &lift, bp.acf.nw_i, 1);
+	}
+
+	/*
+	 * While lifting, we simulate a ramp-up and ramp-down of the
+	 * tug's Tractive Effort to simulate that the engine is
+	 * being used to pressurize a hydraulic lift system.
+	 */
+	if (d_t < PB_CONN_LIFT_DURATION) {
+		tug_set_TE_override(bp.tug, B_TRUE);
+		tug_set_TE_snd(bp.tug, PB_LIFT_TE, bp.d_t);
+	}
+	if (d_t >= PB_CONN_LIFT_DURATION) {
+		tug_set_TE_override(bp.tug, B_TRUE);
+		tug_set_TE_snd(bp.tug, 0, bp.d_t);
+		tug_set_cradle_beeper_on(bp.tug, B_FALSE);
+	}
+
+	if (d_t >= PB_CONN_LIFT_DURATION + STATE_TRANS_DELAY) {
+		if (late_plan_requested) {
+			/*
+			 * The user requsted a late plan, so this is as
+			 * far as we can go without segments. Also wait
+			 * for the camera to stop.
+			 */
+			if (!late_plan_end_cond())
+				return;
+			late_plan_requested = B_FALSE;
+			/*
+			 * We normally save the route during bp_start,
+			 * but since the user requested late planning,
+			 * we need to save it now.
+			 */
+			if (!slave_mode) {
+				plan_complete = B_TRUE;
+				route_save(&bp.segs);
+			}
+		}
+
+		tug_set_TE_override(bp.tug, B_FALSE);
+		msg_play(MSG_CONNECTED);
+		bp.step++;
+		bp.step_start_t = bp.cur_t;
+	}
+}
+
+static void
+pb_step_connect_grab(void)
+{
+	double d_t = bp.cur_t - bp.step_start_t;
+	double cradle_closed_fract = d_t / PB_CONN_LIFT_DELAY;
+
+	cradle_closed_fract = MAX(MIN(cradle_closed_fract, 1), 0);
+	tug_set_lift_arm_pos(bp.tug, 1 - cradle_closed_fract, B_TRUE);
+
+	if (!slave_mode) {
+		/* When grabbing, keep the aircraft firmly in place */
+		dr_setf(&drs.lbrake, 0.9);
+		dr_setf(&drs.rbrake, 0.9);
+	}
+}
+
+static void
+pb_step_connect_winch(void)
+{
+	double d_t = bp.cur_t - bp.step_start_t;
+	const tug_info_t *ti = bp.tug->info;
+	double winch_total, winched_dist;
+
+	/* spend some time putting the winching strap in place */
+	if (!bp.winching.complete && d_t < STATE_TRANS_DELAY)
+		return;
+
+	tug_set_lift_pos(0);
+	tug_set_winch_on(bp.tug, B_TRUE);
+
+	/* after installing the strap, wait some more to make the pbrake call */
+	if (!bp.winching.complete && d_t < 2 * STATE_TRANS_DELAY) {
+		tug_set_lift_arm_pos(bp.tug, 1.0, B_TRUE);
+		return;
+	}
+
+	if (!bp.winching.complete && pbrake_is_set()) {
+		if (!bp.winching.pbrk_rele_called) {
+			XPLMSpeakString("Winching strap and adapter in "
+			    "position. Release parking brake.");
+			bp.winching.pbrk_rele_called = B_TRUE;
+		}
+		return;
+	}
+
+	if (!slave_mode) {
+		/* When grabbing, keep the aircraft firmly in place */
+		dr_setf(&drs.lbrake, 0);
+		dr_setf(&drs.rbrake, 0);
+	}
+
+	winch_total = ti->lift_wall_z - ti->plat_z - bp.acf.tirrad;
+	winched_dist = vect2_dist(bp.winching.start_acf_pos, bp.cur_pos.pos);
+	if (winched_dist < winch_total && !bp.winching.complete) {
+		/*
+		 * While 'winch_total' tells us how far we need to winch,
+		 * the animation values are as a proportion of the maximum
+		 * possible winching distance (i.e. at the smallest tirrad).
+		 */
+		double x = winched_dist / (ti->lift_wall_z - ti->plat_z);
+		if (!slave_mode) {
+			double lift = ti->plat_h * x + bp.acf.nw_len;
+			push_at_speed(0.05, 0.05, B_FALSE);
+			dr_setvf(&drs.leg_len, &lift, bp.acf.nw_i, 1);
+		}
+		tug_set_lift_arm_pos(bp.tug, 1 - x, B_TRUE);
+		tug_set_TE_override(bp.tug, B_TRUE);
+		tug_set_TE_snd(bp.tug, PB_LIFT_TE, bp.d_t);
+	} else {
+		bp.winching.complete = B_TRUE;
+	}
+
+	if (bp.winching.complete) {
+		bp.step++;
+		bp.step_start_t = bp.cur_t;
+	}
+}
+
+static void
+pb_step_grab(void)
+{
+	if (bp.tug->info->lift_type == LIFT_GRAB) {
+		if (!slave_mode) {
+			double steer = 0;
+			dr_setvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1);
+			dr_setf(&drs.lbrake, 0.9);
+			dr_setf(&drs.rbrake, 0.9);
+		}
+		pb_step_connect_grab();
+	} else {
+		pb_step_connect_winch();
+	}
+}
+
+static void
+pb_step_connected(void)
+{
+	if (pbrake_is_set()) {
+		/*
+		 * Keep resetting the start time to enforce the state delay
+		 * after the parking brake is released.
+		 */
+		bp.step_start_t = bp.cur_t;
+	} else if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
+		if (!slave_mode) {
+			seg_t *seg = list_head(&bp.segs);
+
+			ASSERT(seg != NULL);
+			if (seg->backward)
+				msg_play(MSG_START_PB);
+			else
+				msg_play(MSG_START_TOW);
+		} else {
+			/*
+			 * Since we don't know the segs, we'll just
+			 * assume it's going to be backward (as that's
+			 * the most likely direction anyhow).
+			 */
+			msg_play(MSG_START_PB);
+		}
+
+		bp.step++;
+		bp.step_start_t = bp.cur_t;
+	}
+}
+
+static void
+pb_step_pushing(void)
+{
+	if (!slave_mode) {
+		dr_setf(&drs.lbrake, 0);
+		dr_setf(&drs.rbrake, 0);
+		dr_seti(&drs.override_steer, 1);
+		if (!bp_run_push()) {
+			bp.step++;
+			bp.step_start_t = bp.cur_t;
+			op_complete = B_TRUE;
+		}
+	} else {
+		/*
+		 * Since in slave mode we don't actually know our
+		 * tractive effort, just simulate it by following
+		 * the aircraft's speed of motion.
+		 */
+		tug_set_TE_override(bp.tug, B_FALSE);
+		/*
+		 * In slave mode we don't do anything, just following.
+		 */
+		acf2tug_steer();
+	}
+}
+
+static void
+pb_step_stopping(void)
+{
+	tug_set_TE_override(bp.tug, B_FALSE);
+	if (!slave_mode) {
+		(void) turn_nosewheel(0, STRAIGHT_STEER_RATE);
+		push_at_speed(0, bp.veh.max_accel, B_FALSE);
+	}
+	acf2tug_steer();
+	if (ABS(bp.cur_pos.spd) > SPEED_COMPLETE_THRESH) {
+		/*
+		 * Keep resetting the start time to enforce a delay
+		 * once stopped.
+		 */
+		bp.step_start_t = bp.cur_t;
+	} else {
+		if (!slave_mode) {
+			dr_setf(&drs.lbrake, 0.9);
+			dr_setf(&drs.rbrake, 0.9);
+		}
+		if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
+			if (!pbrake_is_set())
+				msg_play(MSG_OP_COMPLETE);
+			bp.step++;
+			bp.step_start_t = bp.cur_t;
+		}
+	}
+}
+
+static void
+pb_step_stopped(void)
+{
+	if (!slave_mode) {
+		turn_nosewheel(0, STRAIGHT_STEER_RATE);
+		push_at_speed(0, bp.veh.max_accel, B_FALSE);
+		dr_setf(&drs.lbrake, 0.9);
+		dr_setf(&drs.rbrake, 0.9);
+	}
+	acf2tug_steer();
+	if (!pbrake_is_set()) {
+		/*
+		 * Keep resetting the start time to enforce a delay
+		 * when the parking brake is set.
+		 */
+		bp.step_start_t = bp.cur_t;
+	} else if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
+		msg_play(MSG_DISCO);
+		bp.step++;
+		bp.step_start_t = bp.cur_t;
+	}
+}
+
+static void
+pb_step_lowering(void)
+{
+	double d_t = bp.cur_t - bp.step_start_t;
+	double lift_fract = 1 - ((d_t - STATE_TRANS_DELAY) /
+	    PB_CONN_LIFT_DURATION);
+	double lift;
+
+	if (!slave_mode) {
+		turn_nosewheel(0, STRAIGHT_STEER_RATE);
+		dr_setf(&drs.lbrake, 0.9);
+		dr_setf(&drs.rbrake, 0.9);
+	}
+	acf2tug_steer();
+
+	lift_fract = MAX(MIN(lift_fract, 1), 0);
+
+	/* Iterate the lift */
+	lift = (bp.tug->info->lift_height * lift_fract) + bp.acf.nw_len +
+	    tug_plat_h(bp.tug);
+	if (!slave_mode)
+		dr_setvf(&drs.leg_len, &lift, bp.acf.nw_i, 1);
+
+	tug_set_lift_pos(lift_fract);
+	tug_set_cradle_air_on(bp.tug, B_TRUE, bp.cur_t);
+	tug_set_cradle_beeper_on(bp.tug, B_TRUE);
+
+	if (lift_fract == 0) {
+		tug_set_cradle_air_on(bp.tug, B_FALSE, bp.cur_t);
+		bp.step++;
+		bp.step_start_t = bp.cur_t;
+	}
+}
+
+static bool_t
+pb_step_ungrabbing_grab(void)
+{
+	double d_t = bp.cur_t - bp.step_start_t;
+	double cradle_fract = d_t / PB_CRADLE_DELAY;
+
+	cradle_fract = MAX(MIN(cradle_fract, 1), 0);
+	tug_set_lift_arm_pos(bp.tug, cradle_fract, B_TRUE);
+
+	if (cradle_fract >= 1.0)
+		tug_set_cradle_beeper_on(bp.tug, B_FALSE);
+
+	return (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY);
+}
+
+static bool_t
+pb_step_ungrabbing_winch(void)
+{
+	double d_t = bp.cur_t - bp.step_start_t;
+
+	/*
+	 * enforce some delays between removing the winch strap and
+	 * driving away
+	 */
+	if (d_t < STATE_TRANS_DELAY)
+		return (B_FALSE);
+
+	tug_set_winch_on(bp.tug, B_FALSE);
+
+	if (d_t < 2 * STATE_TRANS_DELAY)
+		return (B_FALSE);
+
+	return (B_TRUE);
+}
+
+static void
+pb_step_ungrabbing(void)
+{
+	bool_t complete;
+
+	if (bp.tug->info->lift_type == LIFT_GRAB)
+		complete = pb_step_ungrabbing_grab();
+	else
+		complete = pb_step_ungrabbing_winch();
+
+	if (complete) {
+		vect2_t dir, p;
+
+		dir = hdg2dir(bp.cur_pos.hdg);
+		if (!slave_mode) {
+			dr_setf(&drs.lbrake, 0);
+			dr_setf(&drs.rbrake, 0);
+		}
+		p = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
+		    -bp.acf.nw_z + bp.tug->info->apch_dist));
+
+		tug_set_TE_override(bp.tug, B_FALSE);
+		(void) tug_drive2point(bp.tug, p, bp.cur_pos.hdg);
+
+		bp.step++;
+		bp.step_start_t = bp.cur_t;
+	}
+}
+
+static void
+pb_step_closing_cradle(void)
+{
+	double d_t = bp.cur_t - bp.step_start_t;
+
+	tug_set_lift_arm_pos(bp.tug, 1 - d_t / PB_CRADLE_DELAY, B_FALSE);
+	tug_set_tire_sense_pos(bp.tug, 1 - d_t / PB_CRADLE_DELAY);
+	tug_set_lift_pos(d_t / PB_CRADLE_DELAY);
+
+	if (d_t >= PB_CRADLE_DELAY)
+		tug_set_cradle_beeper_on(bp.tug, B_FALSE);
+
+	if (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY) {
+		vect2_t turn_p, abeam_p, end_p, dir, norm_dir;
+		double turn_hdg, back_hdg;
+		double square_side = MAX(5 * bp.tug->veh.wheelbase,
+		    1.5 * bp.veh.wheelbase);
+
+		dir = hdg2dir(bp.cur_pos.hdg);
+		norm_dir = vect2_norm(dir, B_TRUE);
+
+		/*
+		 * turn_p is offset 2x wheelbase forward and
+		 * 1x wheelbase to the right
+		 */
+		turn_p = vect2_add(bp.tug->pos.pos, vect2_scmul(dir,
+		    5 * bp.tug->veh.wheelbase));
+		turn_p = vect2_add(turn_p, vect2_scmul(norm_dir, square_side));
+		turn_hdg = normalize_hdg(bp.cur_pos.hdg + 90);
+
+		/* abeam_p is on right wing, 3x wheelbase away */
+		abeam_p = vect2_add(bp.cur_pos.pos,
+		    vect2_scmul(norm_dir, 2 * square_side));
+		back_hdg = normalize_hdg(bp.cur_pos.hdg + 180);
+
+		/*
+		 * end_p is 3x wheelbase behind and 3x wheelbase to the right.
+		 */
+		end_p = vect2_add(abeam_p, vect2_scmul(dir, -3 * square_side));
+
+		msg_play(MSG_DONE);
+
+		VERIFY(tug_drive2point(bp.tug, turn_p, turn_hdg));
+		VERIFY(tug_drive2point(bp.tug, abeam_p, back_hdg));
+		VERIFY(tug_drive2point(bp.tug, end_p, back_hdg));
+
+		tug_set_cradle_lights_on(B_FALSE);
+		tug_set_hazard_lights_on(B_FALSE);
+
+		bp.step++;
+		bp.step_start_t = bp.cur_t;
+	}
+}
+
 static float
 bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 {
@@ -928,7 +1543,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 	if (!late_plan_requested &&
 	    ((!slave_mode && list_head(&bp.segs) == NULL) ||
 	    (slave_mode && op_complete))) {
-		if (bp.step < PB_STEP_CONNECTING) {
+		if (bp.step < PB_STEP_GRABBING) {
 			bp_complete();
 			return (0);
 		}
@@ -942,139 +1557,36 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 	 */
 	if (!slave_mode && bp.tug != NULL && bp.tug->info->quick_debug) {
 		if (bp.step < PB_STEP_CONNECTED) {
+			double lift = bp.tug->info->lift_height + bp.acf.nw_len;
 			bp.step = PB_STEP_CONNECTED;
 			tug_set_lift_pos(1);
 			tug_set_lift_arm_pos(bp.tug, 0, B_TRUE);
-			dr_setf(&drs.leg_len, bp.tug->info->lift_height +
-			    bp.acf.nw_len);
+			dr_setvf(&drs.leg_len, &lift, bp.acf.nw_i, 1);
 			/*
 			 * Just a quick'n'dirty way of removing all tug driving
 			 * segs. The actual tug position will be updated in
 			 * draw_tugs.
 			 */
 			tug_set_pos(bp.tug, ZERO_VECT2, 0, 0);
-		} else if (bp.step == PB_STEP_DISCONNECTING) {
+		} else if (bp.step == PB_STEP_UNGRABBING) {
 			bp.step = PB_STEP_DRIVING_AWAY;
-			dr_setf(&drs.leg_len, bp.acf.nw_len);
+			dr_setvf(&drs.leg_len, &bp.acf.nw_len, bp.acf.nw_i, 1);
 		}
 	}
 
 	switch (bp.step) {
 	case PB_STEP_OFF:
 		VERIFY(bp.step != PB_STEP_OFF);
-	case PB_STEP_TUG_LOAD: {
+	case PB_STEP_TUG_LOAD:
 		ASSERT3P(bp.tug, ==, NULL);
-		if (!slave_mode) {
-			char icao[8] = { 0 };
-			(void) find_nearest_airport(icao);
-			bp.tug = tug_alloc_auto(dr_getf(&drs.mtow),
-			    dr_getf(&drs.leg_len), bp.acf.tirrad,
-			    bp.acf.nw_type,
-			    strcmp(icao, "") != 0 ? icao : NULL);
-			if (bp.tug == NULL) {
-				XPLMSpeakString("Pushback failure: no suitable "
-				    "tug for your aircraft.");
-				bp_complete();
-				return (0);
-			}
-			strlcpy(bp_tug_name, bp.tug->info->tug_name,
-			    sizeof (bp_tug_name));
-		} else {
-			char tug_name[sizeof (bp_tug_name)];
-			char *ext;
-
-			/* make sure the tug name is properly terminated */
-			memcpy(tug_name, bp_tug_name, sizeof (tug_name));
-			tug_name[sizeof (tug_name) - 1] = '\0';
-
-			/* wait until the tug name has been synced */
-			if (strcmp(tug_name, "") == 0)
-				break;
-
-			/* security check - must not contain a dir separator */
-			if (strchr(tug_name, '/') != NULL ||
-			    strchr(tug_name, '\\') != NULL)
-				break;
-
-			/* sanity check - must end in '.tug' */
-			ext = strrchr(tug_name, '.');
-			if (ext == NULL || strcmp(&ext[1], "tug") != 0)
-				break;
-
-			bp.tug = tug_alloc_man(tug_name, bp.acf.tirrad);
-			if (bp.tug == NULL) {
-				char msg[128];
-				snprintf(msg, sizeof (msg), "Pushback failure: "
-				    "master requested tug \"%s\", which we "
-				    "don't have in our library. Please sync "
-				    "your tug libraries before trying again.",
-				    tug_name);
-				XPLMSpeakString(msg);
-				bp_complete();
-				return (0);
-			}
-		}
-		if (!bp.tug->info->drive_debug) {
-			vect2_t p_start, dir;
-			dir = hdg2dir(bp.cur_pos.hdg);
-			p_start = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-			    -bp.acf.nw_z + TUG_APPCH_LONG_DIST));
-			p_start = vect2_add(p_start, vect2_scmul(vect2_norm(dir,
-			    B_TRUE), 10 * bp.tug->veh.wheelbase));
-			tug_set_pos(bp.tug, p_start,
-			    normalize_hdg(bp.cur_pos.hdg - 90),
-			    bp.tug->veh.max_fwd_spd);
-		} else {
-			tug_set_pos(bp.tug, bp.cur_pos.pos, bp.cur_pos.hdg, 0);
-		}
-		bp.step++;
-		bp.step_start_t = bp.cur_t;
+		if (!pb_step_tug_load())
+			return (0);
 		break;
-	}
 	case PB_STEP_START:
-		if (!bp.tug->info->drive_debug) {
-			vect2_t left_off, p_end, dir;
-
-			dir = hdg2dir(bp.cur_pos.hdg);
-
-			left_off = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-			    -bp.acf.nw_z + TUG_APPCH_LONG_DIST));
-			left_off = vect2_add(left_off, vect2_scmul(
-			    vect2_norm(dir, B_FALSE),
-			    2 * bp.tug->veh.wheelbase));
-			p_end = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-			    (-bp.acf.nw_z) + bp.tug->info->apch_dist));
-
-			VERIFY(tug_drive2point(bp.tug, left_off,
-			    normalize_hdg(bp.cur_pos.hdg - 90)));
-			VERIFY(tug_drive2point(bp.tug, p_end, bp.cur_pos.hdg));
-		} else {
-			for (seg_t *seg = list_head(&bp.segs); seg != NULL;
-			    seg = list_next(&bp.segs, seg)) {
-				seg_t *seg2 = calloc(1, sizeof (*seg2));
-				memcpy(seg2, seg, sizeof (*seg2));
-				list_insert_tail(&bp.tug->segs, seg2);
-			}
-		}
-
-		msg_play(MSG_DRIVING_UP);
-		bp.step++;
-		bp.step_start_t = bp.cur_t;
+		pb_step_start();
 		break;
 	case PB_STEP_DRIVING_UP_CLOSE:
-		if (!tug_is_stopped(bp.tug)) {
-			/*
-			 * Keep resetting the start time to enforce
-			 * the state transition delay once the tug stops.
-			 */
-			bp.step_start_t = bp.cur_t;
-		} else  if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
-			tug_set_cradle_beeper_on(bp.tug, B_TRUE);
-			tug_set_cradle_lights_on(B_TRUE);
-			tug_set_hazard_lights_on(B_TRUE);
-			bp.step++;
-			bp.step_start_t = bp.cur_t;
-		}
+		pb_step_driving_up_close();
 		break;
 	case PB_STEP_OPENING_CRADLE: {
 		double d_t = bp.cur_t - bp.step_start_t;
@@ -1085,7 +1597,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		if (d_t >= PB_CRADLE_DELAY)
 			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
 		if (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY) {
-			if (dr_getf(&drs.pbrake) == 0)
+			if (!pbrake_is_set())
 				msg_play(MSG_RDY2CONN);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
@@ -1093,137 +1605,19 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		break;
 	}
 	case PB_STEP_WAITING_FOR_PBRAKE:
-		if (dr_getf(&drs.pbrake) != 0) {
-			vect2_t p_end, dir;
-
-			dir = hdg2dir(bp.cur_pos.hdg);
-			p_end = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-			    (-bp.acf.nw_z) + (-bp.tug->info->lift_wall_z) +
-			    bp.acf.tirrad));
-			(void) tug_drive2point(bp.tug, p_end,
-			    bp.cur_pos.hdg);
-			bp.step++;
-			bp.step_start_t = bp.cur_t;
-		}
+		pb_step_waiting_for_pbrake();
 		break;
 	case PB_STEP_DRIVING_UP_CONNECT:
-		if (!slave_mode) {
-			dr_setf(&drs.lbrake, 0.9);
-			dr_setf(&drs.rbrake, 0.9);
-		}
-		if (!tug_is_stopped(bp.tug)) {
-			/*
-			 * Keep resetting the start time to enforce a state
-			 * transition delay once the tug stops.
-			 */
-			bp.step_start_t = bp.cur_t;
-		} else if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
-			tug_set_cradle_beeper_on(bp.tug, B_TRUE);
-			bp.step++;
-			bp.step_start_t = bp.cur_t;
-		}
+		pb_step_driving_up_connect();
 		break;
-	case PB_STEP_CONNECTING: {
-		double d_t = bp.cur_t - bp.step_start_t, steer = 0;
-		double lift;
-		double cradle_closed_fract = d_t / PB_CONN_LIFT_DELAY;
-		double lift_fract = (d_t - PB_CONN_LIFT_DELAY) /
-		    PB_CONN_LIFT_DURATION;
-
-		if (!slave_mode) {
-			dr_setvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1);
-			dr_setf(&drs.lbrake, 0.9);
-			dr_setf(&drs.rbrake, 0.9);
-		}
-
-		cradle_closed_fract = MAX(MIN(cradle_closed_fract, 1), 0);
-		lift_fract = MAX(MIN(lift_fract, 1), 0);
-
-		tug_set_lift_pos(lift_fract);
-		tug_set_lift_arm_pos(bp.tug, 1 - cradle_closed_fract, B_TRUE);
-
-		/* Iterate the lift */
-		lift = (bp.tug->info->lift_height * lift_fract) + bp.acf.nw_len;
-		if (!slave_mode)
-			dr_setvf(&drs.leg_len, &lift, 0, 1);
-
-		/*
-		 * While lifting, we iterate a ramp-up and ramp-down of the
-		 * tug's Tractive Effort to simulate that the engine is
-		 * being used to pressurize a pneumatic piston.
-		 */
-		if (d_t >= PB_CONN_LIFT_DELAY &&
-		    d_t < PB_CONN_LIFT_DELAY + PB_CONN_LIFT_DURATION) {
-			tug_set_TE_override(bp.tug, B_TRUE);
-			tug_set_TE_snd(bp.tug, PB_LIFT_TE, bp.d_t);
-		}
-		if (d_t >= PB_CONN_LIFT_DELAY + PB_CONN_LIFT_DURATION) {
-			tug_set_TE_override(bp.tug, B_TRUE);
-			tug_set_TE_snd(bp.tug, 0, bp.d_t);
-			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
-		}
-
-		if (d_t >= PB_CONN_DELAY) {
-			if (late_plan_requested) {
-				/*
-				 * The user requsted a late plan, so this is as
-				 * far as we can go without segments. Also wait
-				 * for the camera to stop.
-				 */
-				if (!slave_mode) {
-					dr_setf(&drs.lbrake, 0.9);
-					dr_setf(&drs.rbrake, 0.9);
-				}
-				if (!late_plan_end_cond())
-					break;
-				late_plan_requested = B_FALSE;
-				/*
-				 * We normally save the route during bp_start,
-				 * but since the user requested late planning,
-				 * we need to save it now.
-				 */
-				if (!slave_mode) {
-					plan_complete = B_TRUE;
-					route_save(&bp.segs);
-				}
-			}
-
-			tug_set_TE_override(bp.tug, B_FALSE);
-			msg_play(MSG_CONNECTED);
-			bp.step++;
-			bp.step_start_t = bp.cur_t;
-		}
+	case PB_STEP_GRABBING:
+		pb_step_grab();
 		break;
-	}
+	case PB_STEP_LIFTING:
+		pb_step_lift();
+		break;
 	case PB_STEP_CONNECTED:
-
-		if (dr_geti(&drs.pbrake) != 0) {
-			/*
-			 * Keep resetting the start time to enforce
-			 * the state delay after the parking brake is released.
-			 */
-			bp.step_start_t = bp.cur_t;
-		} else if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
-			if (!slave_mode) {
-				seg_t *seg = list_head(&bp.segs);
-
-				ASSERT(seg != NULL);
-				if (seg->backward)
-					msg_play(MSG_START_PB);
-				else
-					msg_play(MSG_START_TOW);
-			} else {
-				/*
-				 * Since we don't know the segs, we'll just
-				 * assume it's going to be backward (as that's
-				 * the most likely direction anyhow).
-				 */
-				msg_play(MSG_START_PB);
-			}
-
-			bp.step++;
-			bp.step_start_t = bp.cur_t;
-		}
+		pb_step_connected();
 		break;
 	case PB_STEP_STARTING:
 		if (!slave_mode)
@@ -1233,196 +1627,53 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			bp.step_start_t = bp.cur_t;
 		} else {
 			turn_nosewheel(0, STRAIGHT_STEER_RATE);
-			push_at_speed(0, bp.veh.max_accel);
+			push_at_speed(0, bp.veh.max_accel, B_FALSE);
 		}
 		break;
 	case PB_STEP_PUSHING:
-		if (!slave_mode) {
-			dr_setf(&drs.lbrake, 0);
-			dr_setf(&drs.rbrake, 0);
-			dr_seti(&drs.override_steer, 1);
-			if (!bp_run_push()) {
-				bp.step++;
-				bp.step_start_t = bp.cur_t;
-				op_complete = B_TRUE;
-			}
-		} else {
-			/*
-			 * Since in slave mode we don't actually know our
-			 * tractive effort, just simulate it by following
-			 * the aircraft's speed of motion.
-			 */
-			tug_set_TE_override(bp.tug, B_FALSE);
-			/* in slave mode we don't do anything, just following */
-			acf2tug_steer();
-		}
+		pb_step_pushing();
 		break;
-	case PB_STEP_STOPPING: {
-		if (!slave_mode) {
-			(void) turn_nosewheel(0, STRAIGHT_STEER_RATE);
-			push_at_speed(0, bp.veh.max_accel);
-		}
-		acf2tug_steer();
-		if (ABS(bp.cur_pos.spd) > SPEED_COMPLETE_THRESH) {
-			/*
-			 * Keep resetting the start time to enforce a delay
-			 * once stopped.
-			 */
-			bp.step_start_t = bp.cur_t;
-		} else {
-			if (!slave_mode) {
-				dr_setf(&drs.lbrake, 0.9);
-				dr_setf(&drs.rbrake, 0.9);
-			}
-			if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
-				if (dr_getf(&drs.pbrake) == 0)
-					msg_play(MSG_OP_COMPLETE);
-				bp.step++;
-				bp.step_start_t = bp.cur_t;
-			}
-		}
+	case PB_STEP_STOPPING:
+		pb_step_stopping();
 		break;
-	}
 	case PB_STEP_STOPPED:
-		if (!slave_mode) {
-			turn_nosewheel(0, STRAIGHT_STEER_RATE);
-			push_at_speed(0, bp.veh.max_accel);
-			dr_setf(&drs.lbrake, 0.9);
-			dr_setf(&drs.rbrake, 0.9);
-		}
-		acf2tug_steer();
-		if (dr_geti(&drs.pbrake) == 0) {
-			/*
-			 * Keep resetting the start time to enforce a delay
-			 * when the parking brake is set.
-			 */
-			bp.step_start_t = bp.cur_t;
-		} else if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
-			msg_play(MSG_DISCO);
-			bp.step++;
-			bp.step_start_t = bp.cur_t;
-		}
+		pb_step_stopped();
 		break;
-	case PB_STEP_DISCONNECTING: {
-		double rmng_t = (bp.step_start_t + PB_CONN_DELAY) - bp.cur_t;
-		double cradle_closed_fract = rmng_t / PB_CONN_LIFT_DELAY;
-		double lift_fract = (rmng_t - PB_CONN_LIFT_DELAY) /
-		    PB_CONN_LIFT_DURATION;
-		double lift;
-
-		if (!slave_mode) {
-			turn_nosewheel(0, STRAIGHT_STEER_RATE);
-			dr_setf(&drs.lbrake, 0.9);
-			dr_setf(&drs.rbrake, 0.9);
-		}
-		acf2tug_steer();
-
-		cradle_closed_fract = MAX(MIN(cradle_closed_fract, 1), 0);
-		lift_fract = MAX(MIN(lift_fract, 1), 0);
-
-		tug_set_lift_pos(lift_fract);
-		tug_set_lift_arm_pos(bp.tug, 1 - cradle_closed_fract, B_TRUE);
-
-		/* Iterate the lift */
-		lift = bp.tug->info->lift_height * lift_fract;
-		lift += bp.acf.nw_len;
-		if (!slave_mode)
-			dr_setvf(&drs.leg_len, &lift, 0, 1);
-
-		if (rmng_t < PB_CONN_LIFT_DURATION + PB_CONN_LIFT_DELAY &&
-		    rmng_t > PB_CONN_LIFT_DELAY) {
-			tug_set_cradle_air_on(bp.tug, B_TRUE, bp.cur_t);
-			tug_set_cradle_beeper_on(bp.tug, B_TRUE);
-		} else if (rmng_t < PB_CONN_LIFT_DELAY) {
-			tug_set_cradle_air_on(bp.tug, B_FALSE, bp.cur_t);
-		}
-
-		if (rmng_t <= 0)
-			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
-
-		if (rmng_t <= -STATE_TRANS_DELAY) {
-			vect2_t dir, p;
-
-			dir = hdg2dir(bp.cur_pos.hdg);
-			if (!slave_mode) {
-				dr_setf(&drs.lbrake, 0);
-				dr_setf(&drs.rbrake, 0);
-			}
-
-			p = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-			    -bp.acf.nw_z + bp.tug->info->apch_dist));
-
-			tug_set_TE_override(bp.tug, B_FALSE);
-			(void) tug_drive2point(bp.tug, p, bp.cur_pos.hdg);
-
-			bp.step++;
-			bp.step_start_t = bp.cur_t;
-		}
+	case PB_STEP_LOWERING:
+		pb_step_lowering();
 		break;
-	}
+	case PB_STEP_UNGRABBING:
+		pb_step_ungrabbing();
+		break;
 	case PB_STEP_MOVING_AWAY:
+		if (bp.tug->info->lift_type == LIFT_WINCH && !slave_mode) {
+			/*
+			 * When moving the tug away from the aircraft, the
+			 * aircraft will have been positioned on the platform.
+			 * Slowly lower the nosewheel the rest of the way.
+			 */
+			double dist = vect2_dist(bp.cur_pos.pos,
+			    bp.tug->pos.pos);
+			const tug_info_t *ti = bp.tug->info;
+			double plat_len = ti->lift_wall_z - ti->plat_z;
+			double x, lift;
+
+			dist -= (-bp.acf.nw_z);
+			dist -= (-ti->lift_wall_z);
+			x = 1 - (dist / plat_len);
+			x = MIN(MAX(x, 0), 1);
+			lift = ti->plat_h * x + bp.acf.nw_len;
+			dr_setvf(&drs.leg_len, &lift, bp.acf.nw_i, 1);
+		}
 		if (tug_is_stopped(bp.tug)) {
 			tug_set_cradle_beeper_on(bp.tug, B_TRUE);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
 		}
 		break;
-	case PB_STEP_CLOSING_CRADLE: {
-		double d_t = bp.cur_t - bp.step_start_t;
-
-		tug_set_lift_arm_pos(bp.tug, 1 - d_t / PB_CRADLE_DELAY,
-		    B_FALSE);
-		tug_set_tire_sense_pos(bp.tug, 1 - d_t / PB_CRADLE_DELAY);
-		tug_set_lift_pos(d_t / PB_CRADLE_DELAY);
-
-		if (d_t >= PB_CRADLE_DELAY)
-			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
-
-		if (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY) {
-			vect2_t turn_p, abeam_p, end_p, dir, norm_dir;
-			double turn_hdg, back_hdg;
-			double square_side = MAX(5 * bp.tug->veh.wheelbase,
-			    1.5 * bp.veh.wheelbase);
-
-			dir = hdg2dir(bp.cur_pos.hdg);
-			norm_dir = vect2_norm(dir, B_TRUE);
-
-			/*
-			 * turn_p is offset 2x wheelbase forward and
-			 * 1x wheelbase to the right
-			 */
-			turn_p = vect2_add(bp.tug->pos.pos, vect2_scmul(dir,
-			    5 * bp.tug->veh.wheelbase));
-			turn_p = vect2_add(turn_p, vect2_scmul(norm_dir,
-			    square_side));
-			turn_hdg = normalize_hdg(bp.cur_pos.hdg + 90);
-
-			/* abeam_p is on right wing, 3x wheelbase away */
-			abeam_p = vect2_add(bp.cur_pos.pos,
-			    vect2_scmul(norm_dir, 2 * square_side));
-			back_hdg = normalize_hdg(bp.cur_pos.hdg + 180);
-
-			/*
-			 * end_p is 3x wheelbase behind and 3x wheelbase to
-			 * the right.
-			 */
-			end_p = vect2_add(abeam_p, vect2_scmul(dir,
-			    -3 * square_side));
-
-			msg_play(MSG_DONE);
-
-			VERIFY(tug_drive2point(bp.tug, turn_p, turn_hdg));
-			VERIFY(tug_drive2point(bp.tug, abeam_p, back_hdg));
-			VERIFY(tug_drive2point(bp.tug, end_p, back_hdg));
-
-			tug_set_cradle_lights_on(B_FALSE);
-			tug_set_hazard_lights_on(B_FALSE);
-
-			bp.step++;
-			bp.step_start_t = bp.cur_t;
-		}
+	case PB_STEP_CLOSING_CRADLE:
+		pb_step_closing_cradle();
 		break;
-	}
 	case PB_STEP_DRIVING_AWAY:
 		if (tug_is_stopped(bp.tug)) {
 			bp_complete();
@@ -2234,9 +2485,8 @@ bp_cam_start(void)
 	}
 
 	(void) find_nearest_airport(icao);
-	if (!tug_available(dr_getf(&drs.mtow), dr_getf(&drs.leg_len),
-	    dr_getf(&drs.tirrad), bp.acf.nw_type,
-	    strcmp(icao, "") != 0 ? icao : NULL)) {
+	if (!tug_available(dr_getf(&drs.mtow), bp.acf.nw_len, bp.acf.tirrad,
+	    bp.acf.nw_type, strcmp(icao, "") != 0 ? icao : NULL)) {
 		XPLMSpeakString("Pushback failure: no suitable tug for your "
 		    "aircraft.");
 		return (B_FALSE);
@@ -2249,7 +2499,7 @@ bp_cam_start(void)
 		    "stationary.");
 		return (B_FALSE);
 	}
-	if (dr_getf(&drs.pbrake) == 0) {
+	if (!pbrake_is_set()) {
 		XPLMSpeakString("Can't start pushback planner: please "
 		    "set the parking brake first.");
 		return (B_FALSE);

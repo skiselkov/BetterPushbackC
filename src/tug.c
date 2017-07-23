@@ -71,6 +71,7 @@ typedef enum {
 	ANIM_HAZARD_LIGHTS,
 	ANIM_DRIVER_ORIENTATION,
 	ANIM_CAB_POSITION,
+	ANIM_WINCH_ON,
 	TUG_NUM_ANIMS
 } anim_t;
 
@@ -136,7 +137,8 @@ static anim_info_t anim[TUG_NUM_ANIMS] = {
     { .name = "bp/anim/reverse_lights" },
     { .name = "bp/anim/hazard_lights" },
     { .name = "bp/anim/driver_orientation" },
-    { .name = "bp/anim/cab_position" }
+    { .name = "bp/anim/cab_position" },
+    { .name = "bp/anim/winch_on" }
 };
 
 static bool_t cradle_lights_req = B_FALSE;
@@ -211,6 +213,8 @@ tug_info_read(const char *tugdir, const char *tug_name)
 	ti->rear_z = NAN;
 	ti->lift_wall_z = NAN;
 	ti->apch_dist = NAN;
+	ti->plat_z = NAN;
+	ti->plat_h = NAN;
 
 	/* set some defaults */
 	ti->max_fwd_speed = TUG_MAX_FWD_SPD;
@@ -309,6 +313,10 @@ tug_info_read(const char *tugdir, const char *tug_name)
 			READ_NUMBER("%u", "num_rev_gears", &ti->num_rev_gears);
 		} else if (strcmp(option, "gear_compat") == 0) {
 			READ_NUMBER("%x", "gear_compat", &ti->gear_compat);
+		} else if (strcmp(option, "plat_z") == 0) {
+			READ_NUMBER("%lf", "plat_z", &ti->plat_z);
+		} else if (strcmp(option, "plat_h") == 0) {
+			READ_NUMBER("%lf", "plat_h", &ti->plat_h);
 		} else if (strcmp(option, "arpt") == 0) {
 			READ_FILENAME("arpt", ti->arpt);
 		} else if (strcmp(option, "engine_snd") == 0) {
@@ -326,6 +334,27 @@ tug_info_read(const char *tugdir, const char *tug_name)
 		} else if (strcmp(option, "quick_debug") == 0) {
 			logMsg("Quick test debugging active on %s", tugdir);
 			ti->quick_debug = B_TRUE;
+		} else if (strcmp(option, "electric_drive") == 0) {
+			ti->electric_drive = B_TRUE;
+		} else if (strcmp(option, "lift_type") == 0) {
+			char type[16];
+			if (fscanf(fp, "%15s", type) != 1) {
+				logMsg("Malformed tug config file %s: expected "
+				    "word following \"lift_type\" keyword.",
+				    cfgfilename);
+				goto errout;
+			}
+			if (strcmp(type, "grab") == 0) {
+				ti->lift_type = LIFT_GRAB;
+			} else if (strcmp(type, "winch") == 0) {
+				ti->lift_type = LIFT_WINCH;
+			} else {
+				logMsg("Malformed tug config file %s: invalid "
+				    "value \"%s\" for \"lift_type\" (expected "
+				    "\"grab\" or \"winch\").", cfgfilename,
+				    type);
+				goto errout;
+			}
 		} else {
 			logMsg("Malformed tug config file %s: unknown "
 			    "option '%s'", cfgfilename, option);
@@ -380,6 +409,10 @@ tug_info_read(const char *tugdir, const char *tug_name)
 	VALIDATE_TUG_INT(ti->num_fwd_gears, "num_fwd_gears");
 	VALIDATE_TUG_INT(ti->num_rev_gears, "num_rev_gears");
 	VALIDATE_TUG_STR(ti->engine_snd, "engine_snd");
+	if (ti->lift_type == LIFT_WINCH) {
+		VALIDATE_TUG_REAL_NAN(ti->plat_z, "plat_z");
+		VALIDATE_TUG_REAL_NAN(ti->plat_h, "plat_h");
+	}
 
 #undef	VALIDATE_TUG_STR
 #undef	VALIDATE_TUG_REAL
@@ -591,7 +624,10 @@ tug_alloc_common(tug_info_t *ti, double tirrad)
 
 	/* veh_slow is identical to 'veh', but with a much slower speed */
 	tug->veh_slow = tug->veh;
-	tug->veh_slow.max_fwd_spd = tug->veh.max_fwd_spd / 10;
+	if (!tug->info->electric_drive)
+		tug->veh_slow.max_fwd_spd = tug->veh.max_fwd_spd / 10;
+	else
+		tug->veh_slow.max_fwd_spd = tug->veh.max_fwd_spd / 30;
 	tug->veh_slow.max_rev_spd = tug->veh.max_rev_spd / 10;
 	tug->veh_slow.max_accel = tug->info->max_accel / 3;
 	tug->veh_slow.max_decel = tug->info->max_decel / 3;
@@ -918,6 +954,7 @@ tug_anim(tug_t *tug, double d_t)
 		anim[ANIM_CRADLE_LIGHTS].value = value;
 		anim[ANIM_REVERSE_LIGHTS].value = value;
 		anim[ANIM_HAZARD_LIGHTS].value = value;
+		anim[ANIM_WINCH_ON].value = value;
 	}
 }
 
@@ -986,6 +1023,21 @@ tug_draw(tug_t *tug, double cur_t)
 			gain = 0;
 	} else {
 		gain = 0;
+	}
+
+	if (tug->info->electric_drive) {
+		double x;
+		if (tug->TE_override) {
+			x = tug->last_TE_fract;
+		} else {
+			if (tug->pos.spd == 0) {
+				x = 0;
+			} else {
+				x = (ABS(tug->pos.spd) /
+				    tug->info->max_fwd_speed) + 0.2;
+			}
+		}
+		gain *= x;
 	}
 
 	wav_set_gain(tug->engine_snd, gain);
@@ -1096,6 +1148,13 @@ tug_is_stopped(const tug_t *tug)
 	return (list_head(&tug->segs) == NULL && tug->pos.spd == 0);
 }
 
+double
+tug_plat_h(const tug_t *tug)
+{
+	return ((1 - (tug->tirrad / (tug->info->lift_wall_z -
+	    tug->info->plat_z))) * tug->info->plat_h);
+}
+
 void
 tug_set_lift_pos(float x)
 {
@@ -1135,4 +1194,11 @@ void
 tug_set_hazard_lights_on(bool_t flag)
 {
 	anim[ANIM_HAZARD_LIGHTS].value = flag;
+}
+
+void
+tug_set_winch_on(tug_t *tug, bool_t flag)
+{
+	UNUSED(tug);
+	anim[ANIM_WINCH_ON].value = flag;
 }

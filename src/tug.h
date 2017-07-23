@@ -34,8 +34,20 @@ extern "C" {
 
 #define	TUG_WHEELBASE(tug)	((tug)->info->rear_z - (tug)->info->front_z)
 
+/* Defines how the tug lifts the aircraft up. */
+typedef enum {
+	/* grab the nose wheel and lift it up using arms - the default */
+	LIFT_GRAB,
+	/* winch nose gear onto a platform and then lift the platform */
+	LIFT_WINCH
+} lift_t;
+
 typedef struct {
 	char	*tug_name;	/* name of tug directory under objects/tugs */
+
+	lift_t	lift_type;
+	bool_t	electric_drive;
+
 	char	*tug;		/* main OBJ */
 
 	double	max_steer;	/* max steering deflection, degrees */
@@ -78,6 +90,16 @@ typedef struct {
 
 	int	sort_rand;	/* random sorting number */
 
+	/*
+	 * Information related to winch-style tugs.
+	 * 1) plat_z - Long axis of the end of the lift platform (meters).
+	 * 2) plat_h - Height of the base of the platform above ground when
+	 *	the platform is fully lowered (meters). This information is
+	 *	used to animate the nose gear being lifted up as it is being
+	 *	winched onto the platform.
+	 */
+	double	plat_z, plat_h;
+
 	bool_t	anim_debug;	/* animation debugging active */
 	bool_t	drive_debug;	/* driving debugging active */
 	bool_t	quick_debug;	/* quick test debugging active */
@@ -87,12 +109,12 @@ typedef struct {
 
 typedef struct {
 	vehicle_pos_t	pos;
-	vehicle_t	veh, veh_slow;
+	vehicle_t	veh, veh_slow, veh_super_slow;
 	bool_t		steer_override;
 	double		cur_steer;
 	double		last_mis_hdg;
 
-	XPLMObjectRef	tug;
+	XPLMObjectRef	tug, winch;
 	double		front_phi, rear_phi;	/* tire roll angle, degrees */
 
 	tug_info_t	*info;
@@ -150,12 +172,14 @@ void tug_set_cradle_beeper_on(tug_t *tug, bool_t flag);
 void tug_set_steering(tug_t *tug, double steer, double d_t);
 
 bool_t tug_is_stopped(const tug_t *tug);
+double tug_plat_h(const tug_t *tug);
 
 void tug_set_lift_pos(float x);
 void tug_set_lift_arm_pos(const tug_t *tug, float x, bool_t grabbing_tire);
 void tug_set_tire_sense_pos(const tug_t *tug, float x);
 void tug_set_cradle_lights_on(bool_t flag);
 void tug_set_hazard_lights_on(bool_t flag);
+void tug_set_winch_on(tug_t *tug, bool_t flag);
 
 #ifdef	__cplusplus
 }
