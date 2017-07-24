@@ -39,9 +39,8 @@
 #include "tug.h"
 #include "xplane.h"
 
-#define	BP_PLUGIN_VERSION	"0.23"
-#define BP_PLUGIN_NAME		"BetterPushback " BP_PLUGIN_VERSION
-#define BP_PLUGIN_SIG		"skiselkov.BetterPushback." BP_PLUGIN_VERSION
+#define BP_PLUGIN_NAME		"BetterPushback-" BP_PLUGIN_VERSION
+#define BP_PLUGIN_SIG		"skiselkov.BetterPushback"
 #define BP_PLUGIN_DESCRIPTION	"Generic automated pushback plugin"
 
 #define	SMARTCOPILOT_CHECK_INTVAL	1	/* second */
@@ -330,6 +329,7 @@ XPluginStart(char *name, char *sig, char *desc)
 
 	acfutils_logfunc = XPLMDebugString;
 	crc64_srand(microclock());
+	logMsg("This is BetterPushback-" BP_PLUGIN_VERSION);
 
 	/* Always use Unix-native paths on the Mac! */
 	XPLMEnableFeature("XPLM_USE_NATIVE_PATHS", 1);

@@ -59,6 +59,13 @@ elseif(UNIX)
 	include_directories(bp PUBLIC "../libpng/libpng-linux-64/include")
 endif()
 
+# Yes, we need to strip a trailing newline from command output. CMake is
+# "smart" like that...
+execute_process(COMMAND git rev-parse --short HEAD
+    OUTPUT_VARIABLE BP_PLUGIN_VERSION)
+string(REGEX REPLACE "\n$" "" BP_PLUGIN_VERSION "${BP_PLUGIN_VERSION}")
+
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DBP_PLUGIN_VERSION='\"${BP_PLUGIN_VERSION}\"'")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DXPLM200=1 -DXPLM210=1")
 if(APPLE)
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DAPL=1 -DIBM=0 -DLIN=0")
