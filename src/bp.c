@@ -78,7 +78,7 @@
  * X-Plane 10's tire model is a bit less forgiving of slow creeping,
  * so bump the minimum breakaway speed on that version.
  */
-#define	BREAKAWAY_THRESH	(bp.xplane_version >= 1100 ? 0.1 : 0.5)
+#define	BREAKAWAY_THRESH	(bp.xplane_version >= 11000 ? 0.1 : 0.35)
 #define	SEG_TURN_MULT		0.9	/* leave 10% for oversteer */
 #define	SPEED_COMPLETE_THRESH	0.05	/* m/s */
 /* beyond this our push algos go nuts */
