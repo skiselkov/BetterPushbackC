@@ -39,6 +39,7 @@ DEFINES += _GNU_SOURCE DEBUG _FILE_OFFSET_BITS=64 _USE_MATH_DEFINES
 
 # Latest X-Plane APIs. No legacy support needed.
 DEFINES += XPLM200 XPLM210
+DEFINES += BP_PLUGIN_VERSION=\'\"$$system("git rev-parse --short HEAD")\"\'
 
 # Just a generally good idea not to depend on shipped libgcc.
 !macx {
