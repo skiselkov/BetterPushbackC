@@ -19,46 +19,46 @@ msgstr ""
 
 #: bp.c:2501
 msgid "Can't start planner: aircraft not stationary."
-msgstr "Kann Planer nicht öfnen: Flugzeug steht nicht still."
+msgstr "Kann Planer nicht öffnen: Flugzeug steht nicht still."
 
 #: bp.c:2511
 msgid ""
 "Can't start planner: pushback already in progress. Please stop the pushback "
 "operation first."
-msgstr "Kann Planer nich öfnen: Pushback schon unterwegs. Bitte zuerst die "
+msgstr "Kann Planer nicht öffnen: Pushback schon unterwegs. Bitte zuerst die "
 "Operation stoppen."
 
 #: bp.c:2506
 msgid "Can't start pushback planner: please set the parking brake first."
-msgstr "Kann Planer nich öfnen: bitte die Parkbremse zuerst setzen."
+msgstr "Kann Planer nicht öffnen: Bitte zuerst die Parkbremse setzen."
 
 #: bp.c:537
 msgid ""
 "Pushback advisory: you have your radio volume turned very low and may not be "
 "able to hear ground crew. Please increase your radio volume in the X-Plane "
 "sound preferences."
-msgstr "Pushback Advisory: Ihre Radio Lautsterke ist sehr niedrich und Sie "
-"werden die Ground Crew nicht hören können. Bitte erhöen sie die Radio "
-"Lautsterke in den X-Plane Einstellungen."
+msgstr "Pushback Advisory: Ihre Radio Lautstärke ist sehr niedrig und Sie "
+"werden die Ground Crew nicht hören können. Bitte erhöhen Sie die Radio "
+"Lautstärke in den X-Plane Einstellungen."
 
 #: bp.c:485
 #, c-format
 msgid ""
 "Pushback failure: X-Plane version too old. This plugin requires at least X-"
 "Plane %s to operate."
-msgstr "Pushback Fehler: X-Plane verzion ist zu alt. Diese Plugin benötigt "
-"mindestens X-Plane %s um zu funkzionieren."
+msgstr "Pushback Fehler: X-Plane Version ist zu alt. Dieses Plugin benötigt "
+"mindestens X-Plane %s um zu funktionieren."
 
 #: bp.c:453
 msgid "Pushback failure: aircraft appears to not have any steerable gears."
-msgstr "Pushback Fehler: das Flugzeug scheint kein lenkbares Bugrad zu haben."
+msgstr "Pushback Fehler: Das Flugzeug scheint kein lenkbares Bugrad zu haben."
 
 #: bp.c:498
 msgid ""
 "Pushback failure: aircraft has non-positive wheelbase. Sorry, tail draggers "
 "aren't supported."
-msgstr "Pushback Fehler: das Flugzeug hat einen nicht-positiven Radstand. "
-"Flugzeuge mit Hinterrad sind leider nich unterstützt."
+msgstr "Pushback Fehler: Das Flugzeug hat einen nicht-positiven Radstand. "
+"Flugzeuge mit Spornrad werden leider nicht unterstützt."
 
 #: bp.c:2485
 msgid "Pushback failure: aircraft is incompatible with BetterPushback."
@@ -69,20 +69,20 @@ msgstr "Pushback Fehler: Flugzeugmodel ist nicht mit BetterPushback kompatibel."
 msgid ""
 "Pushback failure: master requested tug \"%s\", which we don't have in our in "
 "our library. Please sync your tug libraries before trying again."
-msgstr "Pushback Fehler: Hauptmachine fordert den Schlepper \"%s\", aber den "
+msgstr "Pushback Fehler: Hauptmaschine fordert den Schlepper \"%s\", aber den "
 "haben wir nicht im Plugin. Bitte synchronisieren sie die Plugins."
 
 #: bp.c:935 bp.c:2493
 msgid "Pushback failure: no suitable tug for your aircraft."
-msgstr "Pushback fehler: kein passendes Schleppgerät für ihr Flugzeug "
+msgstr "Pushback Fehler: Kein passendes Schleppgerät für Ihr Flugzeug "
 "gefunden."
 
 #: ../xplane.c:290 ../xplane.c:308
 msgid ""
 "Pushback failure: smartcopilot attempted to switch master/slave or network "
 "connection lost. Stopping operation."
-msgstr "Pushback fehler: smartcopilot hat eine Master/Slave Umschaltung "
-"versucht, order die Netzewerk verbindung wurde verloren. Stoppe den Pushback."
+msgstr "Pushback Fehler: Smartcopilot hat eine Master/Slave Umschaltung "
+"versucht oder die Netzwerkverbindung wurde verloren. Stoppe den Pushback."
 
 #: ../xplane.c:375 ../xplane.c:441
 msgid "Start pushback"
@@ -94,7 +94,7 @@ msgstr "Pushback stoppen"
 
 #: ../xplane.c:379
 msgid "Start pushback planner"
-msgstr "Pushback Planer öfnen"
+msgstr "Pushback Planer öffnen"
 
 #: ../xplane.c:381
 msgid "Stop pushback planner"
