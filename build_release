@@ -65,6 +65,10 @@ DIST_FILES=(
     'objects/tugs/AST-1X.tug/beeper.wav'	''
     'objects/tugs/AST-1X.tug/engine.wav'	''
     'objects/tugs/AST-1X.tug/info.cfg'		''
+    'objects/tugs/AP88.tug/AAP88_tex.png'	'//PNG2DDS//'
+    'objects/tugs/AP88.tug/AP88.obj'		''
+    'objects/tugs/AP88.tug/engine.wav'		''
+    'objects/tugs/AP88.tug/info.cfg'		''
 )
 
 function install_xtra_files() {
