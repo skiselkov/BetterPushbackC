@@ -102,7 +102,7 @@ msgstr "Pushback Planer schließen"
 
 #: ../xplane.c:383
 msgid "Connect tug before entering pushback plan"
-msgstr "Schleppgerät ohne Pushback Plan anschliesen"
+msgstr "Schleppgerät ohne Pushback Plan anschließen"
 
 #: ../xplane.c:437
 msgid "Pre-plan pushback"
@@ -110,4 +110,4 @@ msgstr "Pushback vorplanen"
 
 #: ../xplane.c:439
 msgid "Close pushback planner"
-msgstr "Pushback Planer schliesen"
+msgstr "Pushback Planer schließen"
