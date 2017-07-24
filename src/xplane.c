@@ -328,6 +328,7 @@ XPluginStart(char *name, char *sig, char *desc)
 	char *p;
 
 	acfutils_logfunc = XPLMDebugString;
+	crc64_init();
 	crc64_srand(microclock());
 	logMsg("This is BetterPushback-" BP_PLUGIN_VERSION);
 
