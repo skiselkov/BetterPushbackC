@@ -1826,10 +1826,10 @@ load_icon(button_t *btn)
 	char *filename;
 	FILE *fp;
 	size_t rowbytes;
-	png_bytep *rowp = NULL;
+	png_bytep *volatile rowp = NULL;
 	png_structp pngp = NULL;
 	png_infop infop = NULL;
-	bool_t res = B_TRUE;
+	volatile bool_t res = B_TRUE;
 	uint8_t header[8];
 
 	/* try the localized version first */
