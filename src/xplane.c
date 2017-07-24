@@ -25,12 +25,14 @@
 #include <XPLMPlugin.h>
 #include <XPLMProcessing.h>
 
-#include <acfutils/assert.h>
 #include <acfutils/acfutils.h>
+#include <acfutils/assert.h>
+#include <acfutils/crc64.h>
 #include <acfutils/helpers.h>
 #include <acfutils/intl.h>
 #include <acfutils/log.h>
 #include <acfutils/wav.h>
+#include <acfutils/time.h>
 
 #include "bp.h"
 #include "msg.h"
@@ -327,6 +329,7 @@ XPluginStart(char *name, char *sig, char *desc)
 	char *p;
 
 	acfutils_logfunc = XPLMDebugString;
+	crc64_srand(microclock());
 
 	/* Always use Unix-native paths on the Mac! */
 	XPLMEnableFeature("XPLM_USE_NATIVE_PATHS", 1);

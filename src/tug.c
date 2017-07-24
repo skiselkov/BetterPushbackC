@@ -24,6 +24,7 @@
 #include <XPLMPlugin.h>
 
 #include <acfutils/assert.h>
+#include <acfutils/crc64.h>
 #include <acfutils/helpers.h>
 #include <acfutils/math.h>
 #include <acfutils/time.h>
@@ -215,6 +216,7 @@ tug_info_read(const char *tugdir, const char *tug_name)
 	ti->apch_dist = NAN;
 	ti->plat_z = NAN;
 	ti->plat_h = NAN;
+	ti->sort_rand = crc64_rand();
 
 	/* set some defaults */
 	ti->max_fwd_speed = TUG_MAX_FWD_SPD;
