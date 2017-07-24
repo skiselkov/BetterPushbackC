@@ -222,6 +222,8 @@ static int key_sniffer(char inChar, XPLMKeyFlags inFlags, char inVirtualKey,
 static bool_t radio_volume_warn = B_FALSE;
 
 static const acf_info_t incompatible_acf[] = {
+    { .acf = "757-200.acf", .author = "FlightFactor and StepToSky" },
+    { .acf = "757-200_xp11.acf", .author = "FlightFactor and StepToSky" },
     { .acf = NULL, .author = NULL }
 };
 
