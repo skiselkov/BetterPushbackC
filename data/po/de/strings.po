@@ -98,7 +98,7 @@ msgstr "Pushback Planer öfnen"
 
 #: ../xplane.c:381
 msgid "Stop pushback planner"
-msgstr "Pushback Planer schliesen"
+msgstr "Pushback Planer schließen"
 
 #: ../xplane.c:383
 msgid "Connect tug before entering pushback plan"
