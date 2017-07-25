@@ -746,17 +746,40 @@ tug_liv_subst(const tug_info_t *ti, FILE *fp, const char *tex_type,
     const char *tex_name)
 {
 	char *pathname;
+	bool_t exists;
+	char *tex_name_dds, *dot;
 
 	pathname = mkpathname(ti->tugdir, "liveries", ti->livname, tex_name,
 	    NULL);
-	if (file_exists(pathname, NULL)) {
+	exists = file_exists(pathname, NULL);
+	free(pathname);
+	if (exists) {
 		fprintf(fp, "%s liveries/%s/%s\n", tex_type, ti->livname,
 		    tex_name);
+		return;
+	}
+	/*
+	 * If we didn't find the texture file under its original name,
+	 * it can still exist as a DDS variant. Try with .dds instead.
+	 */
+	tex_name_dds = malloc(strlen(tex_name) + 3 + 1); /* +3 for 'dds' */
+	strcpy(tex_name_dds, tex_name);
+	dot = strrchr(tex_name_dds, '.');
+	if (dot != NULL) {
+		strcpy(&dot[1], "dds");
+		pathname = mkpathname(ti->tugdir, "liveries",
+		    ti->livname, tex_name_dds, NULL);
+		exists = file_exists(pathname, NULL);
+		free(pathname);
+	}
+	free(tex_name_dds);
+	if (exists) {
+		fprintf(fp, "%s liveries/%s/%s\n", tex_type,
+		    ti->livname, tex_name);
 	} else {
 		fprintf(fp, "%s liveries/generic.livery/%s\n",
 		    tex_type, tex_name);
 	}
-	free(pathname);
 }
 
 static char *
