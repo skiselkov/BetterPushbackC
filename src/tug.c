@@ -206,6 +206,7 @@ tug_info_liv_cfg_match(const char *info_pathname, const char *icao)
 {
 	FILE *fp = fopen(info_pathname, "r");
 	bool_t matched = B_FALSE;
+	bool_t match_debug = B_FALSE;
 
 	if (fp == NULL) {
 		logMsg("Error reading tug livery %s: cannot open info.cfg: %s",
@@ -214,11 +215,6 @@ tug_info_liv_cfg_match(const char *info_pathname, const char *icao)
 	}
 	while (!feof(fp)) {
 		char cmd[32];
-		char *regex_str;
-		int err, rc;
-		pcre2_code *re;
-		PCRE2_SIZE erroff;
-		pcre2_match_data *match_data;
 
 		if (fscanf(fp, "%31s", cmd) != 1)
 			break;
@@ -231,44 +227,61 @@ tug_info_liv_cfg_match(const char *info_pathname, const char *icao)
 			continue;
 		}
 
-		if (strcmp(cmd, "icao") != 0) {
+		if (strcmp(cmd, "icao") == 0) {
+			char *regex_str;
+			int err, rc;
+			pcre2_code *re;
+			PCRE2_SIZE erroff;
+			pcre2_match_data *match_data;
+
+			regex_str = parser_get_next_quoted_str(fp);
+			if (regex_str == NULL || *regex_str == 0) {
+				logMsg("Malformed tug livery config %s: bad "
+				    "regex following \"icao\".", info_pathname);
+				free(regex_str);
+				break;
+			}
+			re = pcre2_compile((PCRE2_SPTR)regex_str,
+			    PCRE2_ZERO_TERMINATED, 0, &err, &erroff, NULL);
+			if (re == NULL) {
+				PCRE2_UCHAR buf[256];
+
+				pcre2_get_error_message(err, buf, sizeof (buf));
+				logMsg("Malformed tug livery config %s: regex "
+				    "compile failed \"%s\": char %d: %s",
+				    info_pathname, regex_str, (int)erroff, buf);
+				free(regex_str);
+				break;
+			}
+			match_data = pcre2_match_data_create_from_pattern(re,
+			    NULL);
+			rc = pcre2_match(re, (PCRE2_SPTR)icao, strlen(icao),
+			    0, 0, match_data, NULL);
+			pcre2_match_data_free(match_data);
+			pcre2_code_free(re);
+
+			if (rc >= 0) {
+				if (match_debug) {
+					logMsg("match_debug: regex \"%s\" "
+					    "matches airport \"%s\"",
+					    regex_str, icao);
+				}
+				free(regex_str);
+				matched = B_TRUE;
+				break;
+			} else if (match_debug) {
+				logMsg("match_debug: regex \"%s\" DOESN'T "
+				    "match airport \"%s\"", regex_str, icao);
+			}
+
+			free(regex_str);
+		} else if (strcmp(cmd, "match_debug") == 0) {
+			match_debug = B_TRUE;
+		} else {
 			logMsg("Malformed tug livery config %s: unknown "
 			    "keyword \"%s\".", info_pathname, cmd);
 			break;
 		}
-		regex_str = parser_get_next_quoted_str(fp);
-
-		if (regex_str == NULL || *regex_str == 0) {
-			logMsg("Malformed tug livery config %s: bad regex "
-			    "following \"icao\".", info_pathname);
-			free(regex_str);
-			break;
-		}
-		re = pcre2_compile((PCRE2_SPTR)regex_str,
-		    PCRE2_ZERO_TERMINATED, 0, &err, &erroff, NULL);
-		if (re == NULL) {
-			PCRE2_UCHAR buf[256];
-
-			pcre2_get_error_message(err, buf, sizeof (buf));
-			logMsg("Malformed tug livery config %s: regex "
-			    "compile failed \"%s\": char %d: %s",
-			    info_pathname, regex_str, (int)erroff, buf);
-			free(regex_str);
-			break;
-		}
-		match_data = pcre2_match_data_create_from_pattern(re, NULL);
-		rc = pcre2_match(re, (PCRE2_SPTR)icao, strlen(icao), 0, 0,
-		    match_data, NULL);
-		pcre2_match_data_free(match_data);
-		pcre2_code_free(re);
-
-		if (rc >= 0) {
-			free(regex_str);
-			matched = B_TRUE;
-			break;
-		}
-
-		free(regex_str);
 	}
 
 	fclose(fp);
