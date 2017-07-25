@@ -151,6 +151,9 @@ static bool_t inited = B_FALSE;
 static tug_t *glob_tug = NULL;
 static XPLMCommandRef tug_reload_cmd;
 
+static char *tug_liv_apply(const tug_info_t *ti);
+static void tug_liv_destroy(char *objpath);
+
 static inline float
 anim_gate(float x)
 {
@@ -677,8 +680,17 @@ reload_tug_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 		return (1);
 
 	if (glob_tug != NULL) {
+		char *objpath;
+
 		XPLMUnloadObject(glob_tug->tug);
-		glob_tug->tug = XPLMLoadObject(glob_tug->info->tug);
+		objpath = tug_liv_apply(glob_tug->info);
+		if (objpath == NULL) {
+			logMsg("Error preparing tug object %s",
+			    glob_tug->info->tug);
+			return (1);
+		}
+		glob_tug->tug = XPLMLoadObject(objpath);
+		tug_liv_destroy(objpath);
 		VERIFY(glob_tug->tug != NULL);
 	}
 
@@ -716,6 +728,24 @@ tug_glob_fini(void)
 	inited = B_FALSE;
 }
 
+static void
+tug_liv_subst(const tug_info_t *ti, FILE *fp, const char *tex_type,
+    const char *tex_name)
+{
+	char *pathname;
+
+	pathname = mkpathname(ti->tugdir, "liveries", ti->livname, tex_name,
+	    NULL);
+	if (file_exists(pathname, NULL)) {
+		fprintf(fp, "%s liveries/%s/%s\n", tex_type, ti->livname,
+		    tex_name);
+	} else {
+		fprintf(fp, "%s liveries/generic.livery/%s\n",
+		    tex_type, tex_name);
+	}
+	free(pathname);
+}
+
 static char *
 tug_liv_apply(const tug_info_t *ti)
 {
@@ -743,20 +773,17 @@ tug_liv_apply(const tug_info_t *ti)
 		    strncmp(line, "TEXTURE\t", 8) == 0) {
 			memmove(line, &line[7], strlen(&line[7]) + 1);
 			strip_space(line);
-			fprintf(outobj, "TEXTURE liveries/%s/%s\n",
-			    ti->livname, line);
+			tug_liv_subst(ti, outobj, "TEXTURE", line);
 		} else if (strncmp(line, "TEXTURE_LIT ", 12) == 0 ||
 		    strncmp(line, "TEXTURE_LIT\t", 12) == 0) {
 			memmove(line, &line[11], strlen(&line[11]) + 1);
 			strip_space(line);
-			fprintf(outobj, "TEXTURE_LIT liveries/%s/%s\n",
-			    ti->livname, line);
+			tug_liv_subst(ti, outobj, "TEXTURE_LIT", line);
 		} else if (strncmp(line, "TEXTURE_NORMAL ", 15) == 0 ||
 		    strncmp(line, "TEXTURE_NORMAL\t", 15) == 0) {
 			memmove(line, &line[14], strlen(&line[14]) + 1);
 			strip_space(line);
-			fprintf(outobj, "TEXTURE_NORMAL liveries/%s/%s\n",
-			    ti->livname, line);
+			tug_liv_subst(ti, outobj, "TEXTURE_NORMAL", line);
 		} else {
 			fwrite(line, 1, n, outobj);
 		}
