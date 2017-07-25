@@ -31,3 +31,10 @@ zlib-linux-64
 zlib-win-32
 zlib-win-64
 zlib-1.2.11
+pcre2-mac-32
+pcre2-mac-64
+pcre2-linux-32
+pcre2-linux-64
+pcre2-win-32
+pcre2-win-64
+pcre2-10.23

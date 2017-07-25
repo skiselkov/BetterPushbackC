@@ -44,19 +44,15 @@ if(UNIX)
 	include_directories(bp PUBLIC "../OpenAL/include")
 	include_directories(bp PUBLIC "../SDK/CHeaders/XPLM"
 	    "../SDK/CHeaders/Widgets" "../SDK/CHeaders/Wrappers")
-else()
-	include_directories(bp PUBLIC "..\\libpng\\libpng-1.6.30")
-	include_directories(bp PUBLIC "..\\OpenAL\\include")
-	include_directories(bp PUBLIC
-	    "..\\SDK\\CHeaders\\XPLM" "..\\SDK\\CHeaders\\Widgets"
-	    "..\\SDK\\CHeaders\\Wrappers")
 endif(UNIX)
 if(APPLE)
 	include_directories(bp PUBLIC "../libpng/libpng-mac-64/include")
+	include_directories(bp PUBLIC "../pcre2/pcre2-mac-64/include")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -arch x86_64 -Wno-deprecated")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mmacosx-version-min=10.7")
 elseif(UNIX)
 	include_directories(bp PUBLIC "../libpng/libpng-linux-64/include")
+	include_directories(bp PUBLIC "../pcre2/pcre2-linux-64/include")
 endif()
 
 # Yes, we need to strip a trailing newline from command output. CMake is
@@ -81,7 +77,7 @@ link_libraries(m)
 if(APPLE)
 	set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH} ../SDK/Libraries/Mac/
 	    ../zlib/zlib-mac-64 ../libpng/libpng-mac-64/.libs
-	    ${LIBACFUTILS}/qmake/mac64)
+	    ../pcre2/pcre2-mac-64/.libs ${LIBACFUTILS}/qmake/mac64)
 	FIND_LIBRARY(XPLM_LIBRARY XPLM ../SDK/Libraries/Mac/)
 	FIND_LIBRARY(XPWIDGETS_LIBRARY XPWidgets ../SDK/Libraries/Mac/)
 	FIND_LIBRARY(OPENGL_LIBRARY OpenGL)
@@ -89,6 +85,7 @@ if(APPLE)
 	FIND_LIBRARY(LIBACFUTILS_LIBRARY acfutils)
 	FIND_LIBRARY(LIBPNG_LIBRARY png16)
 	FIND_LIBRARY(ZLIB_LIBRARY z)
+	FIND_LIBRARY(PCRE2_LIBRARY pcre2-8)
 	target_link_libraries(bp
 	    ${LIBACFUTILS_LIBRARY}
 	    ${OPENAL_LIBRARY}
@@ -96,18 +93,21 @@ if(APPLE)
 	    ${XPLM_LIBRARY}
 	    ${LIBPNG_LIBRARY}
 	    ${ZLIB_LIBRARY}
+	    ${PCRE2_LIBRARY}
 	    )
 else()
 	set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH}
 	    ../zlib/zlib-linux-64 ../libpng/libpng-linux-64/.libs
-	    ${LIBACFUTILS}/qmake/lin64)
+	    ../pcre2/pcre2-linux-64/.libs ${LIBACFUTILS}/qmake/lin64)
 	FIND_LIBRARY(LIBACFUTILS_LIBRARY acfutils)
 	FIND_LIBRARY(LIBPNG_LIBRARY png16)
 	FIND_LIBRARY(ZLIB_LIBRARY z)
+	FIND_LIBRARY(PCRE2_LIBRARY pcre2-8)
 	target_link_libraries(bp
 	    ${LIBACFUTILS_LIBRARY}
 	    ${LIBPNG_LIBRARY}
 	    ${ZLIB_LIBRARY}
+	    ${PCRE2_LIBRARY}
 	    )
 endif()
 

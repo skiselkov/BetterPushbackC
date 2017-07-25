@@ -20,6 +20,9 @@
 #include <string.h>
 #include <stddef.h>
 
+#define PCRE2_CODE_UNIT_WIDTH 8
+#include <pcre2.h>
+
 #include <XPLMUtilities.h>
 #include <XPLMPlugin.h>
 
@@ -185,16 +188,149 @@ static void
 tug_info_free(tug_info_t *ti)
 {
 	free(ti->tug_name);
+	free(ti->tugdir);
 	free(ti->tug);
 	free(ti->arpt);
 	free(ti->engine_snd);
 	free(ti->air_snd);
 	free(ti->beeper_snd);
+	free(ti->livname);
 	free(ti);
 }
 
+static bool_t
+tug_info_liv_cfg_match(const char *info_pathname, const char *icao)
+{
+	FILE *fp = fopen(info_pathname, "r");
+	bool_t matched = B_FALSE;
+
+	if (fp == NULL) {
+		logMsg("Error reading tug livery %s: cannot open info.cfg: %s",
+		    info_pathname, strerror(errno));
+		    return (B_FALSE);
+	}
+	while (!feof(fp)) {
+		char cmd[32];
+		char *regex_str;
+		int err, rc;
+		pcre2_code *re;
+		PCRE2_SIZE erroff;
+		pcre2_match_data *match_data;
+
+		if (fscanf(fp, "%31s", cmd) != 1)
+			break;
+		if (*cmd == '#') {
+			/* skip comments */
+			char c;
+			do {
+				c = fgetc(fp);
+			} while (c != '\n' && c != EOF);
+			continue;
+		}
+
+		if (strcmp(cmd, "icao") != 0) {
+			logMsg("Malformed tug livery config %s: unknown "
+			    "keyword \"%s\".", info_pathname, cmd);
+			break;
+		}
+		regex_str = parser_get_next_quoted_str(fp);
+
+		if (regex_str == NULL || *regex_str == 0) {
+			logMsg("Malformed tug livery config %s: bad regex "
+			    "following \"icao\".", info_pathname);
+			free(regex_str);
+			break;
+		}
+		re = pcre2_compile((PCRE2_SPTR)regex_str,
+		    PCRE2_ZERO_TERMINATED, 0, &err, &erroff, NULL);
+		if (re == NULL) {
+			PCRE2_UCHAR buf[256];
+
+			pcre2_get_error_message(err, buf, sizeof (buf));
+			logMsg("Malformed tug livery config %s: regex "
+			    "compile failed \"%s\": char %d: %s",
+			    info_pathname, regex_str, (int)erroff, buf);
+			free(regex_str);
+			break;
+		}
+		match_data = pcre2_match_data_create_from_pattern(re, NULL);
+		rc = pcre2_match(re, (PCRE2_SPTR)icao, strlen(icao), 0, 0,
+		    match_data, NULL);
+		pcre2_match_data_free(match_data);
+		pcre2_code_free(re);
+
+		if (rc >= 0) {
+			free(regex_str);
+			matched = B_TRUE;
+			break;
+		}
+
+		free(regex_str);
+	}
+
+	fclose(fp);
+
+	return (matched);
+}
+
+static bool_t
+tug_info_liv_select(tug_info_t *ti, const char *icao)
+{
+	bool_t isdir;
+	char *livdir_path;
+
+	/* read the livery directory */
+	if (icao != NULL && *icao != 0) {
+		DIR *livdir;
+		struct dirent *de;
+		bool_t matched = B_FALSE;
+
+		livdir_path = mkpathname(ti->tugdir, "liveries", NULL);
+		livdir = opendir(livdir_path);
+
+		if (livdir == NULL) {
+			free(livdir_path);
+			return (B_FALSE);
+		}
+
+		while (!matched && (de = readdir(livdir)) != NULL) {
+			const char *dot = strrchr(de->d_name, '.');
+			char *info_pathname;
+
+			/* only select subdirs ending in ".livery" */
+			if (dot == NULL || strcmp(&dot[1], "livery") != 0 ||
+			    strcmp(de->d_name, "generic.livery") == 0)
+				continue;
+			info_pathname = mkpathname(ti->tugdir, "liveries",
+			    de->d_name, "info.cfg", NULL);
+			matched = tug_info_liv_cfg_match(info_pathname, icao);
+			if (matched)
+				ti->livname = strdup(de->d_name);
+			free(info_pathname);
+		}
+
+		closedir(livdir);
+		free(livdir_path);
+
+		if (matched)
+			return (B_TRUE);
+	}
+
+	/* If we're here, no livery matched, see if we have a generic one */
+	livdir_path = mkpathname(ti->tugdir, "liveries", "generic.livery",
+	    NULL);
+	if (!file_exists(livdir_path, &isdir) || !isdir) {
+		free(livdir_path);
+		return (B_FALSE);
+	}
+	ti->livname = strdup("generic.livery");
+	free(livdir_path);
+
+	return (B_TRUE);
+}
+
 static tug_info_t *
-tug_info_read(const char *tugdir, const char *tug_name)
+tug_info_read(const char *tugdir, const char *tug_name, const char *icao)
 {
 	tug_info_t *ti = NULL;
 	char *cfgfilename = mkpathname(tugdir, "info.cfg", NULL);
@@ -210,6 +346,7 @@ tug_info_read(const char *tugdir, const char *tug_name)
 
 	ti = calloc(1, sizeof (*ti));
 	ti->tug_name = strdup(tug_name);
+	ti->tugdir = strdup(tugdir);
 	ti->front_z = NAN;
 	ti->rear_z = NAN;
 	ti->lift_wall_z = NAN;
@@ -421,6 +558,9 @@ tug_info_read(const char *tugdir, const char *tug_name)
 #undef	VALIDATE_TUG_REAL_NAN
 #undef	VALIDATE_TUG
 
+	if (!tug_info_liv_select(ti, icao))
+		goto errout;
+
 	fclose(fp);
 	free(cfgfilename);
 	return (ti);
@@ -475,7 +615,7 @@ tug_info_select(double mtow, double ng_len, double tirrad, unsigned gear_type,
 			continue;
 
 		tugpath = mkpathname(tugdir, de->d_name, NULL);
-		ti = tug_info_read(tugpath, de->d_name);
+		ti = tug_info_read(tugpath, de->d_name, arpt);
 		/* A debug flag means we always pick this tug. */
 		if (ti != NULL && (ti->anim_debug || ti->drive_debug ||
 		    ti->quick_debug)) {
@@ -576,6 +716,78 @@ tug_glob_fini(void)
 	inited = B_FALSE;
 }
 
+static char *
+tug_liv_apply(const tug_info_t *ti)
+{
+	char *objpath = mkpathname(ti->tugdir, "inuse.obj", NULL);
+	char *line = NULL;
+	size_t cap = 0;
+	ssize_t n;
+	FILE *inobj = NULL, *outobj = NULL;
+
+	inobj = fopen(ti->tug, "r");
+	if (inobj == NULL) {
+		logMsg("Cannot open tug object %s: %s", ti->tug,
+		    strerror(errno));
+		goto errout;
+	}
+	outobj = fopen(objpath, "w");
+	if (outobj == NULL) {
+		logMsg("Cannot open tug object for writing %s: %s", objpath,
+		    strerror(errno));
+		goto errout;
+	}
+
+	while ((n = getline(&line, &cap, inobj)) >= 0) {
+		if (strncmp(line, "TEXTURE ", 8) == 0 ||
+		    strncmp(line, "TEXTURE\t", 8) == 0) {
+			memmove(line, &line[7], strlen(&line[7]) + 1);
+			strip_space(line);
+			fprintf(outobj, "TEXTURE liveries/%s/%s\n",
+			    ti->livname, line);
+		} else if (strncmp(line, "TEXTURE_LIT ", 12) == 0 ||
+		    strncmp(line, "TEXTURE_LIT\t", 12) == 0) {
+			memmove(line, &line[11], strlen(&line[11]) + 1);
+			strip_space(line);
+			fprintf(outobj, "TEXTURE_LIT liveries/%s/%s\n",
+			    ti->livname, line);
+		} else if (strncmp(line, "TEXTURE_NORMAL ", 15) == 0 ||
+		    strncmp(line, "TEXTURE_NORMAL\t", 15) == 0) {
+			memmove(line, &line[14], strlen(&line[14]) + 1);
+			strip_space(line);
+			fprintf(outobj, "TEXTURE_NORMAL liveries/%s/%s\n",
+			    ti->livname, line);
+		} else {
+			fwrite(line, 1, n, outobj);
+		}
+	}
+
+	free(line);
+	fclose(inobj);
+	fclose(outobj);
+
+	return (objpath);
+
+errout:
+	free(line);
+	if (inobj != NULL)
+		fclose(inobj);
+	if (outobj != NULL) {
+		(void) remove_file(objpath, B_FALSE);
+		fclose(outobj);
+	}
+	free(objpath);
+
+	return (NULL);
+}
+
+static void
+tug_liv_destroy(char *objpath)
+{
+	(void) remove_file(objpath, B_FALSE);
+	free(objpath);
+}
+
 /*
  * Returns B_TRUE if we have a tug matching the aircraft selection criteria,
  * otherwise returns B_FALSE. Can be used to check for aircraft suitability
@@ -586,8 +798,8 @@ tug_available(double mtow, double ng_len, double tirrad, unsigned gear_type,
     const char *arpt)
 {
 	char *reason = NULL;
-	tug_info_t *ti = tug_info_select(mtow, ng_len, tirrad, gear_type, arpt,
-	    &reason);
+	tug_info_t *ti = tug_info_select(mtow, ng_len, tirrad, gear_type,
+	    arpt, &reason);
 
 	if (ti == NULL)
 		logMsg("Failed to find a tug for you, reason:\n%s", reason);
@@ -605,6 +817,7 @@ static tug_t *
 tug_alloc_common(tug_info_t *ti, double tirrad)
 {
 	tug_t *tug;
+	char *objpath;
 
 	VERIFY(inited);
 
@@ -634,7 +847,14 @@ tug_alloc_common(tug_info_t *ti, double tirrad)
 	tug->veh_slow.max_accel = tug->info->max_accel / 3;
 	tug->veh_slow.max_decel = tug->info->max_decel / 3;
 
-	tug->tug = XPLMLoadObject(tug->info->tug);
+	objpath = tug_liv_apply(tug->info);
+	if (objpath == NULL) {
+		logMsg("Error preparing tug object %s", tug->info->tug);
+		goto errout;
+	}
+	tug->tug = XPLMLoadObject(objpath);
+	tug_liv_destroy(objpath);
+
 	if (tug->tug == NULL) {
 		logMsg("Error loading tug object %s", tug->info->tug);
 		goto errout;
@@ -710,11 +930,11 @@ errout:
 }
 
 tug_t *
-tug_alloc_man(const char *tug_name, double tirrad)
+tug_alloc_man(const char *tug_name, double tirrad, const char *arpt)
 {
 	char *tug_path = mkpathname(bp_xpdir, bp_plugindir, "objects", "tugs",
 	    tug_name, NULL);
-	tug_info_t *ti = tug_info_read(tug_path, tug_name);
+	tug_info_t *ti = tug_info_read(tug_path, tug_name, arpt);
 
 	free(tug_path);
 	if (ti == NULL)

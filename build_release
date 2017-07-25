@@ -54,18 +54,22 @@ DIST_FILES=(
     'data/icons/de/rotate_seg.png'		''
     'data/po/de/strings.po'			''
     'objects/tugs/AST-3F.tug/AST-3F.obj'	''
-    'objects/tugs/AST-3F.tug/AST-3F_tex.png'	'//PNG2DDS//'
-    'objects/tugs/AST-3F.tug/AST-3F_lit.png'	'//PNG2DDS//'
+    'objects/tugs/AST-3F.tug/liveries/generic.livery/AST-3F_tex.png' \
+	'//PNG2DDS//'
+    'objects/tugs/AST-3F.tug/liveries/generic.livery/AST-3F_lit.png' \
+	'//PNG2DDS//'
     'objects/tugs/AST-3F.tug/air.wav'		''
     'objects/tugs/AST-3F.tug/beeper.wav'	''
     'objects/tugs/AST-3F.tug/engine.wav'	''
     'objects/tugs/AST-3F.tug/info.cfg'		''
     'objects/tugs/AST-1X.tug/AST-1X.obj'	''
-    'objects/tugs/AST-1X.tug/AST-1X_tex.png'	'//PNG2DDS//'
+    'objects/tugs/AST-1X.tug/liveries/generic.livery/AST-1X_tex.png' \
+	'//PNG2DDS//'
     'objects/tugs/AST-1X.tug/beeper.wav'	''
     'objects/tugs/AST-1X.tug/engine.wav'	''
     'objects/tugs/AST-1X.tug/info.cfg'		''
-    'objects/tugs/AP88.tug/AAP88_tex.png'	'//PNG2DDS//'
+    'objects/tugs/AP88.tug/liveries/generic.livery/AAP88_tex.png' \
+	'//PNG2DDS//'
     'objects/tugs/AP88.tug/AP88.obj'		''
     'objects/tugs/AP88.tug/engine.wav'		''
     'objects/tugs/AP88.tug/info.cfg'		''
@@ -96,6 +100,7 @@ rm -rf BetterPushback
 
 (cd zlib && ./build_zlib_deps ) || exit 1
 (cd libpng && ./build_libpng_deps ) || exit 1
+(cd pcre2 && ./build_pcre2_deps ) || exit 1
 
 case `uname` in
 Linux)

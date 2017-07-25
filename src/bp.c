@@ -927,6 +927,7 @@ pb_step_tug_load(void)
 {
 	if (!slave_mode) {
 		char icao[8] = { 0 };
+
 		(void) find_nearest_airport(icao);
 		bp.tug = tug_alloc_auto(dr_getf(&drs.mtow),
 		    dr_getf(&drs.leg_len), bp.acf.tirrad,
@@ -942,6 +943,7 @@ pb_step_tug_load(void)
 	} else {
 		char tug_name[sizeof (bp_tug_name)];
 		char *ext;
+		char icao[8] = { 0 };
 
 		/* make sure the tug name is properly terminated */
 		memcpy(tug_name, bp_tug_name, sizeof (tug_name));
@@ -961,7 +963,9 @@ pb_step_tug_load(void)
 		if (ext == NULL || strcmp(&ext[1], "tug") != 0)
 			return (B_TRUE);
 
-		bp.tug = tug_alloc_man(tug_name, bp.acf.tirrad);
+		(void) find_nearest_airport(icao);
+
+		bp.tug = tug_alloc_man(tug_name, bp.acf.tirrad, icao);
 		if (bp.tug == NULL) {
 			char msg[256];
 			snprintf(msg, sizeof (msg), _("Pushback failure: "

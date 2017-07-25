@@ -1,0 +1,67 @@
+#!/bin/bash
+
+# CDDL HEADER START
+#
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
+#
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# http://www.illumos.org/license/CDDL.
+#
+# CDDL HEADER END
+
+# Copyright 2017 Saso Kiselkov. All rights reserved.
+
+source ../build_dep.common
+
+PCRE2="pcre2-10.23.tar.bz2"
+
+do_clean=0
+if [[ "$1" = "-c" ]]; then
+	do_clean=1
+fi
+
+case `uname` in
+	Linux)
+		NCPUS=$(( $(grep 'processor[[:space:]]\+:' /proc/cpuinfo \
+		    | wc -l) + 1 ))
+		CFLAGS="-fPIC -m64" LDLFAGS="-fPIC -m64" \
+		    build_dep "linux-64" "--disable-shared --enable-static" \
+		    "$PCRE2" "pcre2" ".libs/libpcre2-8.a" && \
+		CFLAGS="-fPIC -m32" LDLFAGS="-fPIC -m32" \
+		    build_dep "linux-32" "--disable-shared --enable-static" \
+		    "$PCRE2" "pcre2" ".libs/libpcre2-8.a" && \
+		# The following crude define hacks for 'iswild' and
+		# 'init_colour_output' are workarounds for broken Windows
+		# building of the pcre2grep utility. We don't need it, we
+		# don't want it, but there's no way to disable building it.
+		# So we just get rid of the errors so the build succeeds
+		# and we can use the library.
+		CFLAGS="-DWIN32 -Diswild=strlen -Dinit_colour_output=getchar" \
+		    LDFLAGS="-DWIN32" build_dep "win-64" \
+		    "--host=x86_64-w64-mingw32 \
+		    --enable-static" "$PCRE2" "pcre2" ".libs/libpcre2-8.a" && \
+		CFLAGS="-DWIN32 -Diswild=strlen -Dinit_colour_output=getchar" \
+		    LDFLAGS="-DWIN32" build_dep "win-32" \
+		    "--host=i686-w64-mingw32 \
+		    --enable-static" "$PCRE2" "pcre2" ".libs/libpcre2-8.a"
+		;;
+	Darwin)
+		NCPUS=$(( $(sysctl -n hw.ncpu) + 1 ))
+		CFLAGS="-mmacosx-version-min=10.6" \
+		    LDFLAGS="-mmacosx-version-min=10.6" \
+		    build_dep "mac-64" "--disable-shared --enable-static" \
+		    "$PCRE2" "pcre2" ".libs/libpcre2-8.a" && \
+		CFLAGS="-mmacosx-version-min=10.6 -m32" \
+		    LDFLAGS="-mmacosx-version-min=10.6 -m32" \
+		    build_dep "mac-32" "--disable-shared --enable-static" \
+		    "$PCRE2" "pcre2" ".libs/libpcre2-8.a"
+		;;
+	*)
+		echo "Unsupported build platform" >&2
+		exit 1
+		;;
+esac

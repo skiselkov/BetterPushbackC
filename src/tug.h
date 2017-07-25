@@ -44,6 +44,7 @@ typedef enum {
 
 typedef struct {
 	char	*tug_name;	/* name of tug directory under objects/tugs */
+	char	*tugdir;	/* pointer to tug directory */
 
 	lift_t	lift_type;
 	bool_t	electric_drive;
@@ -104,6 +105,14 @@ typedef struct {
 	bool_t	drive_debug;	/* driving debugging active */
 	bool_t	quick_debug;	/* quick test debugging active */
 
+	/*
+	 * In order to support one tug having a swappable texture based on
+	 * the airport, before we load the tug, we copy its obj into a
+	 * temporary location and prepend the TEXTURE, TEXTURE_LIT and
+	 * TEXTURE_NORMAL values with `liveries/<livname>'.
+	 */
+	char	*livname;
+
 	avl_node_t	node;
 } tug_info_t;
 
@@ -155,7 +164,7 @@ void tug_glob_fini(void);
 
 bool_t tug_available(double mtow, double ng_len, double tirrad,
     unsigned gear_type, const char *arpt);
-tug_t *tug_alloc_man(const char *tug_name, double tirrad);
+tug_t *tug_alloc_man(const char *tug_name, double tirrad, const char *arpt);
 tug_t *tug_alloc_auto(double mtow, double ng_len, double tirrad,
     unsigned gear_type, const char *arpt);
 void tug_free(tug_t *tug);

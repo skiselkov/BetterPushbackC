@@ -56,6 +56,8 @@ win32 {
 
 win32:contains(CROSS_COMPILE, x86_64-w64-mingw32-) {
 	INCLUDEPATH += ../libpng/libpng-win-64/include
+	INCLUDEPATH += ../pcre2/pcre2-win-64/include
+	DEFINES += WIN32
 
 	# This must go first for GCC to properly find dependent symbols
 	LIBS += -L$$[LIBACFUTILS]/qmake/win64 -lacfutils
@@ -64,11 +66,14 @@ win32:contains(CROSS_COMPILE, x86_64-w64-mingw32-) {
 	LIBS += -L../GL_for_Windows/lib -lopengl32
 	LIBS += -L../libpng/libpng-win-64/.libs -lpng16
 	LIBS += -L../zlib/zlib-win-64 -lz
+	LIBS += -L../pcre2/pcre2-win-64/.libs -lpcre2-8
 	LIBS += -ldbghelp
 }
 
 win32:contains(CROSS_COMPILE, i686-w64-mingw32-) {
 	INCLUDEPATH += ../libpng/libpng-win-32/include
+	INCLUDEPATH += ../pcre2/pcre2-win-32/include
+	DEFINES += WIN32
 
 	LIBS += -L$$[LIBACFUTILS]/qmake/win32 -lacfutils
 	LIBS += -L../SDK/Libraries/Win -lXPLM
@@ -76,6 +81,7 @@ win32:contains(CROSS_COMPILE, i686-w64-mingw32-) {
 	LIBS += -L../GL_for_Windows/lib -lopengl32
 	LIBS += -L../libpng/libpng-win-32/.libs -lpng16
 	LIBS += -L../zlib/zlib-win-32 -lz
+	LIBS += -L../pcre2/pcre2-win-32/.libs -lpcre2-8
 	LIBS += -ldbghelp
 }
 
@@ -87,14 +93,17 @@ unix:!macx {
 
 linux-g++-64 {
 	INCLUDEPATH += ../libpng/libpng-linux-64/include
+	INCLUDEPATH += ../pcre2/pcre2-linux-64/include
 
 	LIBS += -L$$[LIBACFUTILS]/qmake/lin64 -lacfutils
 	LIBS += -L../libpng/libpng-linux-64/.libs -lpng16
 	LIBS += -L../zlib/zlib-linux-64 -lz
+	LIBS += -L../pcre2/pcre2-linux-64/.libs -lpcre2-8
 }
 
 linux-g++-32 {
 	INCLUDEPATH += ../libpng/libpng-linux-32/include
+	INCLUDEPATH += ../pcre2/pcre2-linux-32/include
 
 	# The stack protector forces us to depend on libc,
 	# but we'd prefer to be static.
@@ -103,6 +112,7 @@ linux-g++-32 {
 	LIBS += -L$$[LIBACFUTILS]/qmake/lin32 -lacfutils
 	LIBS += -L../libpng/libpng-linux-32/.libs -lpng16
 	LIBS += -L../zlib/zlib-linux-32 -lz
+	LIBS += -L../pcre2/pcre2-linux-32/.libs -lpcre2-8
 	LIBS += -lssp_nonshared
 }
 
@@ -121,18 +131,22 @@ macx {
 
 macx-clang {
 	INCLUDEPATH += ../libpng/libpng-mac-64/include
+	INCLUDEPATH += ../pcre2/pcre2-mac-64/include
 
 	LIBS += -L$$[LIBACFUTILS]/qmake/mac64 -lacfutils
 	LIBS += -L../libpng/libpng-mac-64/.libs -lpng16
 	LIBS += -L../zlib/zlib-mac-64 -lz
+	LIBS += -L../pcre2/pcre2-mac-64/.libs -lpcre2-8
 }
 
 macx-clang-32 {
 	INCLUDEPATH += ../libpng/libpng-mac-32/include
+	INCLUDEPATH += ../pcre2/pcre2-mac-32/include
 
 	LIBS += -L$$[LIBACFUTILS]/qmake/mac32 -lacfutils
 	LIBS += -L../libpng/libpng-mac-32/.libs -lpng16
 	LIBS += -L../zlib/zlib-mac-32 -lz
+	LIBS += -L../pcre2/pcre2-mac-32/.libs -lpcre2-8
 }
 
 HEADERS += ../src/*.h
