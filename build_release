@@ -38,6 +38,27 @@ DIST_FILES=(
     'data/msgs/en/start_pb.wav'			''
     'data/msgs/en/start_tow.wav'		''
     'data/msgs/en/winch.wav'			''
+    'data/msgs/de/connected.wav'		''
+    'data/msgs/de/disco.wav'			''
+    'data/msgs/de/done.wav'			''
+    'data/msgs/de/driving_up.wav'		''
+    'data/msgs/de/op_complete.wav'		''
+    'data/msgs/de/plan_end.wav'			''
+    'data/msgs/de/plan_start.wav'		''
+    'data/msgs/de/ready2conn.wav'		''
+    'data/msgs/de/start_pb.wav'			''
+    'data/msgs/de/start_tow.wav'		''
+    'data/msgs/de/connected.wav'		''
+    'data/msgs/de/disco.wav'			''
+    'data/msgs/de/done.wav'			''
+    'data/msgs/de/driving_up.wav'		''
+    'data/msgs/de/op_complete.wav'		''
+    'data/msgs/de/plan_end.wav'			''
+    'data/msgs/de/plan_start.wav'		''
+    'data/msgs/de/ready2conn.wav'		''
+    'data/msgs/de/start_pb.wav'			''
+    'data/msgs/de/start_tow.wav'		''
+    'data/msgs/de/winch.wav'			''
     'data/icons/en/accept_plan.png'		''
     'data/icons/en/conn_first.png'		''
     'data/icons/en/delete_seg.png'		''
@@ -54,25 +75,28 @@ DIST_FILES=(
     'data/icons/de/rotate_seg.png'		''
     'data/po/de/strings.po'			''
     'objects/tugs/AST-3F.tug/AST-3F.obj'	''
-    'objects/tugs/AST-3F.tug/liveries/generic.livery/AST-3F_tex.png' \
-	'//PNG2DDS//'
-    'objects/tugs/AST-3F.tug/liveries/generic.livery/AST-3F_lit.png' \
-	'//PNG2DDS//'
     'objects/tugs/AST-3F.tug/air.wav'		''
     'objects/tugs/AST-3F.tug/beeper.wav'	''
     'objects/tugs/AST-3F.tug/engine.wav'	''
     'objects/tugs/AST-3F.tug/info.cfg'		''
-    'objects/tugs/AST-1X.tug/AST-1X.obj'	''
-    'objects/tugs/AST-1X.tug/liveries/generic.livery/AST-1X_tex.png' \
+    'objects/tugs/AST-3F.tug/liveries/generic.livery/AST-3F_tex.png' \
 	'//PNG2DDS//'
+    'objects/tugs/AST-3F.tug/liveries/generic.livery/AST-3F_lit.png' \
+	'//PNG2DDS//'
+    'objects/tugs/AST-3F.tug/liveries/LEOS.livery/info.cfg'	''
+    'objects/tugs/AST-3F.tug/liveries/LEOS.livery/AST-3F_tex.png' '//PNG2DDS//'
+    'objects/tugs/AST-3F.tug/liveries/LEOS.livery/AST-3F_lit.png' '//PNG2DDS//'
+    'objects/tugs/AST-1X.tug/AST-1X.obj'	''
     'objects/tugs/AST-1X.tug/beeper.wav'	''
     'objects/tugs/AST-1X.tug/engine.wav'	''
     'objects/tugs/AST-1X.tug/info.cfg'		''
-    'objects/tugs/AP88.tug/liveries/generic.livery/AAP88_tex.png' \
+    'objects/tugs/AST-1X.tug/liveries/generic.livery/AST-1X_tex.png' \
 	'//PNG2DDS//'
     'objects/tugs/AP88.tug/AP88.obj'		''
     'objects/tugs/AP88.tug/engine.wav'		''
     'objects/tugs/AP88.tug/info.cfg'		''
+    'objects/tugs/AP88.tug/liveries/generic.livery/AAP88_tex.png' \
+	'//PNG2DDS//'
 )
 
 function install_xtra_files() {
