@@ -40,14 +40,14 @@ case `uname` in
 		# don't want it, but there's no way to disable building it.
 		# So we just get rid of the errors so the build succeeds
 		# and we can use the library.
-		CFLAGS="-DWIN32 -Diswild=strlen -Dinit_colour_output=getchar" \
-		    LDFLAGS="-DWIN32" build_dep "win-64" \
-		    "--host=x86_64-w64-mingw32 \
-		    --enable-static" "$PCRE2" "pcre2" ".libs/libpcre2-8.a" && \
-		CFLAGS="-DWIN32 -Diswild=strlen -Dinit_colour_output=getchar" \
-		    LDFLAGS="-DWIN32" build_dep "win-32" \
-		    "--host=i686-w64-mingw32 \
-		    --enable-static" "$PCRE2" "pcre2" ".libs/libpcre2-8.a"
+		CFLAGS="-Diswild=strlen -Dinit_colour_output=getchar" \
+		    build_dep "win-64" "--host=x86_64-w64-mingw32 \
+		    --disable-shared --enable-static" "$PCRE2" "pcre2" \
+		    ".libs/libpcre2-8.a" && \
+		CFLAGS="-Diswild=strlen -Dinit_colour_output=getchar" \
+		    build_dep "win-32" "--host=i686-w64-mingw32 \
+		    --disable-shared --enable-static" "$PCRE2" "pcre2" \
+		    ".libs/libpcre2-8.a"
 		;;
 	Darwin)
 		NCPUS=$(( $(sysctl -n hw.ncpu) + 1 ))
