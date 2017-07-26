@@ -36,13 +36,15 @@ typedef enum {
 	MSG_START_TOW,
 	MSG_OP_COMPLETE,
 	MSG_DISCO,
-	MSG_DONE,
+	MSG_DONE_RIGHT,
+	MSG_DONE_LEFT,
 	MSG_NUM_MSGS
 } message_t;
 
 bool_t msg_init(void);
 void msg_fini();
 void msg_play(message_t msg);
+double msg_dur(message_t msg);
 
 #ifdef	__cplusplus
 }

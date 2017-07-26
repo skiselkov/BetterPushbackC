@@ -45,6 +45,7 @@ static msg_info_t msgs[MSG_NUM_MSGS] = {
 	{ .filename = "op_complete.wav", .wav = NULL },
 	{ .filename = "disco.wav", .wav = NULL },
 	{ .filename = "done.wav", .wav = NULL },
+	{ .filename = "done.wav", .wav = NULL },
 };
 
 bool_t inited = B_FALSE;
@@ -113,8 +114,17 @@ void
 msg_play(message_t msg)
 {
 	VERIFY3U(msg, <, MSG_NUM_MSGS);
+	ASSERT(inited);
 	if (dr_geti(&sound_on) == 0)
 		return;
 	wav_set_gain(msgs[msg].wav, dr_getf(&radio_vol));
 	wav_play(msgs[msg].wav);
+}
+
+double
+msg_dur(message_t msg)
+{
+	VERIFY3U(msg, <, MSG_NUM_MSGS);
+	ASSERT(inited);
+	return (msgs[msg].wav->duration);
 }

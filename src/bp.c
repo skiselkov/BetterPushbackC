@@ -94,6 +94,9 @@
 #define	PB_DRIVING_TURN_OFFSET	15	/* meters */
 #define	PB_LIFT_TE		0.075	/* fraction */
 #define	STATE_TRANS_DELAY	2	/* seconds, state transition delay */
+#define	CLEAR_SIGNAL_DELAY	15	/* seconds */
+#define	TUG_DRIVE_AWAY_DIST	80	/* meters */
+#define	MAX_DRIVING_AWAY_DELAY	30	/* seconds */
 
 #define	MAX_ARPT_DIST		10000	/* meters */
 
@@ -123,6 +126,8 @@ typedef enum {
 	PB_STEP_UNGRABBING,
 	PB_STEP_MOVING_AWAY,
 	PB_STEP_CLOSING_CRADLE,
+	PB_STEP_MOVING2CLEAR,
+	PB_STEP_CLEAR_SIGNAL,
 	PB_STEP_DRIVING_AWAY
 } pushback_step_t;
 
@@ -162,13 +167,15 @@ typedef struct {
 	double		d_t;		/* delta time from last_t to cur_t */
 
 	double		last_steer;
-
 	double		last_force;
 
-	pushback_step_t	step;
-	double		step_start_t;
+	pushback_step_t	step;		/* current PB step */
+	double		step_start_t;	/* PB step start time */
+	double		last_voice_t;	/* last voice message start time */
 
 	tug_t		*tug;
+	vect2_t		start_pos;	/* where the pushback originated */
+	double		start_hdg;	/* which way we were facing at start */
 
 	list_t		segs;
 } bp_state_t;
@@ -348,6 +355,7 @@ push_at_speed(double targ_speed, double max_accel, bool_t allow_snd_ctl)
 	 * factor is blocking us (like chocks).
 	 */
 	force_lim = FORCE_PER_TON * (dr_getf(&drs.acf_mass) / 1000);
+
 	/*
 	 * The maximum single-second force increment is 1/10 of the maximum
 	 * pushback force limit. This means it'll take up to 10s for us to
@@ -407,10 +415,16 @@ push_at_speed(double targ_speed, double max_accel, bool_t allow_snd_ctl)
 	if (allow_snd_ctl) {
 		tug_set_TE_override(bp.tug, B_TRUE);
 		if ((bp.cur_pos.spd > 0 && force < 0) ||
-		    (bp.cur_pos.spd < 0 && force > 0))
-			tug_set_TE_snd(bp.tug, fabs(force / force_lim), bp.d_t);
-		else
+		    (bp.cur_pos.spd < 0 && force > 0)) {
+			double spd_fract = (ABS(bp.cur_pos.spd) /
+			    bp.tug->info->max_fwd_speed);
+			double force_fract = fabs(force /
+			    bp.tug->info->max_TE);
+			tug_set_TE_snd(bp.tug, AVG(force_fract, spd_fract),
+			    bp.d_t);
+		} else {
 			tug_set_TE_snd(bp.tug, 0, bp.d_t);
+		}
 	}
 }
 
@@ -721,6 +735,14 @@ bp_start(void)
 	bp.step = 1;
 	bp.step_start_t = bp.cur_t;
 
+	/*
+	 * Memorize where we were at the start. We will use this to determine
+	 * which way to turn when disconnecting and where to attempt to go
+	 * once we're done.
+	 */
+	bp.start_pos = bp.cur_pos.pos;
+	bp.start_hdg = bp.cur_pos.hdg;
+
 	XPLMRegisterFlightLoopCallback(bp_run, -1, NULL);
 	floop_registered = B_TRUE;
 	XPLMRegisterDrawCallback(draw_tugs, TUG_DRAWING_PHASE,
@@ -1026,6 +1048,7 @@ pb_step_start(void)
 	msg_play(MSG_DRIVING_UP);
 	bp.step++;
 	bp.step_start_t = bp.cur_t;
+	bp.last_voice_t = bp.cur_t;
 }
 
 static void
@@ -1051,7 +1074,18 @@ pb_step_waiting_for_pbrake(void)
 {
 	vect2_t p_end, dir;
 
-	if (!pbrake_is_set())
+	if (!pbrake_is_set() ||
+	    /* wait until the rdy2conn message has stopped playing */
+	    bp.cur_t - bp.last_voice_t < msg_dur(MSG_RDY2CONN)) {
+		/* keep resetting the start time to enforce a delay */
+		bp.step_start_t = bp.cur_t;
+		return;
+	}
+	/*
+	 * After the parking brake is set and the message has finished
+	 * playing, wait a short moment until starting to move again.
+	 */
+	if (bp.cur_t - bp.step_start_t < STATE_TRANS_DELAY)
 		return;
 
 	dir = hdg2dir(bp.cur_pos.hdg);
@@ -1134,6 +1168,7 @@ pb_step_connect_winch(void)
 	if (!bp.winching.complete && pbrake_is_set()) {
 		if (!bp.winching.pbrk_rele_called) {
 			msg_play(MSG_WINCH);
+			bp.last_voice_t = bp.cur_t;
 			bp.winching.pbrk_rele_called = B_TRUE;
 		}
 		return;
@@ -1241,8 +1276,10 @@ pb_step_lift(void)
 		}
 
 		tug_set_TE_override(bp.tug, B_FALSE);
-		if (bp.tug->info->lift_type != LIFT_WINCH)
+		if (bp.tug->info->lift_type != LIFT_WINCH) {
 			msg_play(MSG_CONNECTED);
+			bp.last_voice_t = bp.cur_t;
+		}
 		bp.step++;
 		bp.step_start_t = bp.cur_t;
 	}
@@ -1277,6 +1314,7 @@ pb_step_connected(void)
 
 		bp.step++;
 		bp.step_start_t = bp.cur_t;
+		bp.last_voice_t = bp.cur_t;
 	}
 }
 
@@ -1327,10 +1365,10 @@ pb_step_stopping(void)
 			dr_setf(&drs.rbrake, 0.9);
 		}
 		if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
-			if (!pbrake_is_set())
-				msg_play(MSG_OP_COMPLETE);
+			msg_play(MSG_OP_COMPLETE);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
+			bp.last_voice_t = bp.cur_t;
 		}
 	}
 }
@@ -1355,6 +1393,7 @@ pb_step_stopped(void)
 		msg_play(MSG_DISCO);
 		bp.step++;
 		bp.step_start_t = bp.cur_t;
+		bp.last_voice_t = bp.cur_t;
 	}
 }
 
@@ -1373,7 +1412,7 @@ pb_step_lowering(void)
 	}
 	acf2tug_steer();
 
-	if (d_t <= 2 * STATE_TRANS_DELAY)
+	if (d_t <= msg_dur(MSG_DISCO) + STATE_TRANS_DELAY)
 		return;
 
 	lift_fract = MAX(MIN(lift_fract, 1), 0);
@@ -1472,45 +1511,142 @@ pb_step_closing_cradle(void)
 		tug_set_cradle_beeper_on(bp.tug, B_FALSE);
 
 	if (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY) {
-		vect2_t turn_p, abeam_p, end_p, dir, norm_dir;
+		/*
+		 * This determines whether we perform a right or left turn.
+		 * The direction of the turn depends on whether our original
+		 * starting position is to the left or to the right of the
+		 * aircraft.
+		 */
+		bool_t right = (rel_hdg(bp.cur_pos.hdg,
+		    dir2hdg(vect2_sub(bp.start_pos, bp.cur_pos.pos))) >= 0);
+		vect2_t turn_p, abeam_p, dir, norm_dir;
 		double turn_hdg, back_hdg;
 		double square_side = MAX(5 * bp.tug->veh.wheelbase,
 		    1.5 * bp.veh.wheelbase);
 
 		dir = hdg2dir(bp.cur_pos.hdg);
-		norm_dir = vect2_norm(dir, B_TRUE);
+		norm_dir = vect2_norm(dir, right);
 
 		/*
-		 * turn_p is offset 2x wheelbase forward and
-		 * 1x wheelbase to the right
+		 * turn_p is offset 3x tug wheelbase forward and
+		 * half square_side to the direction of the turn.
 		 */
 		turn_p = vect2_add(bp.tug->pos.pos, vect2_scmul(dir,
-		    5 * bp.tug->veh.wheelbase));
-		turn_p = vect2_add(turn_p, vect2_scmul(norm_dir, square_side));
-		turn_hdg = normalize_hdg(bp.cur_pos.hdg + 90);
-
-		/* abeam_p is on right wing, 3x wheelbase away */
-		abeam_p = vect2_add(bp.cur_pos.pos,
-		    vect2_scmul(norm_dir, 2 * square_side));
-		back_hdg = normalize_hdg(bp.cur_pos.hdg + 180);
+		    3 * bp.tug->veh.wheelbase));
+		turn_p = vect2_add(turn_p, vect2_scmul(norm_dir,
+		    square_side / 2));
+		turn_hdg = normalize_hdg(bp.cur_pos.hdg + (right ? 90 : -90));
 
 		/*
-		 * end_p is 3x wheelbase behind and 3x wheelbase to the right.
+		 * abeam point is displaced from turn_p back 2x tug wheelbase,
+		 * 4x tug wheelbase in the direction of the turn and going the
+		 * opposite way to the aircraft at a 45 degree angle.
 		 */
-		end_p = vect2_add(abeam_p, vect2_scmul(dir, -3 * square_side));
+		abeam_p = vect2_add(turn_p, vect2_scmul(vect2_neg(dir),
+		    2 * bp.tug->veh.wheelbase));
+		abeam_p = vect2_add(abeam_p, vect2_scmul(norm_dir,
+		    4 * bp.tug->veh.wheelbase));
+		back_hdg = normalize_hdg(turn_hdg + (right ? 45 : -45));
 
-		msg_play(MSG_DONE);
+		msg_play(right ? MSG_DONE_RIGHT : MSG_DONE_LEFT);
 
 		VERIFY(tug_drive2point(bp.tug, turn_p, turn_hdg));
 		VERIFY(tug_drive2point(bp.tug, abeam_p, back_hdg));
-		VERIFY(tug_drive2point(bp.tug, end_p, back_hdg));
 
 		tug_set_cradle_lights_on(B_FALSE);
 		tug_set_hazard_lights_on(B_FALSE);
 
 		bp.step++;
 		bp.step_start_t = bp.cur_t;
+		bp.last_voice_t = bp.cur_t;
 	}
+}
+
+static void
+drive_away_fallback(void)
+{
+	/*
+	 * If all else fails, reset the tug's position to get rid of an
+	 * intermediate turn segment and just send the tug straight for
+	 * a fixed distance.
+	 */
+	vect2_t end_p = vect2_add(bp.tug->pos.pos,
+	    vect2_scmul(hdg2dir(bp.tug->pos.hdg), TUG_DRIVE_AWAY_DIST));
+
+	tug_set_pos(bp.tug, bp.tug->pos.pos, bp.tug->pos.hdg, 0);
+	VERIFY(tug_drive2point(bp.tug, end_p, bp.tug->pos.hdg));
+}
+
+static void
+pb_step_clear_signal(void)
+{
+	double acf2start_lat_displ, acf2start_long_displ;
+	vect2_t acf2start, acfdir;
+
+	tug_set_clear_signal(B_TRUE, rel_hdg(bp.cur_pos.hdg,
+	    dir2hdg(vect2_sub(bp.start_pos, bp.cur_pos.pos))) >= 0);
+
+	if (bp.cur_t - bp.step_start_t < CLEAR_SIGNAL_DELAY)
+		return;
+
+	/*
+	 * In order to determine if we should be even attempting to reach
+	 * our starting point, we make sure that start_pos isn't within a
+	 * box as follows:
+	 *                 -3 x wheelbase
+	 *                   |<----->|
+	 *                   |       |
+	 *           ------- +-------+------------------>>> (to infinity)
+	 *  1.5x     ^       |
+	 * wheelbase |       |       |
+	 *           v______ |   |___|__
+	 *                   |   |   |
+	 *                   |       |
+	 *                   |
+	 *                   +-------------------------->>>
+	 */
+	acf2start = vect2_sub(bp.start_pos, bp.cur_pos.pos);
+	acfdir = hdg2dir(bp.cur_pos.hdg);
+	acf2start_lat_displ = fabs(vect2_dotprod(vect2_norm(acfdir, B_TRUE),
+	    acf2start));
+	acf2start_long_displ = vect2_dotprod(acfdir, acf2start);
+
+	if (acf2start_lat_displ < 1.5 * bp.veh.wheelbase &&
+	    acf2start_long_displ > -3 * bp.veh.wheelbase) {
+		drive_away_fallback();
+	} else {
+		double rhdg = fabs(rel_hdg(bp.tug->pos.hdg,
+		    dir2hdg(vect2_sub(bp.start_pos, bp.tug->pos.pos))));
+		/*
+		 * start_pos seems far enough away from the aircraft that
+		 * it won't be a problem if we drive to it. Just make sure
+		 * we're not trying to back into it.
+		 */
+		if (rhdg >= 90 || !tug_drive2point(bp.tug, bp.start_pos,
+		    bp.start_hdg)) {
+			/*
+			 * It's possible the start_pos is beyond a 90 degree
+			 * turn, so we'd attempt to back into it. Try to stick
+			 * in an intermediate 90-degree turn in its direction.
+			 */
+			bool_t right = (rel_hdg(bp.tug->pos.hdg, dir2hdg(
+			    vect2_sub(bp.start_pos, bp.tug->pos.pos))) >= 0);
+			vect2_t dir = hdg2dir(bp.tug->pos.hdg);
+			vect2_t turn_p = vect2_add(bp.tug->pos.pos,
+			    vect2_scmul(dir, 2 * bp.tug->veh.wheelbase));
+			turn_p = vect2_add(turn_p, vect2_scmul(vect2_norm(dir,
+			    right), 2 * bp.tug->veh.wheelbase));
+			if (!tug_drive2point(bp.tug, turn_p, normalize_hdg(
+			    bp.tug->pos.hdg + (right ? 90 : -90))) ||
+			    !tug_drive2point(bp.tug, bp.start_pos,
+			    bp.start_hdg)) {
+				drive_away_fallback();
+			}
+		}
+	}
+	tug_set_clear_signal(B_FALSE, B_FALSE);
+	bp.step++;
+	bp.step_start_t = bp.cur_t;
 }
 
 static float
@@ -1582,8 +1718,11 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			 */
 			tug_set_pos(bp.tug, ZERO_VECT2, 0, 0);
 		} else if (bp.step == PB_STEP_UNGRABBING) {
-			bp.step = PB_STEP_DRIVING_AWAY;
+#if 0
 			dr_setvf(&drs.leg_len, &bp.acf.nw_len, bp.acf.nw_i, 1);
+			bp_complete();
+			return (0);
+#endif
 		}
 	}
 
@@ -1610,10 +1749,10 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		if (d_t >= PB_CRADLE_DELAY)
 			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
 		if (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY) {
-			if (!pbrake_is_set())
-				msg_play(MSG_RDY2CONN);
+			msg_play(MSG_RDY2CONN);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
+			bp.last_voice_t = bp.cur_t;
 		}
 		break;
 	}
@@ -1687,8 +1826,18 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 	case PB_STEP_CLOSING_CRADLE:
 		pb_step_closing_cradle();
 		break;
-	case PB_STEP_DRIVING_AWAY:
+	case PB_STEP_MOVING2CLEAR:
 		if (tug_is_stopped(bp.tug)) {
+			bp.step++;
+			bp.step_start_t = bp.cur_t;
+		}
+		break;
+	case PB_STEP_CLEAR_SIGNAL:
+		pb_step_clear_signal();
+		break;
+	case PB_STEP_DRIVING_AWAY:
+		if (tug_is_stopped(bp.tug) ||
+		    bp.cur_t - bp.step_start_t > MAX_DRIVING_AWAY_DELAY) {
 			bp_complete();
 			/*
 			 * Can't unregister floop from within, so just tell

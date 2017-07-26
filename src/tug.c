@@ -76,6 +76,7 @@ typedef enum {
 	ANIM_DRIVER_ORIENTATION,
 	ANIM_CAB_POSITION,
 	ANIM_WINCH_ON,
+	ANIM_CLEAR_SIGNAL,
 	TUG_NUM_ANIMS
 } anim_t;
 
@@ -142,7 +143,8 @@ static anim_info_t anim[TUG_NUM_ANIMS] = {
     { .name = "bp/anim/hazard_lights" },
     { .name = "bp/anim/driver_orientation" },
     { .name = "bp/anim/cab_position" },
-    { .name = "bp/anim/winch_on" }
+    { .name = "bp/anim/winch_on" },
+    { .name = "bp/anim/clear_signal" }
 };
 
 static bool_t cradle_lights_req = B_FALSE;
@@ -367,6 +369,7 @@ tug_info_read(const char *tugdir, const char *tug_name, const char *icao)
 	ti->rear_z = NAN;
 	ti->lift_wall_z = NAN;
 	ti->apch_dist = NAN;
+	ti->max_TE = NAN;
 	ti->plat_z = NAN;
 	ti->plat_h = NAN;
 	ti->sort_rand = crc64_rand();
@@ -462,6 +465,8 @@ tug_info_read(const char *tugdir, const char *tug_name, const char *icao)
 			READ_NUMBER("%lf", "lift_height", &ti->lift_height);
 		} else if (strcmp(option, "apch_dist") == 0) {
 			READ_NUMBER("%lf", "apch_dist", &ti->apch_dist);
+		} else if (strcmp(option, "max_TE") == 0) {
+			READ_NUMBER("%lf", "max_TE", &ti->max_TE);
 		} else if (strcmp(option, "num_fwd_gears") == 0) {
 			READ_NUMBER("%u", "num_fwd_gears", &ti->num_fwd_gears);
 		} else if (strcmp(option, "num_rev_gears") == 0) {
@@ -581,6 +586,7 @@ tug_info_read(const char *tugdir, const char *tug_name, const char *icao)
 	VALIDATE_TUG_REAL(ti->min_nlg_len, "min_nlg_len");
 	VALIDATE_TUG_REAL(ti->lift_height, "lift_height");
 	VALIDATE_TUG_REAL_NAN(ti->apch_dist, "apch_dist");
+	VALIDATE_TUG_REAL_NAN(ti->max_TE, "max_TE");
 	VALIDATE_TUG_INT(ti->num_fwd_gears, "num_fwd_gears");
 	VALIDATE_TUG_INT(ti->num_rev_gears, "num_rev_gears");
 	VALIDATE_TUG_STR(ti->engine_snd, "engine_snd");
@@ -1196,10 +1202,10 @@ tug_run(tug_t *tug, double d_t, bool_t drive_slow)
 			gear--;
 		}
 		/*
-		 * Reduce the TE pitch by a factor of 4 so we don't quite
+		 * Reduce the TE pitch by a factor of 3 so we don't quite
 		 * whine at our maximum rpm at max speed.
 		 */
-		tug_set_TE_snd(tug, TE / 4, d_t);
+		tug_set_TE_snd(tug, TE / 3, d_t);
 	}
 }
 
@@ -1387,16 +1393,10 @@ tug_set_TE_snd(tug_t *tug, double TE_fract, double d_t)
 	double d_TE_fract;
 
 	/*
-	 * We do a double log of the linear TE fraction to obtain a more
-	 * obvious engine note of the engine being under load.
-	 */
-	for (int i = 0; i < 2; i++)
-		TE_fract = log((TE_fract * (M_E - 1)) + 1);
-
-	/*
 	 * Modulate the engine note change so that it takes 1 second to
 	 * ramp up from idle to max power.
 	 */
+	TE_fract = MIN(MAX(TE_fract, 0), 1);
 	d_TE_fract = TE_fract - tug->last_TE_fract;
 	if (tug->TE_override) {
 		d_TE_fract = MIN(d_TE_fract, d_t / TUG_TE_RAMP_UP_DELAY);
@@ -1522,4 +1522,13 @@ tug_set_winch_on(tug_t *tug, bool_t flag)
 {
 	UNUSED(tug);
 	anim[ANIM_WINCH_ON].value = flag;
+}
+
+void
+tug_set_clear_signal(bool_t on, bool_t right)
+{
+	if (on)
+		anim[ANIM_CLEAR_SIGNAL].value = (right ? 1 : -1);
+	else
+		anim[ANIM_CLEAR_SIGNAL].value = 0;
 }

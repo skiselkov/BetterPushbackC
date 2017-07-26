@@ -86,6 +86,8 @@ typedef struct {
 	double	min_nlg_len;	/* min acf nose landing gear length, meters */
 	double	apch_dist;	/* how close we apch to open cradle, meters */
 
+	double	max_TE;		/* maximum tractive effort, Newtons */
+
 	unsigned	num_fwd_gears;
 	unsigned	num_rev_gears;
 	unsigned	gear_compat;
@@ -197,6 +199,7 @@ void tug_set_tire_sense_pos(const tug_t *tug, float x);
 void tug_set_cradle_lights_on(bool_t flag);
 void tug_set_hazard_lights_on(bool_t flag);
 void tug_set_winch_on(tug_t *tug, bool_t flag);
+void tug_set_clear_signal(bool_t on, bool_t right);
 
 #ifdef	__cplusplus
 }

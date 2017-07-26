@@ -47,7 +47,7 @@
 #define	STEERING_SENSITIVE	90	/* degrees */
 #define	MIN_SPEED_XP10		0.6	/* m/s */
 #define	CRAWL_SPEED(xpversion, veh)	/* m/s */ \
-	(((xpversion) >= 11000 || !veh->xp10_bug_ign) ? 0.05 : MIN_SPEED_XP10)
+	(((xpversion) >= 11000 || !veh->xp10_bug_ign) ? 0.1 : MIN_SPEED_XP10)
 
 #define	STEER_GATE(x, g)	MIN(MAX((x), -g), g)
 
