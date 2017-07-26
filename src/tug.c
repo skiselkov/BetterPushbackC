@@ -510,6 +510,26 @@ tug_info_read(const char *tugdir, const char *tug_name, const char *icao)
 				    type);
 				goto errout;
 			}
+		} else if (strcmp(option, "lift_wall_loc") == 0) {
+			char type[16];
+			if (fscanf(fp, "%15s", type) != 1) {
+				logMsg("Malformed tug config file %s: expected "
+				    "word following \"lift_wall_loc\" keyword.",
+				    cfgfilename);
+				goto errout;
+			}
+			if (strcmp(type, "front") == 0) {
+				ti->lift_wall_loc = LIFT_WALL_FRONT;
+			} else if (strcmp(type, "center") == 0) {
+				ti->lift_wall_loc = LIFT_WALL_CENTER;
+			} else if (strcmp(type, "back") == 0) {
+				ti->lift_wall_loc = LIFT_WALL_BACK;
+			} else {
+				logMsg("Malformed tug config file %s: bad "
+				    "keyword following \"lift_wall_loc\".",
+				    cfgfilename);
+				goto errout;
+			}
 		} else {
 			logMsg("Malformed tug config file %s: unknown "
 			    "option '%s'", cfgfilename, option);
@@ -1440,6 +1460,20 @@ tug_plat_h(const tug_t *tug)
 		return (0);
 	return ((1 - (tug->tirrad / (tug->info->lift_wall_z -
 	    tug->info->plat_z))) * tug->info->plat_h);
+}
+
+double
+tug_lift_wall_off(const tug_t *tug)
+{
+	switch (tug->info->lift_wall_loc) {
+	case LIFT_WALL_FRONT:
+		return (tug->tirrad);
+	case LIFT_WALL_CENTER:
+		return (0);
+	default:
+		ASSERT3U(tug->info->lift_wall_loc, ==, LIFT_WALL_BACK);
+		return (-tug->tirrad);
+	}
 }
 
 void

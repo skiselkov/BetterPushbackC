@@ -42,6 +42,12 @@ typedef enum {
 	LIFT_WINCH
 } lift_t;
 
+typedef enum {
+	LIFT_WALL_FRONT,
+	LIFT_WALL_CENTER,
+	LIFT_WALL_BACK
+} lift_wall_loc_t;
+
 typedef struct {
 	char	*tug_name;	/* name of tug directory under objects/tugs */
 	char	*tugdir;	/* pointer to tug directory */
@@ -67,6 +73,7 @@ typedef struct {
 	double	rear_z;		/* meters */
 	double	rear_radius;	/* meters */
 	double	lift_wall_z;	/* lift forward fixed long offset, meters */
+	lift_wall_loc_t	lift_wall_loc;
 	double	max_tirrad;	/* max acf tire radius, meters */
 	double	max_tirrad_f;	/* lift_arm_anim value for max_tirrad */
 	double	min_tirrad;	/* min acf tire rad, meters (lift_arm_anim=0) */
@@ -182,6 +189,7 @@ void tug_set_steering(tug_t *tug, double steer, double d_t);
 
 bool_t tug_is_stopped(const tug_t *tug);
 double tug_plat_h(const tug_t *tug);
+double tug_lift_wall_off(const tug_t *tug);
 
 void tug_set_lift_pos(float x);
 void tug_set_lift_arm_pos(const tug_t *tug, float x, bool_t grabbing_tire);

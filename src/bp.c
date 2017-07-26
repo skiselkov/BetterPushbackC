@@ -644,7 +644,8 @@ draw_tugs(XPLMDrawingPhase phase, int before, void *refcon)
 			    (-bp.tug->info->plat_z))), hdg, 0);
 		} else {
 			off_v = vect2_scmul(hdg2dir(tug_hdg),
-			    (-bp.tug->info->lift_wall_z) + bp.acf.tirrad);
+			    (-bp.tug->info->lift_wall_z) +
+			    tug_lift_wall_off(bp.tug));
 			tug_pos = vect2_add(vect2_add(pos, vect2_scmul(dir,
 			    -bp.acf.nw_z)), off_v);
 			tug_spd = bp.cur_pos.spd / cos(DEG2RAD(fabs(steer)));
@@ -1057,7 +1058,7 @@ pb_step_waiting_for_pbrake(void)
 	if (bp.tug->info->lift_type == LIFT_GRAB) {
 		p_end = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
 		    (-bp.acf.nw_z) + (-bp.tug->info->lift_wall_z) +
-		    bp.acf.tirrad));
+		    tug_lift_wall_off(bp.tug)));
 	} else {
 		vect2_t d = vect2_neg(hdg2dir(bp.tug->pos.hdg));
 		p_end = vect2_add(bp.tug->pos.pos, vect2_scmul(d,
@@ -1144,7 +1145,7 @@ pb_step_connect_winch(void)
 		dr_setf(&drs.rbrake, 0);
 	}
 
-	winch_total = ti->lift_wall_z - ti->plat_z - bp.acf.tirrad;
+	winch_total = ti->lift_wall_z - ti->plat_z - tug_lift_wall_off(bp.tug);
 	winched_dist = vect2_dist(bp.winching.start_acf_pos, bp.cur_pos.pos);
 	if (winched_dist < winch_total && !bp.winching.complete) {
 		/*
