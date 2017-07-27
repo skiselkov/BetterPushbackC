@@ -83,8 +83,19 @@ DIST_FILES=(
 	'//PNG2DDS//'
     'objects/tugs/AST-3F.tug/liveries/generic.livery/AST-3F_lit.png' \
 	'//PNG2DDS//'
+    'objects/tugs/AST-3F.tug/liveries/GlobeGroundBerlin.livery/info.cfg' \
+	''
+    'objects/tugs/AST-3F.tug/liveries/GlobeGroundBerlin.livery/AST-3F_tex.png' \
+	'//PNG2DDS//'
+    'objects/tugs/AST-3F.tug/liveries/HAviationGroundServices.livery/info.cfg' \
+	''
+    'objects/tugs/AST-3F.tug/liveries/HAviationGroundServices.livery/AST-3F_tex.png' \
+	'//PNG2DDS//'
     'objects/tugs/AST-3F.tug/liveries/LEOS.livery/info.cfg'	''
     'objects/tugs/AST-3F.tug/liveries/LEOS.livery/AST-3F_tex.png' '//PNG2DDS//'
+    'objects/tugs/AST-3F.tug/liveries/Swissport.livery/info.cfg'	''
+    'objects/tugs/AST-3F.tug/liveries/Swissport.livery/AST-3F_tex.png' \
+	'//PNG2DDS//'
     'objects/tugs/AST-1X.tug/AST-1X.obj'	''
     'objects/tugs/AST-1X.tug/beeper.wav'	''
     'objects/tugs/AST-1X.tug/engine.wav'	''
