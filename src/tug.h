@@ -25,6 +25,7 @@
 #include <acfutils/dr.h>
 #include <acfutils/geom.h>
 #include <acfutils/wav.h>
+#include <acfutils/thread.h>
 
 #include "driving.h"
 
@@ -126,16 +127,19 @@ typedef struct {
 } tug_info_t;
 
 typedef struct {
+	tug_info_t	*info;
+
 	vehicle_pos_t	pos;
 	vehicle_t	veh, veh_slow, veh_super_slow;
 	bool_t		steer_override;
 	double		cur_steer;
 	double		last_mis_hdg;
 
-	XPLMObjectRef	tug, winch;
-	double		front_phi, rear_phi;	/* tire roll angle, degrees */
+	XPLMObjectRef	tug;
+	bool_t		tug_load_complete;
+	char		*objpath;
 
-	tug_info_t	*info;
+	double		front_phi, rear_phi;	/* tire roll angle, degrees */
 
 	double		tirrad;			/* acf tire radius, meters */
 
@@ -170,6 +174,9 @@ typedef struct {
 
 void tug_glob_init(void);
 void tug_glob_fini(void);
+
+bool_t tug_is_load_async(void);
+void tug_set_load_async(bool_t flag);
 
 bool_t tug_available(double mtow, double ng_len, double tirrad,
     unsigned gear_type, const char *arpt);

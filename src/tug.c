@@ -156,6 +156,8 @@ static XPLMCommandRef tug_reload_cmd;
 static char *tug_liv_apply(const tug_info_t *ti);
 static void tug_liv_destroy(char *objpath);
 
+static bool_t load_async = B_FALSE;
+
 static inline float
 anim_gate(float x)
 {
@@ -710,6 +712,19 @@ out:
 	return (ti);
 }
 
+static void
+tug_load_complete(XPLMObjectRef obj, void *handle)
+{
+	tug_t *tug = handle;
+
+	logMsg("tug load complete, obj: %p", obj);
+
+	tug_liv_destroy(tug->objpath);
+	tug->objpath = NULL;
+	tug->tug = obj;
+	tug->tug_load_complete = B_TRUE;
+}
+
 static int
 reload_tug_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 {
@@ -719,18 +734,23 @@ reload_tug_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 		return (1);
 
 	if (glob_tug != NULL) {
-		char *objpath;
-
-		XPLMUnloadObject(glob_tug->tug);
-		objpath = tug_liv_apply(glob_tug->info);
-		if (objpath == NULL) {
-			logMsg("Error preparing tug object %s",
-			    glob_tug->info->tug);
+		if (!glob_tug->tug_load_complete) {
+			logMsg("Please wait for tug load to complete");
 			return (1);
 		}
-		glob_tug->tug = XPLMLoadObject(objpath);
-		tug_liv_destroy(objpath);
-		VERIFY(glob_tug->tug != NULL);
+
+		XPLMUnloadObject(glob_tug->tug);
+		glob_tug->tug = NULL;
+		glob_tug->tug_load_complete = B_FALSE;
+		glob_tug->objpath = tug_liv_apply(glob_tug->info);
+		VERIFY(glob_tug->objpath != NULL);
+		if (load_async) {
+			XPLMLoadObjectAsync(glob_tug->objpath,
+			    tug_load_complete, glob_tug);
+		} else {
+			tug_load_complete(XPLMLoadObject(glob_tug->objpath),
+			    glob_tug);
+		}
 	}
 
 	return (1);
@@ -765,6 +785,18 @@ tug_glob_fini(void)
 		dr_delete(&anim[a].dr);
 
 	inited = B_FALSE;
+}
+
+bool_t
+tug_is_load_async(void)
+{
+	return (load_async);
+}
+
+void
+tug_set_load_async(bool_t flag)
+{
+	load_async = flag;
 }
 
 static void
@@ -906,7 +938,6 @@ static tug_t *
 tug_alloc_common(tug_info_t *ti, double tirrad)
 {
 	tug_t *tug;
-	char *objpath;
 
 	VERIFY(inited);
 
@@ -936,18 +967,16 @@ tug_alloc_common(tug_info_t *ti, double tirrad)
 	tug->veh_slow.max_accel = tug->info->max_accel / 3;
 	tug->veh_slow.max_decel = tug->info->max_decel / 3;
 
-	objpath = tug_liv_apply(tug->info);
-	if (objpath == NULL) {
+	tug->objpath = tug_liv_apply(tug->info);
+	if (tug->objpath == NULL) {
+		tug->tug_load_complete = B_TRUE;
 		logMsg("Error preparing tug object %s", tug->info->tug);
 		goto errout;
 	}
-	tug->tug = XPLMLoadObject(objpath);
-	tug_liv_destroy(objpath);
-
-	if (tug->tug == NULL) {
-		logMsg("Error loading tug object %s", tug->info->tug);
-		goto errout;
-	}
+	if (load_async)
+		XPLMLoadObjectAsync(tug->objpath, tug_load_complete, tug);
+	else
+		tug_load_complete(XPLMLoadObject(tug->objpath), tug);
 
 	tug->engine_snd = wav_load(tug->info->engine_snd, "tug_engine");
 	if (tug->engine_snd == NULL) {
@@ -1053,6 +1082,9 @@ void
 tug_free(tug_t *tug)
 {
 	seg_t *seg;
+
+	/* Make sure the tug is fully loaded before unloading it. */
+	ASSERT(tug->tug_load_complete);
 
 	while ((seg = list_remove_head(&tug->segs)) != NULL)
 		free(seg);
@@ -1277,6 +1309,8 @@ tug_draw(tug_t *tug, double cur_t)
 	XPLMProbeInfo_t info = { .structSize = sizeof (XPLMProbeInfo_t) };
 	vect3_t pos, norm, norm_hdg;
 	double gain;
+
+	ASSERT(tug->tug_load_complete);
 
 	/* X-Plane's Z axis is inverted to ours */
 	VERIFY3U(XPLMProbeTerrainXYZ(probe, tug->pos.pos.x, 0,

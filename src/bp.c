@@ -225,6 +225,7 @@ static bool_t load_buttons(void);
 static void unload_buttons(void);
 static int key_sniffer(char inChar, XPLMKeyFlags inFlags, char inVirtualKey,
     void *refcon);
+static bool_t master_tug_load(void);
 
 static bool_t radio_volume_warn = B_FALSE;
 
@@ -636,6 +637,11 @@ draw_tugs(XPLMDrawingPhase phase, int before, void *refcon)
 		return (1);
 	}
 
+	if (!bp.tug->tug_load_complete) {
+		logMsg("!tug_load_complete");
+		return (1);
+	}
+
 	if (list_head(&bp.tug->segs) == NULL &&
 	    bp.step >= PB_STEP_GRABBING && bp.step <= PB_STEP_UNGRABBING) {
 		double hdg, tug_hdg, tug_spd, steer;
@@ -901,17 +907,17 @@ bp_run_push(void)
 static void
 bp_complete(void)
 {
+	if (bp.tug != NULL) {
+		tug_free(bp.tug);
+		bp.tug = NULL;
+	}
+
 	if (!bp_started)
 		return;
 
 	bp_started = B_FALSE;
 	late_plan_requested = B_FALSE;
 	plan_complete = B_FALSE;
-
-	if (bp.tug != NULL) {
-		tug_free(bp.tug);
-		bp.tug = NULL;
-	}
 
 	XPLMUnregisterDrawCallback(draw_tugs, TUG_DRAWING_PHASE,
 	    TUG_DRAWING_PHASE_BEFORE, NULL);
@@ -948,57 +954,32 @@ late_plan_end_cond(void)
 static bool_t
 pb_step_tug_load(void)
 {
-	if (!slave_mode) {
-		char icao[8] = { 0 };
-
-		(void) find_nearest_airport(icao);
-		bp.tug = tug_alloc_auto(dr_getf(&drs.mtow),
-		    dr_getf(&drs.leg_len), bp.acf.tirrad,
-		    bp.acf.nw_type, strcmp(icao, "") != 0 ? icao : NULL);
-		if (bp.tug == NULL) {
-			XPLMSpeakString(_("Pushback failure: no suitable "
-			    "tug for your aircraft."));
-			bp_complete();
+	if (slave_mode) {
+		if (!bp_slave_tug_tryload()) {
+			/* Load failed fatally, bail. */
 			return (B_FALSE);
+		} else if (bp.tug == NULL) {
+			/*
+			 * Load was attempted, but the master has not yet
+			 * sent over the tug name. Wait.
+			 */
+			return (B_TRUE);
 		}
-		strlcpy(bp_tug_name, bp.tug->info->tug_name,
-		    sizeof (bp_tug_name));
-	} else {
-		char tug_name[sizeof (bp_tug_name)];
-		char *ext;
-		char icao[8] = { 0 };
-
-		/* make sure the tug name is properly terminated */
-		memcpy(tug_name, bp_tug_name, sizeof (tug_name));
-		tug_name[sizeof (tug_name) - 1] = '\0';
-
-		/* wait until the tug name has been synced */
-		if (strcmp(tug_name, "") == 0)
-			return (B_TRUE);
-
-		/* security check - must not contain a dir separator */
-		if (strchr(tug_name, '/') != NULL ||
-		    strchr(tug_name, '\\') != NULL)
-			return (B_TRUE);
-
-		/* sanity check - must end in '.tug' */
-		ext = strrchr(tug_name, '.');
-		if (ext == NULL || strcmp(&ext[1], "tug") != 0)
-			return (B_TRUE);
-
-		(void) find_nearest_airport(icao);
-
-		bp.tug = tug_alloc_man(tug_name, bp.acf.tirrad, icao);
-		if (bp.tug == NULL) {
-			char msg[256];
-			snprintf(msg, sizeof (msg), _("Pushback failure: "
-			    "master requested tug \"%s\", which we don't have "
-			    "in our in our library. Please sync your tug "
-			    "libraries before trying again."), tug_name);
-			XPLMSpeakString(msg);
-			bp_complete();
+	} else if (bp.tug == NULL) {
+		/*
+		 * Master can have no tug present if the user requested
+		 * a 'connect first' without invoked the planner.
+		 */
+		if (!master_tug_load())
 			return (B_FALSE);
-		}
+	}
+	ASSERT(bp.tug != NULL);
+	if (!bp.tug->tug_load_complete)
+		return (B_TRUE);
+	if (bp.tug->tug == NULL) {
+		/* Tug object load failed */
+		XPLMSpeakString("Pushback failure: error loading tug object");
+		return (B_FALSE);
 	}
 	if (!bp.tug->info->drive_debug) {
 		vect2_t p_start, dir;
@@ -1730,9 +1711,10 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 	case PB_STEP_OFF:
 		VERIFY(bp.step != PB_STEP_OFF);
 	case PB_STEP_TUG_LOAD:
-		ASSERT3P(bp.tug, ==, NULL);
-		if (!pb_step_tug_load())
+		if (!pb_step_tug_load()) {
+			bp_complete();
 			return (0);
+		}
 		break;
 	case PB_STEP_START:
 		pb_step_start();
@@ -1853,6 +1835,73 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 	dr_getvf(&drs.tire_steer_cmd, &bp.last_steer, bp.acf.nw_i, 1);
 
 	return (-1);
+}
+
+static bool_t
+master_tug_load(void)
+{
+	char icao[8] = { 0 };
+
+	(void) find_nearest_airport(icao);
+	bp.tug = tug_alloc_auto(dr_getf(&drs.mtow),
+	    dr_getf(&drs.leg_len), bp.acf.tirrad,
+	    bp.acf.nw_type, strcmp(icao, "") != 0 ? icao : NULL);
+	if (bp.tug == NULL) {
+		XPLMSpeakString(_("Pushback failure: no suitable "
+		    "tug for your aircraft."));
+		bp_complete();
+		return (B_FALSE);
+	}
+	/* send master tug selection to slave */
+	strlcpy(bp_tug_name, bp.tug->info->tug_name,
+	    sizeof (bp_tug_name));
+
+	return (B_TRUE);
+}
+
+bool_t
+bp_slave_tug_tryload(void)
+{
+	char tug_name[sizeof (bp_tug_name)];
+	char *ext;
+	char icao[8] = { 0 };
+
+	if (!slave_mode || bp_started || bp.tug != NULL)
+		return (B_TRUE);
+
+	/* make sure the tug name is properly terminated */
+	memcpy(tug_name, bp_tug_name, sizeof (tug_name));
+	tug_name[sizeof (tug_name) - 1] = '\0';
+
+	/* wait until the tug name has been synced */
+	if (strcmp(tug_name, "") == 0)
+		return (B_TRUE);
+
+	/* security check - must not contain a dir separator */
+	if (strchr(tug_name, '/') != NULL ||
+	    strchr(tug_name, '\\') != NULL)
+		return (B_TRUE);
+
+	/* sanity check - must end in '.tug' */
+	ext = strrchr(tug_name, '.');
+	if (ext == NULL || strcmp(&ext[1], "tug") != 0)
+		return (B_TRUE);
+
+	(void) find_nearest_airport(icao);
+
+	bp.tug = tug_alloc_man(tug_name, bp.acf.tirrad, icao);
+	if (bp.tug == NULL) {
+		char msg[256];
+		snprintf(msg, sizeof (msg), _("Pushback failure: "
+		    "master requested tug \"%s\", which we don't have "
+		    "in our in our library. Please sync your tug "
+		    "libraries before trying again."), tug_name);
+		XPLMSpeakString(msg);
+		bp_complete();
+		return (B_FALSE);
+	}
+
+	return (B_TRUE);
 }
 
 #define	ABV_TERR_HEIGHT		1.5	/* meters */
@@ -2643,7 +2692,6 @@ bp_cam_start(void)
 	    .handleMouseWheelFunc = fake_win_wheel,
 	    .refcon = NULL
 	};
-	char icao[8] = { 0 };
 
 	if (cam_inited || !bp_init())
 		return (B_FALSE);
@@ -2651,14 +2699,6 @@ bp_cam_start(void)
 	if (!acf_is_compatible()) {
 		XPLMSpeakString(_("Pushback failure: aircraft is incompatible "
 		    "with BetterPushback."));
-		return (B_FALSE);
-	}
-
-	(void) find_nearest_airport(icao);
-	if (!tug_available(dr_getf(&drs.mtow), bp.acf.nw_len, bp.acf.tirrad,
-	    bp.acf.nw_type, strcmp(icao, "") != 0 ? icao : NULL)) {
-		XPLMSpeakString(_("Pushback failure: no suitable tug for your "
-		    "aircraft."));
 		return (B_FALSE);
 	}
 
@@ -2680,6 +2720,13 @@ bp_cam_start(void)
 		return (B_FALSE);
 	}
 #endif	/* !PB_DEBUG_INTF */
+
+	ASSERT(!slave_mode);
+
+	/* Start an early tug load so we don't pause when we get called */
+	if (bp.tug == NULL && !master_tug_load()) {
+		return (B_FALSE);
+	}
 
 	XPLMGetScreenSize(&fake_win_ops.right, &fake_win_ops.top);
 

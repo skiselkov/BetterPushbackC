@@ -57,6 +57,7 @@ static XPLMMenuID	root_menu;
 static int		plugins_menu_item;
 static int		start_pb_plan_menu_item, stop_pb_plan_menu_item;
 static int		start_pb_menu_item, stop_pb_menu_item;
+static int		tug_load_async_menu_item;
 
 static int start_pb_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 static int stop_pb_handler(XPLMCommandRef, XPLMCommandPhase, void *);
@@ -236,6 +237,14 @@ conn_first_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 static void
 menu_cb(void *inMenuRef, void *inItemRef)
 {
+	if (inItemRef == NULL) {
+		tug_set_load_async(!tug_is_load_async());
+		logMsg("load async: %d", tug_is_load_async());
+		XPLMCheckMenuItem(root_menu, tug_load_async_menu_item,
+		    tug_is_load_async() ? xplm_Menu_Checked :
+		    xplm_Menu_Unchecked);
+	}
+
 	UNUSED(inMenuRef);
 	XPLMCommandOnce((XPLMCommandRef)inItemRef);
 }
@@ -317,6 +326,9 @@ smartcopilot_check(float elapsed, float elapsed2, int counter, void *refcon)
 		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
 		slave_mode = B_FALSE;
 	}
+
+	if (slave_mode && !bp_started)
+		(void) bp_slave_tug_tryload();
 
 	return (SMARTCOPILOT_CHECK_INTVAL);
 }
@@ -437,18 +449,23 @@ XPluginEnable(void)
 	    plugins_menu_item, menu_cb, NULL);
 
 	start_pb_plan_menu_item = XPLMAppendMenuItem(root_menu,
-	    _("Pre-plan pushback"), start_cam, 1);
+	    _("Pre-plan pushback"), start_cam, 0);
 	stop_pb_plan_menu_item = XPLMAppendMenuItem(root_menu,
-	    _("Close pushback planner"), stop_cam, 1);
+	    _("Close pushback planner"), stop_cam, 0);
 	start_pb_menu_item = XPLMAppendMenuItem(root_menu,
-	    _("Start pushback"), start_pb, 1);
+	    _("Start pushback"), start_pb, 0);
 	stop_pb_menu_item = XPLMAppendMenuItem(root_menu,
-	    _("Stop pushback"), stop_pb, 1);
+	    _("Stop pushback"), stop_pb, 0);
+	tug_load_async_menu_item = XPLMAppendMenuItem(root_menu,
+	    "Load tug async", NULL, 0);
 
 	XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_TRUE);
 	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
 	XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_TRUE);
 	XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
+	XPLMCheckMenuItem(root_menu, tug_load_async_menu_item,
+	    xplm_Menu_Unchecked);
+
 
 	XPLMRegisterFlightLoopCallback(smartcopilot_check,
 	    SMARTCOPILOT_CHECK_INTVAL, NULL);
