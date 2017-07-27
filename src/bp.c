@@ -126,6 +126,7 @@ typedef enum {
 	PB_STEP_UNGRABBING,
 	PB_STEP_MOVING_AWAY,
 	PB_STEP_CLOSING_CRADLE,
+	PB_STEP_STARTING2CLEAR,
 	PB_STEP_MOVING2CLEAR,
 	PB_STEP_CLEAR_SIGNAL,
 	PB_STEP_DRIVING_AWAY
@@ -1399,8 +1400,8 @@ static void
 pb_step_lowering(void)
 {
 	double d_t = bp.cur_t - bp.step_start_t;
-	double lift_fract = 1 - ((d_t - 2 * STATE_TRANS_DELAY) /
-	    PB_CONN_LIFT_DURATION);
+	double lift_fract = 1 - ((d_t - (msg_dur(MSG_DISCO) +
+	    STATE_TRANS_DELAY)) / PB_CONN_LIFT_DURATION);
 	double lift;
 
 	if (!slave_mode) {
@@ -1509,48 +1510,11 @@ pb_step_closing_cradle(void)
 		tug_set_cradle_beeper_on(bp.tug, B_FALSE);
 
 	if (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY) {
-		/*
-		 * This determines whether we perform a right or left turn.
-		 * The direction of the turn depends on whether our original
-		 * starting position is to the left or to the right of the
-		 * aircraft.
-		 */
+		/* determine which direction we'll drive away */
 		bool_t right = (rel_hdg(bp.cur_pos.hdg,
 		    dir2hdg(vect2_sub(bp.start_pos, bp.cur_pos.pos))) >= 0);
-		vect2_t turn_p, abeam_p, dir, norm_dir;
-		double turn_hdg, back_hdg;
-		double square_side = MAX(5 * bp.tug->veh.wheelbase,
-		    1.5 * bp.veh.wheelbase);
-
-		dir = hdg2dir(bp.cur_pos.hdg);
-		norm_dir = vect2_norm(dir, right);
-
-		/*
-		 * turn_p is offset 3x tug wheelbase forward and
-		 * half square_side to the direction of the turn.
-		 */
-		turn_p = vect2_add(bp.tug->pos.pos, vect2_scmul(dir,
-		    3 * bp.tug->veh.wheelbase));
-		turn_p = vect2_add(turn_p, vect2_scmul(norm_dir,
-		    square_side / 2));
-		turn_hdg = normalize_hdg(bp.cur_pos.hdg + (right ? 90 : -90));
-
-		/*
-		 * abeam point is displaced from turn_p back 2x tug wheelbase,
-		 * 4x tug wheelbase in the direction of the turn and going the
-		 * opposite way to the aircraft at a 45 degree angle.
-		 */
-		abeam_p = vect2_add(turn_p, vect2_scmul(vect2_neg(dir),
-		    2 * bp.tug->veh.wheelbase));
-		abeam_p = vect2_add(abeam_p, vect2_scmul(norm_dir,
-		    4 * bp.tug->veh.wheelbase));
-		back_hdg = normalize_hdg(turn_hdg + (right ? 45 : -45));
 
 		msg_play(right ? MSG_DONE_RIGHT : MSG_DONE_LEFT);
-
-		VERIFY(tug_drive2point(bp.tug, turn_p, turn_hdg));
-		VERIFY(tug_drive2point(bp.tug, abeam_p, back_hdg));
-
 		tug_set_cradle_lights_on(B_FALSE);
 		tug_set_hazard_lights_on(B_FALSE);
 
@@ -1558,6 +1522,59 @@ pb_step_closing_cradle(void)
 		bp.step_start_t = bp.cur_t;
 		bp.last_voice_t = bp.cur_t;
 	}
+}
+
+static void
+pb_step_starting2clear(void)
+{
+	bool_t right;
+	vect2_t turn_p, abeam_p, dir, norm_dir;
+	double turn_hdg, back_hdg, square_side;
+
+	/* Let the message play out before starting to move */
+	if (bp.cur_t - bp.step_start_t < MAX(msg_dur(MSG_DONE_RIGHT),
+	    msg_dur(MSG_DONE_LEFT)) + STATE_TRANS_DELAY)
+		return;
+
+	/*
+	 * This determines whether we perform a right or left turn.
+	 * The direction of the turn depends on whether our original
+	 * starting position is to the left or to the right of the
+	 * aircraft.
+	 */
+	right = (rel_hdg(bp.cur_pos.hdg, dir2hdg(vect2_sub(bp.start_pos,
+	    bp.cur_pos.pos))) >= 0);
+	square_side = MAX(5 * bp.tug->veh.wheelbase, 1.5 * bp.veh.wheelbase);
+
+	dir = hdg2dir(bp.cur_pos.hdg);
+	norm_dir = vect2_norm(dir, right);
+
+	/*
+	 * turn_p is offset 3x tug wheelbase forward and
+	 * half square_side to the direction of the turn.
+	 */
+	turn_p = vect2_add(bp.tug->pos.pos, vect2_scmul(dir,
+	    3 * bp.tug->veh.wheelbase));
+	turn_p = vect2_add(turn_p, vect2_scmul(norm_dir,
+	    square_side / 2));
+	turn_hdg = normalize_hdg(bp.cur_pos.hdg + (right ? 90 : -90));
+
+	/*
+	 * abeam point is displaced from turn_p back 2x tug wheelbase,
+	 * 4x tug wheelbase in the direction of the turn and going the
+	 * opposite way to the aircraft at a 45 degree angle.
+	 */
+	abeam_p = vect2_add(turn_p, vect2_scmul(vect2_neg(dir),
+	    2 * bp.tug->veh.wheelbase));
+	abeam_p = vect2_add(abeam_p, vect2_scmul(norm_dir,
+	    4 * bp.tug->veh.wheelbase));
+	back_hdg = normalize_hdg(turn_hdg + (right ? 45 : -45));
+
+	VERIFY(tug_drive2point(bp.tug, turn_p, turn_hdg));
+	VERIFY(tug_drive2point(bp.tug, abeam_p, back_hdg));
+
+	bp.step++;
+	bp.step_start_t = bp.cur_t;
 }
 
 static void
@@ -1823,6 +1840,9 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		break;
 	case PB_STEP_CLOSING_CRADLE:
 		pb_step_closing_cradle();
+		break;
+	case PB_STEP_STARTING2CLEAR:
+		pb_step_starting2clear();
 		break;
 	case PB_STEP_MOVING2CLEAR:
 		if (tug_is_stopped(bp.tug)) {

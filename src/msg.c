@@ -44,8 +44,8 @@ static msg_info_t msgs[MSG_NUM_MSGS] = {
 	{ .filename = "start_tow.wav", .wav = NULL },
 	{ .filename = "op_complete.wav", .wav = NULL },
 	{ .filename = "disco.wav", .wav = NULL },
-	{ .filename = "done.wav", .wav = NULL },
-	{ .filename = "done.wav", .wav = NULL },
+	{ .filename = "done_right.wav", .wav = NULL },
+	{ .filename = "done_left.wav", .wav = NULL },
 };
 
 bool_t inited = B_FALSE;
