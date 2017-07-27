@@ -1,0 +1,28 @@
+<?xml version="1.0" standalone="no" ?>
+<!DOCTYPE project PUBLIC "-//audacityproject-1.3.0//DTD//EN" "http://audacity.sourceforge.net/xml/audacityproject-1.3.0.dtd" >
+<project xmlns="http://audacity.sourceforge.net/xml/" projname="start_tow_data" version="1.3.0" audacityversion="2.1.2" sel0="0.0000000000" sel1="0.0000000000" vpos="0" h="0.0000000000" zoom="288.4805257661" rate="44100.0" snapto="off" selectionformat="hh:mm:ss + milliseconds" frequencyformat="Hz" bandwidthformat="octaves">
+	<tags/>
+	<wavetrack name="start_tow" channel="2" linked="0" mute="0" solo="0" height="150" minimized="0" isSelected="1" rate="44100" gain="1.0" pan="0.0">
+		<waveclip offset="0.00000000">
+			<sequence maxsamples="262144" sampleformat="262159" numsamples="110677">
+				<waveblock start="0">
+					<simpleblockfile filename="e0000b98.au" len="5350" min="-0.952209" max="0.999969" rms="0.061005"/>
+				</waveblock>
+				<waveblock start="5350">
+					<simpleblockfile filename="e0000ba9.au" len="105327" min="-1.0" max="0.999969" rms="0.282728"/>
+				</waveblock>
+			</sequence>
+			<envelope numpoints="0"/>
+		</waveclip>
+	</wavetrack>
+	<wavetrack name="Audio Track" channel="2" linked="0" mute="0" solo="0" height="150" minimized="0" isSelected="0" rate="44100" gain="1.0" pan="0.0">
+		<waveclip offset="0.18372124">
+			<sequence maxsamples="262144" sampleformat="262159" numsamples="7490">
+				<waveblock start="0">
+					<simpleblockfile filename="e00007f4.au" len="7490" min="-0.111359" max="0.117798" rms="0.011865"/>
+				</waveblock>
+			</sequence>
+			<envelope numpoints="0"/>
+		</waveclip>
+	</wavetrack>
+</project>
