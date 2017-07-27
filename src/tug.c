@@ -1247,7 +1247,7 @@ tug_anim(tug_t *tug, double d_t)
 		anim[ANIM_CRADLE_LIGHTS].value = (cradle_lights_req &&
 		    dr_getf(&sun_pitch_dr) < LIGHTS_ON_SUN_ANGLE);
 	} else {
-		uint64_t mt = microclock();
+		int64_t mt = microclock();
 		float value;
 
 		value = (mt % 3000000) / 3000000.0;
@@ -1266,6 +1266,7 @@ tug_anim(tug_t *tug, double d_t)
 		anim[ANIM_REVERSE_LIGHTS].value = value;
 		anim[ANIM_HAZARD_LIGHTS].value = value;
 		anim[ANIM_WINCH_ON].value = value;
+		anim[ANIM_CLEAR_SIGNAL].value = ((mt / 1000000) % 3) - 1;
 	}
 }
 

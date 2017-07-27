@@ -1388,7 +1388,8 @@ pb_step_stopped(void)
 		 * when the parking brake is set.
 		 */
 		bp.step_start_t = bp.cur_t;
-	} else if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
+	} else if (bp.cur_t - bp.step_start_t >= msg_dur(MSG_OP_COMPLETE) +
+	    STATE_TRANS_DELAY) {
 		msg_play(MSG_DISCO);
 		bp.step++;
 		bp.step_start_t = bp.cur_t;
@@ -1400,8 +1401,8 @@ static void
 pb_step_lowering(void)
 {
 	double d_t = bp.cur_t - bp.step_start_t;
-	double lift_fract = 1 - ((d_t - (msg_dur(MSG_DISCO) +
-	    STATE_TRANS_DELAY)) / PB_CONN_LIFT_DURATION);
+	double lift_fract = 1 - ((d_t - STATE_TRANS_DELAY) /
+	    PB_CONN_LIFT_DURATION);
 	double lift;
 
 	if (!slave_mode) {
@@ -1411,7 +1412,17 @@ pb_step_lowering(void)
 	}
 	acf2tug_steer();
 
-	if (d_t <= msg_dur(MSG_DISCO) + STATE_TRANS_DELAY)
+	if (bp.cur_t - bp.last_voice_t < msg_dur(MSG_OP_COMPLETE)) {
+		/*
+		 * Keep resetting step_start_t to properly calculate
+		 * lift_fract relative to our step_start_t.
+		 */
+		bp.step_start_t = bp.cur_t;
+		return;
+	}
+
+	/* Slight delay after the parking brake ann was made */
+	if (d_t <= STATE_TRANS_DELAY)
 		return;
 
 	lift_fract = MAX(MIN(lift_fract, 1), 0);
@@ -1497,6 +1508,22 @@ pb_step_ungrabbing(void)
 	}
 }
 
+/*
+ * This determines whether we perform a right or left turn. The direction of
+ * the turn depends on whether our original starting position is to the left
+ * or to the right of the aircraft.
+ */
+static bool_t
+tug_clear_is_right(void)
+{
+	if (VECT2_EQ(bp.start_pos, bp.cur_pos.pos)) {
+		return (B_TRUE);
+	} else {
+		return (rel_hdg(bp.cur_pos.hdg, dir2hdg(vect2_sub(bp.start_pos,
+		    bp.cur_pos.pos))) >= 0);
+	}
+}
+
 static void
 pb_step_closing_cradle(void)
 {
@@ -1511,8 +1538,7 @@ pb_step_closing_cradle(void)
 
 	if (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY) {
 		/* determine which direction we'll drive away */
-		bool_t right = (rel_hdg(bp.cur_pos.hdg,
-		    dir2hdg(vect2_sub(bp.start_pos, bp.cur_pos.pos))) >= 0);
+		bool_t right = tug_clear_is_right();
 
 		msg_play(right ? MSG_DONE_RIGHT : MSG_DONE_LEFT);
 		tug_set_cradle_lights_on(B_FALSE);
@@ -1536,14 +1562,7 @@ pb_step_starting2clear(void)
 	    msg_dur(MSG_DONE_LEFT)) + STATE_TRANS_DELAY)
 		return;
 
-	/*
-	 * This determines whether we perform a right or left turn.
-	 * The direction of the turn depends on whether our original
-	 * starting position is to the left or to the right of the
-	 * aircraft.
-	 */
-	right = (rel_hdg(bp.cur_pos.hdg, dir2hdg(vect2_sub(bp.start_pos,
-	    bp.cur_pos.pos))) >= 0);
+	right = tug_clear_is_right();
 	square_side = MAX(5 * bp.tug->veh.wheelbase, 1.5 * bp.veh.wheelbase);
 
 	dir = hdg2dir(bp.cur_pos.hdg);
@@ -1598,8 +1617,7 @@ pb_step_clear_signal(void)
 	double acf2start_lat_displ, acf2start_long_displ;
 	vect2_t acf2start, acfdir;
 
-	tug_set_clear_signal(B_TRUE, rel_hdg(bp.cur_pos.hdg,
-	    dir2hdg(vect2_sub(bp.start_pos, bp.cur_pos.pos))) >= 0);
+	tug_set_clear_signal(B_TRUE, tug_clear_is_right());
 
 	if (bp.cur_t - bp.step_start_t < CLEAR_SIGNAL_DELAY)
 		return;
