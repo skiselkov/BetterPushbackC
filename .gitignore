@@ -38,3 +38,10 @@ pcre2-linux-64
 pcre2-win-32
 pcre2-win-64
 pcre2-10.23
+libxml2-2.9.4
+libxml2-win-32
+libxml2-win-64
+libxml2-linux-32
+libxml2-linux-64
+libxml2-mac-32
+libxml2-mac-64

@@ -55,6 +55,8 @@ function build_dep() {
 		    "../$SRCDIR/configure" --prefix="$(pwd)" \
 		    $CONFOPTS || exit 1
 		make -j $NCPUS || exit 1
-		make install || exit 1
+		if [ -z "$NOINSTALL" ]; then
+			make install || exit 1
+		fi
 	)
 }

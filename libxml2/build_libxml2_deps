@@ -1,0 +1,61 @@
+#!/bin/bash
+
+# CDDL HEADER START
+#
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
+#
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# http://www.illumos.org/license/CDDL.
+#
+# CDDL HEADER END
+
+# Copyright 2017 Saso Kiselkov. All rights reserved.
+
+source ../build_dep.common
+
+LIBXML2="libxml2-2.9.4.tar.xz"
+
+CFLAGS_COMMON="-fvisibility=hidden"
+CONFOPTS_COMMON="--enable-static --disable-shared --enable-silent-rules \
+    --with-pic --without-lzma --without-zlib --without-iconv --without-python \
+    --without-modules"
+
+case `uname` in
+	Linux)
+		NCPUS=$(( $(grep 'processor[[:space:]]\+:' /proc/cpuinfo \
+		    | wc -l) + 1 ))
+		CFLAGS="$CFLAGS_COMMON -m64" LDFLAGS="$LDFLAGS_COMMON -m64" \
+		    build_dep "linux-64" "$CONFOPTS_COMMON" \
+		    "$LIBXML2" "libxml2" ".libs/libxml2.a" && \
+		CFLAGS="$CFLAGS_COMMON -m32" LDFLAGS="$LDFLAGS_COMMON -m32" \
+		    build_dep "linux-32" "$CONFOPTS_COMMON" \
+		    "$LIBXML2" "libxml2" ".libs/libxml2.a" && \
+		CFLAGS="$CFLAGS_COMMON" LDFLAGS="$LDFLAGS_COMMON" \
+		    build_dep "win-64" "$CONFOPTS_COMMON \
+		    --host=x86_64-w64-mingw32" \
+		    "$LIBXML2" "libxml2" ".libs/libxml2.a" && \
+		CFLAGS="$CFLAGS_COMMON" LDFLAGS="$LDFLAGS_COMMON" \
+		    build_dep "win-32" "$CONFOPTS_COMMON \
+		    --host=i686-w64-mingw32" \
+		    "$LIBXML2" "libxml2" ".libs/libxml2.a"
+		;;
+	Darwin)
+		NCPUS=$(( $(sysctl -n hw.ncpu) + 1 ))
+		CFLAGS="$CFLAGS_COMMON -mmacosx-version-min=10.6" \
+		    LDFLAGS="$LDFLAGS_COMMON -mmacosx-version-min=10.6" \
+		    build_dep "mac-64" "$CONFOPTS_COMMON" \
+		    "$LIBXML2" "libxml2" ".libs/libxml2.a" && \
+		CFLAGS="$CFLAGS_COMMON -mmacosx-version-min=10.6 -m32" \
+		    LDFLAGS="$LDFLAGS_COMMON -mmacosx-version-min=10.6 -m32" \
+		    build_dep "mac-32" "$CONFOPTS_COMMON" \
+		    "$LIBXML2" "libxml2" ".libs/libxml2.a"
+		;;
+	*)
+		echo "Unsupported build platform" >&2
+		exit 1
+		;;
+esac
