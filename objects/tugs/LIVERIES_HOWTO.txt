@@ -1,0 +1,96 @@
+###### HOW TUG LIVERIES WORK ######
+
+Each tug contains a "liveries" folder, which contains one or more
+".livery" subfolders, e.g.:
+
++ AST-3F.tug
+  + liveries
+    + generic.livery
+    + LEOS.livery
+    + Swissport.livery
+
+A livery can consist of up to three PNG files:
+
+1) the standard (base) texture file
+2) the "LIT" (night lighting) texture file
+3) the "NORMAL" (normal map and material properties) texture file
+
+Unless you're going for something very special, you only ever need to
+repaint the standard texture and not the LIT or NORMAL texture.
+
+The "generic.livery" folder is special - it contains all the default
+textures of the tug. If a texture isn't found in the appropriate livery
+folder, it is fetched from the "generic.livery". This is so that you
+don't have to copy the same LIT and NORMAL textures into every livery,
+which saves on a lot of disk space.
+
+The exact names of the texture files are hard-coded in OBJ file and
+shouldn't be changed in the livery. So in the above example, the texture
+files in the livery folders would something like this:
+
++ AST-3F.tug
+  + liveries
+    + generic.livery
+      - AST-3F_tex.png		# default base texture
+      - AST-3F_lit.png		# default night lighting texture
+      - AST-3F_norm.png		# default normal map texture
+    + LEOS.livery
+      - AST-3F_tex.png		# LEOS-specific repaint of the base texture
+    + Swissport.livery
+      - AST-3F_tex.png		# Swisport-specific repaint of the base texture
+
+When contributing liveries to the BetterPushback project, please submit
+your repaints in PNG format, as pretty soon we will be jettisoning DDS
+textures because of their huge size and migrating to PNG textures.
+
+### HOW LIVERIES ARE SELECTED AT RUNTIME ###
+
+When a tug is called, BetterPushback asks X-Plane what the currently
+nearest airport is to the aircraft (presumably that's the one we're
+located at) and determines its four-letter ICAO identifier. It then
+proceeds to select a tug. The exact details of the tug selection
+algorithm are beyond the scope of this short writeup. Once a tug is
+selected, BP selects a livery for the tug.
+
+To select a livery, BP enumerates the liveries (folders ending in
+'.livery') inside the "liveries" subfolder in the tug. Each '.livery'
+folder MUST contain a special "info.cfg" file which tells BP where that
+livery should be used ("generic.livery" is special in that it contains
+no "info.cfg", because it is the default fallback for when no other
+livery was found).
+
+The "info.cfg" file is a simple text file that looks something like this:
+
+	### This is a comment - BP ignores what's on this line
+	#
+	# The keyword "icao" specifies that an ICAO selector follows.
+	# BP matches this against the airport the aircraft is currently
+	# at. Please note that the quotes around the value are mandatory.
+	icao "EDDF"
+
+	# To allow for more flexible selection rules, BP allows you to
+	# provide an arbitrary Perl-style regular expression as the
+	# match rule:
+	icao "LS[A-Z]{2}"
+	# The above rule matches any airport with an ICAO code of
+	# "LSxx" where 'x' is any capital letter from A-Z.
+
+	# You can provide as many icao keywords in a single info.cfg file.
+	# It's enough if one matches.
+	icao "EDDV"
+	icao "EDDM"
+	icao "EDDL"
+
+You can get as creative with the regular expression as you like. Please
+note that when BP asks X-Plane what the nearest airport is, it can't
+filter out tiny airports or heliports that might be closer to the
+aircraft if the airport premises are particularly large. In those cases
+you should add the neighboring airport to the "info.cfg" to make sure
+there aren't dead spots on the major airport where your livery won't be
+applied because of this quirk. A good look at the sectional charts should
+reveal to you if this could happen to you.
+
+Please don't overbroaden your rules, however. BP picks the first livery
+that matches the airport ICAO file. It doesn't look for any other
+liveries which might also match. So avoid using huge catch-all rules that
+incorrectly mask away other liveries.
