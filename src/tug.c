@@ -86,6 +86,15 @@ typedef struct {
 	float		value;
 } anim_info_t;
 
+/*
+ * Livery name with a random sort value. We use this to pick a random
+ * livery if multiple match at a given airport.
+ */
+typedef struct {
+	char		*livname;
+	uint64_t	sort_rand;
+	avl_node_t	node;
+} liv_t;
 
 /*
  * These are the datarefs that drive animation of the tug. Their meanings are:
@@ -167,6 +176,28 @@ anim_gate(float x)
 }
 
 /*
+ * Livery name sorting function for avl_tree_t.
+ */
+int
+liv_compar(const void *a, const void *b)
+{
+	const liv_t *la = a, *lb = b;
+	if (la->sort_rand < lb->sort_rand) {
+		return (-1);
+	} else if (la->sort_rand > lb->sort_rand) {
+		return (1);
+	} else {
+		int n = strcmp(la->livname, lb->livname);
+		if (n < 0)
+			return (-1);
+		else if (n > 0)
+			return (1);
+		ASSERT0(memcmp(la, lb, sizeof (*la)));
+		return (0);
+	}
+}
+
+/*
  * Tug info ordering function for avl_tree_t.
  */
 int
@@ -204,11 +235,14 @@ tug_info_free(tug_info_t *ti)
 }
 
 static bool_t
-tug_info_liv_cfg_match(const char *info_pathname, const char *icao)
+tug_info_liv_cfg_match(const char *info_pathname, const char *icao,
+    bool_t *force_pick_this)
 {
 	FILE *fp = fopen(info_pathname, "r");
 	bool_t matched = B_FALSE;
 	bool_t match_debug = B_FALSE;
+
+	*force_pick_this = B_FALSE;
 
 	if (fp == NULL) {
 		logMsg("Error reading tug livery %s: cannot open info.cfg: %s",
@@ -279,6 +313,11 @@ tug_info_liv_cfg_match(const char *info_pathname, const char *icao)
 			free(regex_str);
 		} else if (strcmp(cmd, "match_debug") == 0) {
 			match_debug = B_TRUE;
+		} else if (strcmp(cmd, "paint_debug") == 0) {
+			matched = B_TRUE;
+			*force_pick_this = B_TRUE;
+			logMsg("%s: \"paint_debug\" present forcibly picking",
+			    info_pathname);
 		} else {
 			logMsg("Malformed tug livery config %s: unknown "
 			    "keyword \"%s\".", info_pathname, cmd);
@@ -296,12 +335,17 @@ tug_info_liv_select(tug_info_t *ti, const char *icao)
 {
 	bool_t isdir;
 	char *livdir_path;
+	avl_tree_t livs;
+	bool_t found;
+	void *cookie;
+	liv_t *liv;
+
+	avl_create(&livs, liv_compar, sizeof (liv_t), offsetof(liv_t, node));
 
 	/* read the livery directory */
 	if (icao != NULL && *icao != 0) {
 		DIR *livdir;
 		struct dirent *de;
-		bool_t matched = B_FALSE;
 
 		livdir_path = mkpathname(ti->tugdir, "liveries", NULL);
 		livdir = opendir(livdir_path);
@@ -311,9 +355,10 @@ tug_info_liv_select(tug_info_t *ti, const char *icao)
 			return (B_FALSE);
 		}
 
-		while (!matched && (de = readdir(livdir)) != NULL) {
+		while ((de = readdir(livdir)) != NULL) {
 			const char *dot = strrchr(de->d_name, '.');
 			char *info_pathname;
+			bool_t matched, force_pick_this;
 
 			/* only select subdirs ending in ".livery" */
 			if (dot == NULL || strcmp(&dot[1], "livery") != 0 ||
@@ -321,30 +366,66 @@ tug_info_liv_select(tug_info_t *ti, const char *icao)
 				continue;
 			info_pathname = mkpathname(ti->tugdir, "liveries",
 			    de->d_name, "info.cfg", NULL);
-			matched = tug_info_liv_cfg_match(info_pathname, icao);
-			if (matched)
-				ti->livname = strdup(de->d_name);
+			matched = tug_info_liv_cfg_match(info_pathname, icao,
+			    &force_pick_this);
+			if (matched) {
+				liv_t *liv = calloc(1, sizeof (*liv));
+				liv->livname = strdup(de->d_name);
+				liv->sort_rand = crc64_rand();
+
+				if (force_pick_this) {
+					/*
+					 * Delete all other liveries and
+					 * immediately complete the loop.
+					 */
+					liv_t *oth_liv;
+
+					cookie = NULL;
+					while ((oth_liv = avl_destroy_nodes(
+					    &livs, &cookie)) != NULL) {
+						free(oth_liv->livname);
+						free(oth_liv);
+					}
+					avl_add(&livs, liv);
+					break;
+				}
+				avl_add(&livs, liv);
+			}
 			free(info_pathname);
 		}
 
 		closedir(livdir);
 		free(livdir_path);
-
-		if (matched)
-			return (B_TRUE);
 	}
 
-	/* If we're here, no livery matched, see if we have a generic one */
-	livdir_path = mkpathname(ti->tugdir, "liveries", "generic.livery",
-	    NULL);
-	if (!file_exists(livdir_path, &isdir) || !isdir) {
-		free(livdir_path);
-		return (B_FALSE);
+	if (avl_numnodes(&livs) != 0) {
+		/* Pick the first that matched */
+		liv_t *liv = avl_first(&livs);
+		ti->livname = strdup(liv->livname);
+		found = B_TRUE;
+	} else {
+		/* No livery matched, see if we have a generic one */
+		livdir_path = mkpathname(ti->tugdir, "liveries",
+		    "generic.livery",
+		    NULL);
+		if (!file_exists(livdir_path, &isdir) || !isdir) {
+			free(livdir_path);
+			found = B_FALSE;
+		} else {
+			ti->livname = strdup("generic.livery");
+			free(livdir_path);
+			found = B_TRUE;
+		}
 	}
-	ti->livname = strdup("generic.livery");
-	free(livdir_path);
 
-	return (B_TRUE);
+	cookie = NULL;
+	while ((liv = avl_destroy_nodes(&livs, &cookie)) != NULL) {
+		free(liv->livname);
+		free(liv);
+	}
+	avl_destroy(&livs);
+
+	return (found);
 }
 
 static tug_info_t *

@@ -18,7 +18,7 @@ A livery can consist of up to three PNG files:
 Unless you're going for something very special, you only ever need to
 repaint the standard texture and not the LIT or NORMAL texture.
 
-The "generic.livery" folder is special - it contains all the default
+The "generic.livery" folder is special. It contains all the default
 textures of the tug. If a texture isn't found in the appropriate livery
 folder, it is fetched from the "generic.livery". This is so that you
 don't have to copy the same LIT and NORMAL textures into every livery,
@@ -40,8 +40,9 @@ files in the livery folders would something like this:
       - AST-3F_tex.png		# Swisport-specific repaint of the base texture
 
 When contributing liveries to the BetterPushback project, please submit
-your repaints in PNG format, as pretty soon we will be jettisoning DDS
-textures because of their huge size and migrating to PNG textures.
+your repaints in PNG or XCF format, as pretty soon we will be jettisoning
+DDS textures because of their huge size and migrating to PNG textures in
+the shipped plugin.
 
 ### HOW LIVERIES ARE SELECTED AT RUNTIME ###
 
@@ -90,7 +91,40 @@ there aren't dead spots on the major airport where your livery won't be
 applied because of this quirk. A good look at the sectional charts should
 reveal to you if this could happen to you.
 
-Please don't overbroaden your rules, however. BP picks the first livery
-that matches the airport ICAO file. It doesn't look for any other
-liveries which might also match. So avoid using huge catch-all rules that
-incorrectly mask away other liveries.
+If multiple liveries match the airport, BP randomly picks one. This can
+be annoying while painting the livery if there are multiple 3rd-party
+ones which match. See below for how to force BP to pick your livery over
+any other.
+
+### HOW TO TEST LIVERIES ###
+
+Create a new ".livery" subfolder in the tug of your choice, put in your
+texture file in PNG format and write an "info.cfg" text file using the
+rules outlined above. Please note that you DON'T have to restart X-Plane
+when you make alterations to your livery. Simply restart the pushback
+operation. BP reloads all the livery configuration and texture files when
+starting a new pushback.
+
+If you don't want to write an "icao" list just yet, or if multiple
+existing liveries match your airport and you don't want to randomly cycle
+through them each time you want to test your livery, you can put this
+line:
+
+	paint_debug
+
+at the start of your info.cfg. This forces BP to always pick your livery,
+irrespective of the presence of any other livery that might match, or
+even irrespective if a match "icao" specifier is present.
+
+When you are ready to write your "icao" lines and wish to use a more
+complex regular expression selector, it can be helpful to know whether
+your selector matches correctly. You can put this line:
+
+	match_debug
+
+at the start of your info.cfg. This makes BP print a short diagnostic
+message in X-Plane's Log.txt for each "icao" line that follows, telling
+you if it did or didn't match.
+
+Obviously when shipping your livery, be sure to remove any "paint_debug"
+or "match_debug" lines.
