@@ -44,13 +44,11 @@ case `uname` in
 		# and we can use the library.
 		CFLAGS="$CFLAGS_COMMON -Diswild=strlen \
 		    -Dinit_colour_output=getchar" \
-		    build_dep "win-64" "$CONFOPTS_COMMON" \
-		    LDFLAGS="$LDFLAGS_COMMON \
+		    build_dep "win-64" "$CONFOPTS_COMMON \
 		    --host=x86_64-w64-mingw32" "$PCRE2" "pcre2" \
 		    ".libs/libpcre2-8.a" && \
 		CFLAGS="$CFLAGS_COMMON -Diswild=strlen \
 		    -Dinit_colour_output=getchar" \
-		    LDFLAGS="$LDFLAGS_COMMON" \
 		    build_dep "win-32" "$CONFOPTS_COMMON \
 		    --host=i686-w64-mingw32" "$PCRE2" "pcre2" \
 		    ".libs/libpcre2-8.a"

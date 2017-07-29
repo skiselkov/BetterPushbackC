@@ -1626,7 +1626,7 @@ pb_step_clear_signal(void)
 	 * In order to determine if we should be even attempting to reach
 	 * our starting point, we make sure that start_pos isn't within a
 	 * box as follows:
-	 *                 -3 x wheelbase
+	 *                 -4 x wheelbase
 	 *                   |<----->|
 	 *                   |       |
 	 *           ------- +-------+------------------>>> (to infinity)
@@ -1645,7 +1645,7 @@ pb_step_clear_signal(void)
 	acf2start_long_displ = vect2_dotprod(acfdir, acf2start);
 
 	if (acf2start_lat_displ < 1.5 * bp.veh.wheelbase &&
-	    acf2start_long_displ > -3 * bp.veh.wheelbase) {
+	    acf2start_long_displ > -4 * bp.veh.wheelbase) {
 		drive_away_fallback();
 	} else {
 		double rhdg = fabs(rel_hdg(bp.tug->pos.hdg,

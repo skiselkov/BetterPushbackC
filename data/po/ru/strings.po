@@ -1,0 +1,93 @@
+# CDDL HEADER START
+#
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
+#
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# http://www.illumos.org/license/CDDL.
+#
+# CDDL HEADER END
+
+# Copyright 2017 Saso Kiselkov. All rights reserved.
+
+msgid ""
+msgstr ""
+"Last-Translator: Roman Krotov"
+
+msgid "Can't start planner: aircraft not stationary."
+msgstr "Невозможно начать планировку, т.к. самолёт в движении."
+
+msgid ""
+"Can't start planner: pushback already in progress. Please stop the pushback "
+"operation first."
+msgstr "Невозможно запустить планировщик: буксировка в процессе. "
+"Пожалуйста, сначала остановите буксировку."
+
+msgid "Can't start pushback planner: please set the parking brake first."
+msgstr "Невозможно запустить планировщик: пожалуйста, включите стояночный "
+"тормоз."
+
+msgid ""
+"Pushback advisory: you have your radio volume turned very low and may not be "
+"able to hear ground crew. Please increase your radio volume in the X-Plane "
+"sound preferences."
+msgstr "Уличный Контроллер: у вас низкая громкость радиостанции и вы "
+"не можете слышать сообщения наземных служб. Пожалуйста, настройте громкость "
+"звука радиостанции в настройках звука X-Plane."
+
+msgid ""
+"Pushback failure: X-Plane version too old. This plugin requires at least X-"
+"Plane %s to operate."
+msgstr "Ошибка: ваша версия X-Plane устарела. Для работы плагина нужна "
+"последняя версия X-Plane."
+
+msgid "Pushback failure: aircraft appears to not have any steerable gears."
+msgstr "Ошибка: у самолёта отсутствует поворачивающиеся шасси."
+
+msgid ""
+"Pushback failure: aircraft has non-positive wheelbase. Sorry, tail draggers "
+"aren't supported."
+msgstr "Ошибка: самолёт имеет не верное рассположение стоек шасси. "
+"Извините, но хвостокаты не поддерживаются."
+
+msgid "Pushback failure: aircraft is incompatible with BetterPushback."
+msgstr "Ошибка: самолёт не совместим с плагином."
+
+msgid ""
+"Pushback failure: master requested tug \"%s\", which we don't have in our in "
+"our library. Please sync your tug libraries before trying again."
+msgstr "Ошибка: вы запросили тягач \"%s\", которого нет в библиотеке. "
+"Пожалуйста, синхронизируйте библиотеку тягачей, с библиотекой плагина."
+
+msgid "Pushback failure: no suitable tug for your aircraft."
+msgstr "Ошибка: нет подходящего тягача для вашего самолёта."
+
+msgid ""
+"Pushback failure: smartcopilot attempted to switch master/slave or network "
+"connection lost. Stopping operation."
+msgstr "Ошибка: smartcopilot попытался переключить режим первый/второй или "
+"переключить сеть. Потеря соеденения. Завершение операции."
+
+msgid "Start pushback"
+msgstr "Начать буксировку"
+
+msgid "Stop pushback"
+msgstr "Остановить буксировку"
+
+msgid "Start pushback planner"
+msgstr "Запустить планировщик"
+
+msgid "Stop pushback planner"
+msgstr "Выключить планировщик"
+
+msgid "Connect tug before entering pushback plan"
+msgstr "Присоединить тягач перед утверждением плана"
+
+msgid "Pre-plan pushback"
+msgstr "Предварительная планировка выталкивания"
+
+msgid "Close pushback planner"
+msgstr "Закрыть планировщик"
