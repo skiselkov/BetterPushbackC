@@ -59,7 +59,7 @@ msgstr "Ошибка: самолёт не совместим с плагином
 msgid ""
 "Pushback failure: master requested tug \"%s\", which we don't have in our in "
 "our library. Please sync your tug libraries before trying again."
-msgstr "Ошибка: вы запросили тягач "%s", которого нет в библиотеке. "
+msgstr "Ошибка: вы запросили тягач \"%s\", которого нет в библиотеке. "
 "Пожалуйста, синхронизируйте библиотеки тягачей, с плагином."
 
 msgid "Pushback failure: no suitable tug for your aircraft."

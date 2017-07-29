@@ -59,18 +59,24 @@ win32:contains(CROSS_COMPILE, x86_64-w64-mingw32-) {
 	    pkg-config --cflags libpng")
 	QMAKE_CFLAGS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-win-64 \
 	    pkg-config --cflags libpcre2-8")
+	QMAKE_CFLAGS += $$system("$$[LIBACFUTILS]/pkg-config-deps win-64 \
+	    --cflags")
 
 	# This must go first for GCC to properly find dependent symbols
 	LIBS += -L$$[LIBACFUTILS]/qmake/win64 -lacfutils
+	LIBS += $$system("$$[LIBACFUTILS]/pkg-config-deps win-64 --libs")
+
 	LIBS += -L../SDK/Libraries/Win -lXPLM_64
 	LIBS += -L../OpenAL/libs/Win64 -lOpenAL32
 	LIBS += -L../GL_for_Windows/lib -lopengl32
+
 	LIBS += $$system("PKG_CONFIG_PATH=../libpng/libpng-win-64 pkg-config \
 	    --libs libpng")
 	LIBS += $$system("PKG_CONFIG_PATH=../zlib/zlib-win-64 pkg-config \
 	    --libs zlib")
 	LIBS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-win-64 pkg-config \
 	    --libs libpcre2-8")
+
 	LIBS += -ldbghelp
 }
 
@@ -79,17 +85,23 @@ win32:contains(CROSS_COMPILE, i686-w64-mingw32-) {
 	    pkg-config --cflags libpng")
 	QMAKE_CFLAGS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-win-32 \
 	    pkg-config --cflags libpcre2-8")
+	QMAKE_CFLAGS += $$system("$$[LIBACFUTILS]/pkg-config-deps win-32 \
+	    --cflags")
 
 	LIBS += -L$$[LIBACFUTILS]/qmake/win32 -lacfutils
+	LIBS += $$system("$$[LIBACFUTILS]/pkg-config-deps win-32 --libs")
+
 	LIBS += -L../SDK/Libraries/Win -lXPLM
 	LIBS += -L../OpenAL/libs/Win32 -lOpenAL32
 	LIBS += -L../GL_for_Windows/lib -lopengl32
+
 	LIBS += $$system("PKG_CONFIG_PATH=../libpng/libpng-win-32 pkg-config \
 	    --libs libpng")
 	LIBS += $$system("PKG_CONFIG_PATH=../zlib/zlib-win-32 pkg-config \
 	    --libs zlib")
 	LIBS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-win-32 pkg-config \
 	    --libs libpcre2-8")
+
 	LIBS += -ldbghelp
 }
 
@@ -104,8 +116,12 @@ linux-g++-64 {
 	    pkg-config --cflags libpng")
 	QMAKE_CFLAGS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-linux-64 \
 	    pkg-config --cflags libpcre2-8")
+	QMAKE_CFLAGS += $$system("$$[LIBACFUTILS]/pkg-config-deps linux-64 \
+	    --cflags")
 
 	LIBS += -L$$[LIBACFUTILS]/qmake/lin64 -lacfutils
+	LIBS += $$system("$$[LIBACFUTILS]/pkg-config-deps linux-64 --libs")
+
 	LIBS += $$system("PKG_CONFIG_PATH=../libpng/libpng-linux-64 pkg-config \
 	    --libs libpng")
 	LIBS += $$system("PKG_CONFIG_PATH=../zlib/zlib-linux-64 pkg-config \
@@ -119,18 +135,24 @@ linux-g++-32 {
 	    pkg-config --cflags libpng")
 	QMAKE_CFLAGS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-linux-32 \
 	    pkg-config --cflags libpcre2-8")
+	QMAKE_CFLAGS += $$system("$$[LIBACFUTILS]/pkg-config-deps linux-32 \
+	    --cflags")
 
 	# The stack protector forces us to depend on libc,
 	# but we'd prefer to be static.
 	QMAKE_CFLAGS += -fno-stack-protector
 	LIBS += -fno-stack-protector
+
 	LIBS += -L$$[LIBACFUTILS]/qmake/lin32 -lacfutils
+	LIBS += $$system("$$[LIBACFUTILS]/pkg-config-deps linux-32 --libs")
+
 	LIBS += $$system("PKG_CONFIG_PATH=../libpng/libpng-linux-32 pkg-config \
 	    --libs libpng")
 	LIBS += $$system("PKG_CONFIG_PATH=../zlib/zlib-linux-32 pkg-config \
 	    --libs zlib")
 	LIBS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-linux-32 pkg-config \
 	    --libs libpcre2-8")
+
 	LIBS += -lssp_nonshared
 }
 
@@ -152,14 +174,19 @@ macx-clang {
 	    pkg-config --cflags libpng")
 	QMAKE_CFLAGS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-mac-64 \
 	    pkg-config --cflags libpcre2-8")
+	QMAKE_CFLAGS += $$system("$$[LIBACFUTILS]/pkg-config-deps mac-64 \
+	    --cflags")
 
 	LIBS += -L$$[LIBACFUTILS]/qmake/mac64 -lacfutils
+	LIBS += $$system("$$[LIBACFUTILS]/pkg-config-deps mac-64 --libs")
+
 	LIBS += $$system("PKG_CONFIG_PATH=../libpng/libpng-mac-64 pkg-config \
 	    --libs libpng")
 	LIBS += $$system("PKG_CONFIG_PATH=../zlib/zlib-mac-64 pkg-config \
 	    --libs zlib")
 	LIBS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-mac-64 pkg-config \
 	    --libs libpcre2-8")
+
 }
 
 macx-clang-32 {
@@ -167,14 +194,19 @@ macx-clang-32 {
 	    pkg-config --cflags libpng")
 	QMAKE_CFLAGS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-mac-32 \
 	    pkg-config --cflags libpcre2-8")
+	QMAKE_CFLAGS += $$system("$$[LIBACFUTILS]/pkg-config-deps mac-32 \
+	    --cflags")
 
 	LIBS += -L$$[LIBACFUTILS]/qmake/mac32 -lacfutils
+	LIBS += $$system("$$[LIBACFUTILS]/pkg-config-deps mac-32 --libs")
+
 	LIBS += $$system("PKG_CONFIG_PATH=../libpng/libpng-mac-32 pkg-config \
 	    --libs libpng")
 	LIBS += $$system("PKG_CONFIG_PATH=../zlib/zlib-mac-32 pkg-config \
 	    --libs zlib")
 	LIBS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-mac-32 pkg-config \
 	    --libs libpcre2-8")
+
 }
 
 HEADERS += ../src/*.h

@@ -74,6 +74,8 @@ const char *const	bp_plugindir = plugindir;
 static bool_t		smartcopilot_present;
 static dr_t		smartcopilot_state;
 
+airportdb_t		*airportdb = NULL;
+
 /*
  * These datarefs are for syncing two instances of BetterPushback over the
  * net via syncing addons such as smartcopilot. This works as follows:
@@ -416,14 +418,16 @@ XPluginStop(void)
 PLUGIN_API int
 XPluginEnable(void)
 {
+	char *cachedir = mkpathname(xpdir, "Output", "caches",
+	    "BetterPushbackAirports.cache", NULL);
+
 	ASSERT(!inited);
 
-	if (!openal_init())
-		return (0);
-	if (!msg_init()) {
-		openal_fini();
-		return (0);
-	}
+	airportdb = calloc(1, sizeof (*airportdb));
+	airportdb_create(airportdb, bp_xpdir, cachedir);
+
+	if (!recreate_cache(airportdb) || !openal_init() || !msg_init())
+		goto errout;
 
 	XPLMRegisterCommandHandler(start_pb, start_pb_handler, 1, NULL);
 	XPLMRegisterCommandHandler(stop_pb, stop_pb_handler, 1, NULL);
@@ -455,7 +459,22 @@ XPluginEnable(void)
 
 	inited = B_TRUE;
 
+	free(cachedir);
+
 	return (1);
+
+errout:
+	openal_fini();
+	msg_fini();
+	if (cachedir != NULL)
+		free(cachedir);
+	if (airportdb != NULL) {
+		airportdb_destroy(airportdb);
+		free(airportdb);
+		airportdb = NULL;
+	}
+
+	return (0);
 }
 
 PLUGIN_API void
@@ -463,6 +482,10 @@ XPluginDisable(void)
 {
 	if (!inited)
 		return;
+
+	airportdb_destroy(airportdb);
+	free(airportdb);
+	airportdb = NULL;
 
 	XPLMUnregisterCommandHandler(start_pb, start_pb_handler, 1, NULL);
 	XPLMUnregisterCommandHandler(stop_pb, stop_pb_handler, 1, NULL);

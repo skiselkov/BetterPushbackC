@@ -24,6 +24,7 @@
 #include <XPLMDefs.h>
 
 #include <acfutils/avl.h>
+#include <acfutils/airportdb.h>
 #include <acfutils/geom.h>
 #include <acfutils/list.h>
 
@@ -38,6 +39,8 @@ extern bool_t slave_mode;
 extern bool_t op_complete;
 extern bool_t plan_complete;
 extern char bp_tug_name[64];
+
+extern airportdb_t *airportdb;
 
 /*
  * X-Plane-specific plugin hooks.

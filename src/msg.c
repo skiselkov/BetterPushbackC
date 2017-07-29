@@ -34,18 +34,18 @@ typedef struct {
 } msg_info_t;
 
 static msg_info_t msgs[MSG_NUM_MSGS] = {
-	{ .filename = "plan_start.wav", .wav = NULL },
-	{ .filename = "plan_end.wav", .wav = NULL },
-	{ .filename = "driving_up.wav", .wav = NULL },
-	{ .filename = "ready2conn.wav", .wav = NULL },
-	{ .filename = "winch.wav", .wav = NULL },
-	{ .filename = "connected.wav", .wav = NULL },
-	{ .filename = "start_pb.wav", .wav = NULL },
-	{ .filename = "start_tow.wav", .wav = NULL },
-	{ .filename = "op_complete.wav", .wav = NULL },
-	{ .filename = "disco.wav", .wav = NULL },
-	{ .filename = "done_right.wav", .wav = NULL },
-	{ .filename = "done_left.wav", .wav = NULL },
+	{ .filename = "plan_start.opus", .wav = NULL },
+	{ .filename = "plan_end.opus", .wav = NULL },
+	{ .filename = "driving_up.opus", .wav = NULL },
+	{ .filename = "ready2conn.opus", .wav = NULL },
+	{ .filename = "winch.opus", .wav = NULL },
+	{ .filename = "connected.opus", .wav = NULL },
+	{ .filename = "start_pb.opus", .wav = NULL },
+	{ .filename = "start_tow.opus", .wav = NULL },
+	{ .filename = "op_complete.opus", .wav = NULL },
+	{ .filename = "disco.opus", .wav = NULL },
+	{ .filename = "done_right.opus", .wav = NULL },
+	{ .filename = "done_left.opus", .wav = NULL }
 };
 
 bool_t inited = B_FALSE;

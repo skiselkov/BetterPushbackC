@@ -277,26 +277,33 @@ acf_is_compatible(void)
 static bool_t
 find_nearest_airport(char icao[8])
 {
-	float lat = dr_getf(&drs.lat), lon = dr_getf(&drs.lon);
-	float arpt_lat, arpt_lon;
-	vect3_t my_pos, arpt_pos;
-	XPLMNavRef ref = XPLMFindNavAid(NULL, NULL, &lat, &lon, NULL,
-	    xplm_Nav_Airport);
-	char arpt_icao[8];
+	geo_pos2_t my_pos = GEO_POS2(dr_getf(&drs.lat), dr_getf(&drs.lon));
+	vect3_t my_pos_ecef = sph2ecef(GEO_POS3(my_pos.lat, my_pos.lon, 0));
+	list_t *list;
+	airport_t *arpt;
+	double min_dist = 1e10;
 
-	if (ref == XPLM_NAV_NOT_FOUND)
-		return (B_FALSE);
-	XPLMGetNavAidInfo(ref, NULL, &arpt_lat, &arpt_lon, NULL, NULL,
-	    NULL, arpt_icao, NULL, NULL);
-	my_pos = geo2ecef(GEO_POS3(lat, lon, 0), &wgs84);
-	arpt_pos = geo2ecef(GEO_POS3(arpt_lat, arpt_lon, 0), &wgs84);
+	*icao = 0;
 
-	if (vect3_dist(my_pos, arpt_pos) <= MAX_ARPT_DIST) {
-		strlcpy(icao, arpt_icao, 8);
-		return (B_TRUE);
-	} else {
-		return (B_FALSE);
+	load_nearest_airport_tiles(airportdb, my_pos);
+	list = find_nearest_airports(airportdb, my_pos);
+
+	for (arpt = list_head(list); arpt != NULL;
+	    arpt = list_next(list, arpt)) {
+		double dist = vect3_dist(arpt->ecef, my_pos_ecef);
+		logMsg("candidate: %s dist: %.0f", arpt->icao, dist);
+		if (dist < min_dist) {
+			strlcpy(icao, arpt->icao, sizeof (arpt->icao));
+			min_dist = dist;
+			logMsg("new closest: %s dist: %.0f", arpt->icao, dist);
+		}
 	}
+	free_nearest_airport_list(list);
+	unload_distant_airport_tiles(airportdb, NULL_GEO_POS2);
+
+	logMsg("nearest airport: \"%s\"", icao);
+
+	return (*icao != 0);
 }
 
 static void

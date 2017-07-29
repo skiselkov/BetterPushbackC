@@ -77,7 +77,11 @@ link_libraries(m)
 if(APPLE)
 	set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH} ../SDK/Libraries/Mac/
 	    ../zlib/zlib-mac-64 ../libpng/libpng-mac-64/.libs
-	    ../pcre2/pcre2-mac-64/.libs ${LIBACFUTILS}/qmake/mac64)
+	    ../pcre2/pcre2-mac-64/.libs
+	    ${LIBACFUTILS}/qmake/mac64
+	    ${LIBACFUTILS}/opus/opusfile-mac-64/lib
+	    ${LIBACFUTILS}/opus/opus-mac-64/lib
+	    ${LIBACFUTILS}/opus/libogg-mac-64/install/lib)
 	FIND_LIBRARY(XPLM_LIBRARY XPLM ../SDK/Libraries/Mac/)
 	FIND_LIBRARY(XPWIDGETS_LIBRARY XPWidgets ../SDK/Libraries/Mac/)
 	FIND_LIBRARY(OPENGL_LIBRARY OpenGL)
@@ -86,6 +90,9 @@ if(APPLE)
 	FIND_LIBRARY(LIBPNG_LIBRARY png16)
 	FIND_LIBRARY(ZLIB_LIBRARY z)
 	FIND_LIBRARY(PCRE2_LIBRARY pcre2-8)
+	FIND_LIBRARY(OPUSFILE_LIBRARY opusfile)
+	FIND_LIBRARY(OPUS_LIBRARY opus)
+	FIND_LIBRARY(OGG_LIBRARY ogg)
 	target_link_libraries(bp
 	    ${LIBACFUTILS_LIBRARY}
 	    ${OPENAL_LIBRARY}
@@ -94,20 +101,33 @@ if(APPLE)
 	    ${LIBPNG_LIBRARY}
 	    ${ZLIB_LIBRARY}
 	    ${PCRE2_LIBRARY}
+	    ${OPUSFILE_LIBRARY}
+	    ${OPUS_LIBRARY}
+	    ${OGG_LIBRARY}
 	    )
 else()
 	set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH}
 	    ../zlib/zlib-linux-64 ../libpng/libpng-linux-64/.libs
-	    ../pcre2/pcre2-linux-64/.libs ${LIBACFUTILS}/qmake/lin64)
+	    ../pcre2/pcre2-linux-64/.libs
+	    ${LIBACFUTILS}/qmake/lin64
+	    ${LIBACFUTILS}/opus/opusfile-linux-64/lib
+	    ${LIBACFUTILS}/opus/opus-linux-64/lib
+	    ${LIBACFUTILS}/opus/libogg-linux-64/install/lib)
 	FIND_LIBRARY(LIBACFUTILS_LIBRARY acfutils)
 	FIND_LIBRARY(LIBPNG_LIBRARY png16)
 	FIND_LIBRARY(ZLIB_LIBRARY z)
 	FIND_LIBRARY(PCRE2_LIBRARY pcre2-8)
+	FIND_LIBRARY(OPUSFILE_LIBRARY opusfile)
+	FIND_LIBRARY(OPUS_LIBRARY opus)
+	FIND_LIBRARY(OGG_LIBRARY ogg)
 	target_link_libraries(bp
 	    ${LIBACFUTILS_LIBRARY}
 	    ${LIBPNG_LIBRARY}
 	    ${ZLIB_LIBRARY}
 	    ${PCRE2_LIBRARY}
+	    ${OPUSFILE_LIBRARY}
+	    ${OPUS_LIBRARY}
+	    ${OGG_LIBRARY}
 	    )
 endif()
 
@@ -116,14 +136,17 @@ SET_TARGET_PROPERTIES(bp PROPERTIES SUFFIX "")
 
 if(APPLE)
 	set(OUTPUT_FILENAME "mac.xpl")
+	execute_process(COMMAND ${LIBACFUTILS}/pkg-config-deps mac-64 --libs
+	    OUTPUT_VARIABLE LIBACFUTILS_DEP_LDFLAGS)
 	SET_TARGET_PROPERTIES(bp PROPERTIES LINK_FLAGS
-	    "${CMAKE_SHARED_LINKER_FLAGS} -fPIC -fvisibility=hidden \
-	    -bundle")
+	    "${CMAKE_SHARED_LINKER_FLAGS} -fPIC -fvisibility=hidden -bundle")
 else()
 	set(OUTPUT_FILENAME "lin.xpl")
+	execute_process(COMMAND ${LIBACFUTILS}/pkg-config-deps linux-64 --libs
+	    OUTPUT_VARIABLE LIBACFUTILS_DEP_LDFLAGS)
 	SET_TARGET_PROPERTIES(bp PROPERTIES LINK_FLAGS
 	    "${CMAKE_SHARED_LINKER_FLAGS} -rdynamic -nodefaultlibs \
-	    -undefined_warning -fPIC -fvisibility=hidden")
+	    -undefined_warnsing -fPIC -fvisibility=hidden")
 endif()
 
 set_target_properties(bp PROPERTIES RUNTIME_OUTPUT_DIRECTORY
