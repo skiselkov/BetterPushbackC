@@ -15,34 +15,34 @@
 
 msgid ""
 msgstr ""
-"Last-Translator: Roman Krotov"
+"Last-Translator: Roman Krotov & AtariX-Plane"
 
 msgid "Can't start planner: aircraft not stationary."
-msgstr "Невозможно начать планировку, т.к. самолёт в движении."
+msgstr "Невозможно запустить планировщик: Самолет в движении."
 
 msgid ""
 "Can't start planner: pushback already in progress. Please stop the pushback "
 "operation first."
-msgstr "Невозможно запустить планировщик: буксировка в процессе. "
-"Пожалуйста, сначала остановите буксировку."
+msgstr "Невозможно запустить планировщик: Выталкивание выполняется. "
+"Пожалуйста, остановите выталкивание."
 
 msgid "Can't start pushback planner: please set the parking brake first."
-msgstr "Невозможно запустить планировщик: пожалуйста, включите стояночный "
-"тормоз."
+msgstr "Невозможно запустить планировщик: "
+"Сначала установите парковочный тормоз."
 
 msgid ""
 "Pushback advisory: you have your radio volume turned very low and may not be "
 "able to hear ground crew. Please increase your radio volume in the X-Plane "
 "sound preferences."
-msgstr "Уличный Контроллер: у вас низкая громкость радиостанции и вы "
-"не можете слышать сообщения наземных служб. Пожалуйста, настройте громкость "
-"звука радиостанции в настройках звука X-Plane."
+msgstr "Руководитель буксировки: Слишком низкая громкость радио и у Вас нет "
+"возможности слышать наземную службу. Пожалуйста, увеличте громкость радио, "
+"в настройках X-Plane."
 
 msgid ""
 "Pushback failure: X-Plane version too old. This plugin requires at least X-"
 "Plane %s to operate."
 msgstr "Ошибка: ваша версия X-Plane устарела. Для работы плагина нужна "
-"последняя версия X-Plane."
+"версия не ниже X-Plane %s."
 
 msgid "Pushback failure: aircraft appears to not have any steerable gears."
 msgstr "Ошибка: у самолёта отсутствует поворачивающиеся шасси."
@@ -59,8 +59,8 @@ msgstr "Ошибка: самолёт не совместим с плагином
 msgid ""
 "Pushback failure: master requested tug \"%s\", which we don't have in our in "
 "our library. Please sync your tug libraries before trying again."
-msgstr "Ошибка: вы запросили тягач \"%s\", которого нет в библиотеке. "
-"Пожалуйста, синхронизируйте библиотеку тягачей, с библиотекой плагина."
+msgstr "Ошибка: вы запросили тягач "%s", которого нет в библиотеке. "
+"Пожалуйста, синхронизируйте библиотеки тягачей, с плагином."
 
 msgid "Pushback failure: no suitable tug for your aircraft."
 msgstr "Ошибка: нет подходящего тягача для вашего самолёта."
@@ -68,8 +68,8 @@ msgstr "Ошибка: нет подходящего тягача для ваше
 msgid ""
 "Pushback failure: smartcopilot attempted to switch master/slave or network "
 "connection lost. Stopping operation."
-msgstr "Ошибка: smartcopilot попытался переключить режим первый/второй или "
-"переключить сеть. Потеря соеденения. Завершение операции."
+msgstr "Ошибка: smartcopilot попытался переключить режим master/slave, "
+"или разрыв сетевого соеденения. Завершение операции."
 
 msgid "Start pushback"
 msgstr "Начать буксировку"
@@ -81,13 +81,13 @@ msgid "Start pushback planner"
 msgstr "Запустить планировщик"
 
 msgid "Stop pushback planner"
-msgstr "Выключить планировщик"
+msgstr "Завершить планировщик"
 
 msgid "Connect tug before entering pushback plan"
-msgstr "Присоединить тягач перед утверждением плана"
+msgstr "Присоединить тягач перед утверждением плана буксировки"
 
 msgid "Pre-plan pushback"
-msgstr "Предварительная планировка выталкивания"
+msgstr "Предварительное планирование буксировки"
 
 msgid "Close pushback planner"
 msgstr "Закрыть планировщик"
