@@ -26,6 +26,7 @@
 #ifndef	_DRIVING_H_
 #define	_DRIVING_H_
 
+#include <acfutils/avl.h>
 #include <acfutils/list.h>
 #include <acfutils/geom.h>
 
@@ -124,6 +125,23 @@ typedef struct {
 	bool_t	use_rear_pos;	/* drive as if our pos is on our rear axle */
 } vehicle_t;
 
+/*
+ * A route table is an AVL tree that holds sets of driving segments, each
+ * associated with a particular starting position (first start_pos & start_hdg
+ * or the first segment). This allows us to store and retrieve previously used
+ * driving instructions so the user doesn't have to keep re-entering them if
+ * they repeatedly push back from the same starting positions.
+ * This table is stored in Output/caches/BetterPushback_routes.dat as
+ * a text file. See routes_store for details on the format.
+ */
+typedef struct {
+	geo_pos2_t	pos;		/* start geographical position */
+	vect3_t		pos_ecef;	/* start position in ECEF */
+	double		hdg;		/* start true heading in degrees */
+	list_t		segs;
+	avl_node_t	node;
+} route_t;
+
 int compute_segs(const vehicle_t *veh, vect2_t start_pos, double start_hdg,
     vect2_t end_pos, double end_hdg, list_t *segs);
 bool_t drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
@@ -140,6 +158,14 @@ void route_load(geo_pos2_t start_pos, double start_hdg, list_t *segs);
 #define	MIN_SPEED_XP10	0.6
 #define	CRAWL_SPEED(xpversion, veh)	/* m/s */ \
 	(((xpversion) >= 11000 || (veh)->xp10_bug_ign) ? 0.1 : MIN_SPEED_XP10)
+
+route_t *route_alloc(avl_tree_t *route_table, const list_t *segs);
+void route_free(route_t *r);
+void route_seg_append(avl_tree_t *route_table, route_t *r, const seg_t *seg);
+
+void route_table_create(avl_tree_t *route_table);
+void route_table_destroy(avl_tree_t *route_table);
+bool_t route_table_store(avl_tree_t *route_table, const char *filename);
 
 #ifdef	__cplusplus
 }

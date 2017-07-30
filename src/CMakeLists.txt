@@ -16,8 +16,10 @@
 cmake_minimum_required(VERSION 2.8)
 project(bp C)
 
-SET(SRC acf_outline.c bp.c cab_view.c cfg.c driving.c msg.c tug.c xplane.c)
-SET(HDR acf_outline.h bp.h cab_view.h cfg.h driving.h msg.h tug.h xplane.h)
+SET(SRC acf_outline.c bp.c cab_view.c cfg.c driving.c msg.c tug.c wed2route.c
+    xplane.c)
+SET(HDR acf_outline.h bp.h cab_view.h cfg.h driving.h msg.h tug.h wed2route.h
+    xplane.h)
 
 SET(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELEASE} -DDEBUG")
 SET(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DDEBUG -O0")
@@ -49,11 +51,15 @@ endif(UNIX)
 if(APPLE)
 	include_directories(bp PUBLIC "../libpng/libpng-mac-64/include")
 	include_directories(bp PUBLIC "../pcre2/pcre2-mac-64/include")
+	include_directories(bp PUBLIC
+	    "../libxml2/libxml2-mac-64/include/libxml2")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -arch x86_64 -Wno-deprecated")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mmacosx-version-min=10.7")
 elseif(UNIX)
 	include_directories(bp PUBLIC "../libpng/libpng-linux-64/include")
 	include_directories(bp PUBLIC "../pcre2/pcre2-linux-64/include")
+	include_directories(bp PUBLIC
+	    "../libxml2/libxml2-linux-64/include/libxml2")
 endif()
 
 # Yes, we need to strip a trailing newline from command output. CMake is
@@ -82,7 +88,8 @@ if(APPLE)
 	    ${LIBACFUTILS}/qmake/mac64
 	    ${LIBACFUTILS}/opus/opusfile-mac-64/lib
 	    ${LIBACFUTILS}/opus/opus-mac-64/lib
-	    ${LIBACFUTILS}/opus/libogg-mac-64/install/lib)
+	    ${LIBACFUTILS}/opus/libogg-mac-64/install/lib
+	    ../libxml2/libxml2-mac-64/.libs)
 	FIND_LIBRARY(XPLM_LIBRARY XPLM ../SDK/Libraries/Mac/)
 	FIND_LIBRARY(XPWIDGETS_LIBRARY XPWidgets ../SDK/Libraries/Mac/)
 	FIND_LIBRARY(OPENGL_LIBRARY OpenGL)
@@ -94,6 +101,7 @@ if(APPLE)
 	FIND_LIBRARY(OPUSFILE_LIBRARY opusfile)
 	FIND_LIBRARY(OPUS_LIBRARY opus)
 	FIND_LIBRARY(OGG_LIBRARY ogg)
+	FIND_LIBRARY(LIBXML2_LIBRARY xml2)
 	target_link_libraries(bp
 	    ${LIBACFUTILS_LIBRARY}
 	    ${OPENAL_LIBRARY}
@@ -106,6 +114,7 @@ if(APPLE)
 	    ${OPUSFILE_LIBRARY}
 	    ${OPUS_LIBRARY}
 	    ${OGG_LIBRARY}
+	    ${LIBXML2_LIBRARY}
 	    )
 else()
 	set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH}
@@ -114,7 +123,8 @@ else()
 	    ${LIBACFUTILS}/qmake/lin64
 	    ${LIBACFUTILS}/opus/opusfile-linux-64/lib
 	    ${LIBACFUTILS}/opus/opus-linux-64/lib
-	    ${LIBACFUTILS}/opus/libogg-linux-64/install/lib)
+	    ${LIBACFUTILS}/opus/libogg-linux-64/install/lib
+	    ../libxml2/libxml2-linux-64/.libs)
 	FIND_LIBRARY(LIBACFUTILS_LIBRARY acfutils)
 	FIND_LIBRARY(LIBPNG_LIBRARY png16)
 	FIND_LIBRARY(ZLIB_LIBRARY z)
@@ -122,6 +132,8 @@ else()
 	FIND_LIBRARY(OPUSFILE_LIBRARY opusfile)
 	FIND_LIBRARY(OPUS_LIBRARY opus)
 	FIND_LIBRARY(OGG_LIBRARY ogg)
+	FIND_LIBRARY(LIBXML2_LIBRARY xml2)
+	FIND_LIBRARY(LIBC_NONSHARED c_nonshared)
 	target_link_libraries(bp
 	    ${LIBACFUTILS_LIBRARY}
 	    ${LIBPNG_LIBRARY}
@@ -130,6 +142,8 @@ else()
 	    ${OPUSFILE_LIBRARY}
 	    ${OPUS_LIBRARY}
 	    ${OGG_LIBRARY}
+	    ${LIBXML2_LIBRARY}
+	    ${LIBC_NONSHARED}
 	    )
 endif()
 

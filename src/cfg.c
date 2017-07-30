@@ -45,6 +45,7 @@ static XPWidgetID main_win = NULL;
 #define	BUTTON_HEIGHT		22
 #define	BUTTON_WIDTH		200
 #define	CHECKBOX_SIZE		20
+#define	MIN_BOX_HEIGHT		45
 
 #define	MAIN_WINDOW_HEIGHT	(MARGIN + 10 * BUTTON_HEIGHT + MARGIN)
 
@@ -63,6 +64,7 @@ static struct {
 	XPWidgetID	lang_pref_match_english;
 
 	XPWidgetID	disco_when_done;
+	XPWidgetID	show_dev_menu;
 
 	XPWidgetID	save_cfg;
 } buttons;
@@ -79,6 +81,7 @@ const char *native_tooltip = "Ground crew speaks my language irrespective "
     "of what country the airport is in.";
 const char *match_english_tooltip = "Ground crew always speaks English "
     "with a local accent.";
+const char *dev_menu_tooltip = "Show the developer menu options.";
 const char *save_prefs_tooltip = "Save current preferences to disk.";
 const char *disco_when_done_tooltip =
     "Never ask and always automatically disconnect\n"
@@ -90,9 +93,12 @@ buttons_update(void)
 	const char *lang = "XX";
 	lang_pref_t lang_pref;
 	bool_t disco_when_done = B_FALSE;
+	bool_t show_dev_menu = B_FALSE;
 
 	(void) conf_get_str(bp_conf, "lang", &lang);
 	(void) conf_get_b(bp_conf, "disco_when_done", &disco_when_done);
+	(void) conf_get_b(bp_conf, "show_dev_menu", &show_dev_menu);
+
 #define	SET_LANG_BTN(btn, l) \
 	(XPSetWidgetProperty(buttons.btn, xpProperty_ButtonState, \
 	    strcmp(lang, l) == 0))
@@ -116,6 +122,8 @@ buttons_update(void)
 	    xpProperty_ButtonState, lang_pref == LANG_PREF_MATCH_ENGLISH);
 	XPSetWidgetProperty(buttons.disco_when_done,
 	    xpProperty_ButtonState, disco_when_done);
+	XPSetWidgetProperty(buttons.show_dev_menu, xpProperty_ButtonState,
+	    show_dev_menu);
 }
 
 static int
@@ -163,6 +171,10 @@ main_window_cb(XPWidgetMessage msg, XPWidgetID widget, intptr_t param1,
 			conf_set_b(bp_conf, "disco_when_done",
 			    XPGetWidgetProperty(buttons.disco_when_done,
 				xpProperty_ButtonState, NULL));
+		} else if (btn == buttons.show_dev_menu) {
+			conf_set_b(bp_conf, "show_dev_menu",
+			    XPGetWidgetProperty(buttons.show_dev_menu,
+			    xpProperty_ButtonState, NULL));
 		}
 		buttons_update();
 	}
@@ -201,9 +213,9 @@ layout_checkboxes(checkbox_t *checkboxes, int x, int y, tooltip_set_t *tts)
 	    checkboxes[0].string, 0, main_win, xpWidgetClass_Caption);
 	y += BUTTON_HEIGHT;
 
-	(void) create_widget_rel(x, y, B_FALSE, width + 6,
-	    MAX((n - 1) * BUTTON_HEIGHT, 2.5 * BUTTON_HEIGHT),
-	    1, "", 0, main_win, xpWidgetClass_SubWindow);
+	(void) create_widget_rel(x, y, B_FALSE, width + 7,
+	    MAX((n - 1) * BUTTON_HEIGHT, MIN_BOX_HEIGHT), 1, "", 0, main_win,
+	    xpWidgetClass_SubWindow);
 
 	for (int i = 1; i < n; i++) {
 		int off_x = x;
@@ -269,6 +281,10 @@ create_main_window(void)
 	    {
 		_("Auto disconnect when done"), &buttons.disco_when_done,
 		disco_when_done_tooltip
+	    },
+	    {
+		_("Show developer menu"), &buttons.show_dev_menu,
+		dev_menu_tooltip
 	    },
 	    { NULL, NULL, NULL }
 	};
