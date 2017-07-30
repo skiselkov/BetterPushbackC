@@ -568,8 +568,12 @@ bp_init(void)
 
 	fdr_find(&drs.lbrake, "sim/cockpit2/controls/left_brake_ratio");
 	fdr_find(&drs.rbrake, "sim/cockpit2/controls/right_brake_ratio");
-	if (!dr_find(&drs.pbrake, "model/controls/park_break"))
+	if (/* FlightFactor A320 */
+	    !dr_find(&drs.pbrake, "model/controls/park_break") &&
+	    /* Felis Tu-154M */
+	    !dr_find(&drs.pbrake, "sim/custom/controll/parking_brake")) {
 		fdr_find(&drs.pbrake, "sim/flightmodel/controls/parkbrake");
+	}
 	fdr_find(&drs.pbrake_rat, "sim/cockpit2/controls/parking_brake_ratio");
 	fdr_find(&drs.rot_force_N, "sim/flightmodel/forces/N_plug_acf");
 	fdr_find(&drs.axial_force, "sim/flightmodel/forces/faxil_plug_acf");
