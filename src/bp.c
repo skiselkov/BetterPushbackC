@@ -1541,12 +1541,15 @@ pb_step_closing_cradle(void)
 {
 	double d_t = bp.cur_t - bp.step_start_t;
 
+	tug_set_lift_in_transit(B_TRUE);
 	tug_set_lift_arm_pos(bp.tug, 1 - d_t / PB_CRADLE_DELAY, B_FALSE);
 	tug_set_tire_sense_pos(bp.tug, 1 - d_t / PB_CRADLE_DELAY);
 	tug_set_lift_pos(d_t / PB_CRADLE_DELAY);
 
-	if (d_t >= PB_CRADLE_DELAY)
+	if (d_t >= PB_CRADLE_DELAY) {
 		tug_set_cradle_beeper_on(bp.tug, B_FALSE);
+		tug_set_lift_in_transit(B_FALSE);
+	}
 
 	if (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY) {
 		/* determine which direction we'll drive away */
@@ -1575,7 +1578,7 @@ pb_step_starting2clear(void)
 		return;
 
 	right = tug_clear_is_right();
-	square_side = MAX(5 * bp.tug->veh.wheelbase, 1.5 * bp.veh.wheelbase);
+	square_side = MAX(4 * bp.tug->veh.wheelbase, 1.5 * bp.veh.wheelbase);
 
 	dir = hdg2dir(bp.cur_pos.hdg);
 	norm_dir = vect2_norm(dir, right);

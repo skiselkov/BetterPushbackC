@@ -1,0 +1,92 @@
+# CDDL HEADER START
+#
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
+#
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# http://www.illumos.org/license/CDDL.
+#
+# CDDL HEADER END
+
+# Copyright 2017 Saso Kiselkov. All rights reserved.
+
+msgid ""
+msgstr ""
+"Last-Translator: Birdydma"
+
+msgid "Can't start planner: aircraft not stationary."
+msgstr "Ouverture du planificateur impossible: l'avion n'est pas à l'arrêt."
+
+msgid ""
+"Can't start planner: pushback already in progress. Please stop the pushback "
+"operation first."
+msgstr "Ouverture du planificateur impossible: repoussage en cours."
+
+msgid "Can't start pushback planner: please set the parking brake first."
+msgstr "Démarrage du repoussage impossible. Serrez le frein de parking."
+
+msgid ""
+"Pushback advisory: you have your radio volume turned very low and may not be "
+"able to hear ground crew. Please increase your radio volume in the X-Plane "
+"sound preferences."
+msgstr "Votre volume radio est trop bas, et vous n’entendrez peut-être pas "
+"l’équipe sol. Augmentez le volume radio dans les préférences de X Plane."
+
+msgid ""
+"Pushback failure: X-Plane version too old. This plugin requires at least X-"
+"Plane %s to operate."
+msgstr "Repoussage impossible: BetterPushback nécessite au moins la version "
+"%s de X Plane pour fonctionner."
+
+msgid "Pushback failure: aircraft appears to not have any steerable gears."
+msgstr "Repoussage impossible: L’avion ne dispose pas d’un train orientable."
+
+msgid ""
+"Pushback failure: aircraft has non-positive wheelbase. Sorry, tail draggers "
+"aren't supported."
+msgstr "Repoussage impossible : L’avion ne dispose pas d’un train trycicle "
+"Les trains classiques ne sont pas supportés."
+
+msgid "Pushback failure: aircraft is incompatible with BetterPushback."
+msgstr "Repoussage impossible: votre avion n’est pas compatible avec "
+"BetterPushback."
+
+msgid ""
+"Pushback failure: master requested tug \"%s\", which we don't have in our in "
+"our library. Please sync your tug libraries before trying again."
+msgstr "Repoussage impossible: Le tracteur demandé \"%s\", n’est pas "
+"installé. Procédez à son installation et réessayez."
+
+msgid "Pushback failure: no suitable tug for your aircraft."
+msgstr "Repoussage impossible: pas de tracteur disponible pour votre avion."
+
+msgid ""
+"Pushback failure: smartcopilot attempted to switch master/slave or network "
+"connection lost. Stopping operation."
+msgstr "Repoussage impossible: Soit vous avez échangé les commandes par "
+"smartcopilot (request/release), soit la connexion est rompue. "
+"Repoussage interrompu."
+
+msgid "Start pushback"
+msgstr "Démarrer le repoussage"
+
+msgid "Stop pushback"
+msgstr "Arrêter le repoussage"
+
+msgid "Start pushback planner"
+msgstr "Lancer le planificateur"
+
+msgid "Stop pushback planner"
+msgstr "Arrêter le planificateur"
+
+msgid "Connect tug before entering pushback plan"
+msgstr "Connecter le tracteur en attente de la planification et du repoussage"
+
+msgid "Pre-plan pushback"
+msgstr "Préplanifier le repoussage"
+
+msgid "Close pushback planner"
+msgstr "Fermer le planificateur de repoussage"
