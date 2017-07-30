@@ -40,6 +40,7 @@
 #include "msg.h"
 #include "tug.h"
 #include "xplane.h"
+#include "wed2route.h"
 
 /* Enables leaving bp_tug_name set to facilitate local master/slave debug */
 /*#define	SLAVE_DEBUG*/
@@ -58,13 +59,13 @@ enum {
 static bool_t		inited = B_FALSE;
 
 static XPLMCommandRef	start_pb, stop_pb, start_cam, stop_cam, conn_first;
-static XPLMCommandRef	cab_cam;
-static XPLMMenuID	root_menu;
-static int		plugins_menu_item;
+static XPLMCommandRef	cab_cam, recreate_routes;
+static XPLMMenuID	root_menu, dev_menu;
+static int		plugins_menu_item, dev_menu_item;
 static int		start_pb_plan_menu_item, stop_pb_plan_menu_item;
 static int		start_pb_menu_item, stop_pb_menu_item;
-static int		cab_cam_menu_item;
-static int		prefs_menu_item;
+static int		cab_cam_menu_item, prefs_menu_item;
+static int		recreate_routes_menu_item;
 
 static int start_pb_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 static int stop_pb_handler(XPLMCommandRef, XPLMCommandPhase, void *);
@@ -72,6 +73,7 @@ static int start_cam_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 static int stop_cam_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 static int conn_first_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 static int cab_cam_handler(XPLMCommandRef, XPLMCommandPhase, void *);
+static int recreate_routes_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 
 static bool_t		start_after_cam = B_FALSE;
 
@@ -277,16 +279,28 @@ cab_cam_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	return (1);
 }
 
+static int
+recreate_routes_handler(XPLMCommandRef cmd, XPLMCommandPhase phase,
+    void *refcon)
+{
+	UNUSED(cmd);
+	UNUSED(refcon);
+	if (phase != xplm_CommandEnd)
+		return (0);
+	xlate_wedroutes();
+	return (1);
+}
+
 static void
 menu_cb(void *inMenuRef, void *inItemRef)
 {
 	UNUSED(inMenuRef);
-
-	if (inItemRef == &prefs_menu_item) {
+	if (inItemRef == NULL)
+		return;
+	else if (inItemRef == &prefs_menu_item)
 		bp_conf_open();
-	} else {
+	else
 		XPLMCommandOnce((XPLMCommandRef)inItemRef);
-	}
 }
 
 void
@@ -478,6 +492,9 @@ XPluginStart(char *name, char *sig, char *desc)
 	    _("Connect tug before entering pushback plan"));
 	cab_cam = XPLMCreateCommand("BetterPushback/cab_camera",
 	    _("View from tug's cab."));
+	recreate_routes = XPLMCreateCommand(
+	    "BetterPushback/recreate_scenery_routes",
+	    _("Recreate scenery routes from WED files."));
 
 	bp_boot_init();
 	tug_glob_init();
@@ -591,6 +608,8 @@ bp_priv_enable(void)
 	XPLMRegisterCommandHandler(stop_cam, stop_cam_handler, 1, NULL);
 	XPLMRegisterCommandHandler(conn_first, conn_first_handler, 1, NULL);
 	XPLMRegisterCommandHandler(cab_cam, cab_cam_handler, 1, NULL);
+	XPLMRegisterCommandHandler(recreate_routes, recreate_routes_handler,
+	    1, NULL);
 
 	plugins_menu_item = XPLMAppendMenuItem(XPLMFindPluginsMenu(),
 	    "Better Pushback", NULL, 1);
@@ -609,6 +628,12 @@ bp_priv_enable(void)
 	    _("Tug cab view"), cab_cam, 1);
 	prefs_menu_item = XPLMAppendMenuItem(root_menu,
 	    _("Preferences..."), &prefs_menu_item, 1);
+	dev_menu_item = XPLMAppendMenuItem(root_menu,
+	    _("Developer menu"), NULL, 1);
+	dev_menu = XPLMCreateMenu(_("Developer menu"), root_menu,
+	    dev_menu_item, menu_cb, NULL);
+	recreate_routes_menu_item = XPLMAppendMenuItem(dev_menu,
+	    _("Recreate routes from WED"), recreate_routes, 1);
 
 	XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_TRUE);
 	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
@@ -649,6 +674,8 @@ bp_priv_disable(void)
 	XPLMUnregisterCommandHandler(stop_cam, stop_pb_handler, 1, NULL);
 	XPLMUnregisterCommandHandler(conn_first, conn_first_handler, 1, NULL);
 	XPLMUnregisterCommandHandler(cab_cam, cab_cam_handler, 1, NULL);
+	XPLMUnregisterCommandHandler(recreate_routes, recreate_routes_handler,
+	    1, NULL);
 
 	bp_fini();
 	openal_fini();
