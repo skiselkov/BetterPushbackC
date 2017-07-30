@@ -77,6 +77,7 @@ typedef enum {
 	ANIM_CAB_POSITION,
 	ANIM_WINCH_ON,
 	ANIM_CLEAR_SIGNAL,
+	ANIM_LIFT_IN_TRANSIT,
 	TUG_NUM_ANIMS
 } anim_t;
 
@@ -153,7 +154,8 @@ static anim_info_t anim[TUG_NUM_ANIMS] = {
     { .name = "bp/anim/driver_orientation" },
     { .name = "bp/anim/cab_position" },
     { .name = "bp/anim/winch_on" },
-    { .name = "bp/anim/clear_signal" }
+    { .name = "bp/anim/clear_signal" },
+    { .name = "bp/anim/lift_in_transit" }
 };
 
 static bool_t cradle_lights_req = B_FALSE;
@@ -1348,6 +1350,7 @@ tug_anim(tug_t *tug, double d_t)
 		anim[ANIM_HAZARD_LIGHTS].value = value;
 		anim[ANIM_WINCH_ON].value = value;
 		anim[ANIM_CLEAR_SIGNAL].value = ((mt / 1000000) % 3) - 1;
+		anim[ANIM_LIFT_IN_TRANSIT].value = value;
 	}
 }
 
@@ -1613,4 +1616,10 @@ tug_set_clear_signal(bool_t on, bool_t right)
 		anim[ANIM_CLEAR_SIGNAL].value = (right ? 1 : -1);
 	else
 		anim[ANIM_CLEAR_SIGNAL].value = 0;
+}
+
+void
+tug_set_lift_in_transit(bool_t flag)
+{
+	anim[ANIM_LIFT_IN_TRANSIT].value = flag;
 }

@@ -1220,6 +1220,7 @@ pb_step_grab(void)
 		double steer = 0;
 		dr_setvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1);
 	}
+	tug_set_lift_in_transit(B_TRUE);
 	if (bp.tug->info->lift_type == LIFT_GRAB)
 		pb_step_connect_grab();
 	else
@@ -1258,6 +1259,8 @@ pb_step_lift(void)
 		tug_set_TE_override(bp.tug, B_TRUE);
 		tug_set_TE_snd(bp.tug, 0, bp.d_t);
 		tug_set_cradle_beeper_on(bp.tug, B_FALSE);
+		tug_set_lift_in_transit(B_FALSE);
+		tug_set_TE_override(bp.tug, B_FALSE);
 	}
 
 	if (d_t >= PB_CONN_LIFT_DURATION + STATE_TRANS_DELAY) {
@@ -1281,7 +1284,6 @@ pb_step_lift(void)
 			}
 		}
 
-		tug_set_TE_override(bp.tug, B_FALSE);
 		if (bp.tug->info->lift_type != LIFT_WINCH) {
 			msg_play(MSG_CONNECTED);
 			bp.last_voice_t = bp.cur_t;
@@ -1428,6 +1430,8 @@ pb_step_lowering(void)
 		return;
 	}
 
+	tug_set_lift_in_transit(B_TRUE);
+
 	/* Slight delay after the parking brake ann was made */
 	if (d_t <= STATE_TRANS_DELAY)
 		return;
@@ -1507,6 +1511,7 @@ pb_step_ungrabbing(void)
 		p = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
 		    -bp.acf.nw_z + bp.tug->info->apch_dist));
 
+		tug_set_lift_in_transit(B_FALSE);
 		tug_set_TE_override(bp.tug, B_FALSE);
 		(void) tug_drive2point(bp.tug, p, bp.cur_pos.hdg);
 
@@ -1783,11 +1788,14 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 	case PB_STEP_OPENING_CRADLE: {
 		double d_t = bp.cur_t - bp.step_start_t;
 
+		tug_set_lift_in_transit(B_TRUE);
 		tug_set_lift_pos(1 - d_t / PB_CRADLE_DELAY);
 		tug_set_lift_arm_pos(bp.tug, d_t / PB_CRADLE_DELAY, B_FALSE);
 		tug_set_tire_sense_pos(bp.tug, d_t / PB_CRADLE_DELAY);
-		if (d_t >= PB_CRADLE_DELAY)
+		if (d_t >= PB_CRADLE_DELAY) {
+			tug_set_lift_in_transit(B_FALSE);
 			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
+		}
 		if (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY) {
 			msg_play(MSG_RDY2CONN);
 			bp.step++;

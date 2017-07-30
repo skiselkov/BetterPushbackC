@@ -200,6 +200,7 @@ void tug_set_cradle_lights_on(bool_t flag);
 void tug_set_hazard_lights_on(bool_t flag);
 void tug_set_winch_on(tug_t *tug, bool_t flag);
 void tug_set_clear_signal(bool_t on, bool_t right);
+void tug_set_lift_in_transit(bool_t flag);
 
 #ifdef	__cplusplus
 }
