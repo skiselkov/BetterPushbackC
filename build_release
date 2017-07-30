@@ -109,6 +109,7 @@ DIST_FILES=(
     'data/icons/ru/move_view.png'		''
     'data/icons/ru/rotate_seg.png'		''
     'data/po/de/strings.po'			''
+    'data/po/fr/strings.po'			''
     'data/po/ru/strings.po'			''
     'objects/tugs/AST-3F.tug/AST-3F.obj'	''
     'objects/tugs/AST-3F.tug/air.wav'		''
