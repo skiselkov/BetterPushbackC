@@ -62,6 +62,9 @@
 #define	DRIVER_TURN_TIME	0.75	/* seconds for driver to turn around */
 #define	CAB_LIFT_TIME		4	/* seconds for cab to lift/lower */
 
+#define	BEACON_FLASH_INTVAL	1000	/* milliseconds */
+#define	BEACON_FLASH_DUR	50	/* milliseconds */
+
 typedef enum {
 	ANIM_FRONT_DRIVE,
 	ANIM_FRONT_STEER,
@@ -78,6 +81,7 @@ typedef enum {
 	ANIM_WINCH_ON,
 	ANIM_CLEAR_SIGNAL,
 	ANIM_LIFT_IN_TRANSIT,
+	ANIM_BEACON_FLASH,
 	TUG_NUM_ANIMS
 } anim_t;
 
@@ -155,7 +159,8 @@ static anim_info_t anim[TUG_NUM_ANIMS] = {
     { .name = "bp/anim/cab_position" },
     { .name = "bp/anim/winch_on" },
     { .name = "bp/anim/clear_signal" },
-    { .name = "bp/anim/lift_in_transit" }
+    { .name = "bp/anim/lift_in_transit" },
+    { .name = "bp/anim/beacon_flash" }
 };
 
 static bool_t cradle_lights_req = B_FALSE;
@@ -1293,8 +1298,10 @@ tug_run(tug_t *tug, double d_t, bool_t drive_slow)
 }
 
 void
-tug_anim(tug_t *tug, double d_t)
+tug_anim(tug_t *tug, double d_t, double cur_t)
 {
+	uint64_t cur_t_ms = cur_t * 1000;
+
 	/* Set up our wheel animations */
 	if (!tug->info->anim_debug) {
 		anim[ANIM_FRONT_DRIVE].value = anim_gate(((tug->pos.spd * d_t) /
@@ -1330,8 +1337,8 @@ tug_anim(tug_t *tug, double d_t)
 		anim[ANIM_CRADLE_LIGHTS].value = (cradle_lights_req &&
 		    dr_getf(&sun_pitch_dr) < LIGHTS_ON_SUN_ANGLE);
 	} else {
-		int64_t mt = microclock();
 		float value;
+		int64_t mt = microclock();
 
 		value = (mt % 3000000) / 3000000.0;
 		anim[ANIM_FRONT_DRIVE].value = value;
@@ -1352,6 +1359,9 @@ tug_anim(tug_t *tug, double d_t)
 		anim[ANIM_CLEAR_SIGNAL].value = ((mt / 1000000) % 3) - 1;
 		anim[ANIM_LIFT_IN_TRANSIT].value = value;
 	}
+
+	anim[ANIM_BEACON_FLASH].value = ((cur_t_ms % BEACON_FLASH_INTVAL) <=
+	    BEACON_FLASH_DUR && anim[ANIM_HAZARD_LIGHTS].value);
 }
 
 void

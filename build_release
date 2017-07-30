@@ -142,8 +142,8 @@ DIST_FILES=(
     'objects/tugs/AP88.tug/AP88.obj'		''
     'objects/tugs/AP88.tug/engine.wav'		''
     'objects/tugs/AP88.tug/info.cfg'		''
-    'objects/tugs/AP88.tug/liveries/generic.livery/AAP88_tex.png' \
-	'//PNG2DDS//'
+    'objects/tugs/AP88.tug/liveries/generic.livery/AAP88_lit.png' '//PNG2DDS//'
+    'objects/tugs/AP88.tug/liveries/generic.livery/AAP88_tex.png' '//PNG2DDS//'
 )
 
 function install_xtra_files() {

@@ -1721,7 +1721,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		tug_run(bp.tug, bp.d_t,
 		    bp.step == PB_STEP_DRIVING_UP_CONNECT ||
 		    bp.step == PB_STEP_MOVING_AWAY);
-		tug_anim(bp.tug, bp.d_t);
+		tug_anim(bp.tug, bp.d_t, bp.cur_t);
 	}
 
 	if (!slave_mode) {
