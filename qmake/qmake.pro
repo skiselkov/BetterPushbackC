@@ -52,6 +52,7 @@ win32 {
 	TARGET = win.xpl
 	INCLUDEPATH += /usr/include/GL
 	QMAKE_DEL_FILE = rm -f
+	LIBS += -Wl,--exclude-libs,ALL
 }
 
 win32:contains(CROSS_COMPILE, x86_64-w64-mingw32-) {
@@ -109,6 +110,7 @@ unix:!macx {
 	DEFINES += APL=0 IBM=0 LIN=1
 	TARGET = lin.xpl
 	LIBS += -nodefaultlibs
+	LIBS += -Wl,--exclude-libs,ALL
 }
 
 linux-g++-64 {
