@@ -17,161 +17,98 @@
 
 DIST_FILES=(
     'COPYING'					''
-    'data/msgs/en/connected.opus'		''
-    'data/msgs/en/disco.opus'			''
-    'data/msgs/en/done_left.opus'		''
-    'data/msgs/en/done_right.opus'		''
-    'data/msgs/en/driving_up.opus'		''
-    'data/msgs/en/op_complete.opus'		''
-    'data/msgs/en/plan_end.opus'		''
-    'data/msgs/en/plan_start.opus'		''
-    'data/msgs/en/ready2conn.opus'		''
-    'data/msgs/en/start_pb.opus'		''
-    'data/msgs/en/start_tow.opus'		''
-    'data/msgs/en/connected.opus'		''
-    'data/msgs/en/disco.opus'			''
-    'data/msgs/en/driving_up.opus'		''
-    'data/msgs/en/op_complete.opus'		''
-    'data/msgs/en/plan_end.opus'		''
-    'data/msgs/en/plan_start.opus'		''
-    'data/msgs/en/ready2conn.opus'		''
-    'data/msgs/en/start_pb.opus'		''
-    'data/msgs/en/start_tow.opus'		''
-    'data/msgs/en/winch.opus'			''
-    'data/msgs/de/connected.opus'		''
-    'data/msgs/de/disco.opus'			''
-    'data/msgs/de/done_left.opus'		''
-    'data/msgs/de/done_right.opus'		''
-    'data/msgs/de/driving_up.opus'		''
-    'data/msgs/de/op_complete.opus'		''
-    'data/msgs/de/plan_end.opus'		''
-    'data/msgs/de/plan_start.opus'		''
-    'data/msgs/de/ready2conn.opus'		''
-    'data/msgs/de/start_pb.opus'		''
-    'data/msgs/de/start_tow.opus'		''
-    'data/msgs/de/connected.opus'		''
-    'data/msgs/de/disco.opus'			''
-    'data/msgs/de/driving_up.opus'		''
-    'data/msgs/de/op_complete.opus'		''
-    'data/msgs/de/plan_end.opus'		''
-    'data/msgs/de/plan_start.opus'		''
-    'data/msgs/de/ready2conn.opus'		''
-    'data/msgs/de/start_pb.opus'		''
-    'data/msgs/de/start_tow.opus'		''
-    'data/msgs/de/winch.opus'			''
-    'data/msgs/ru/connected.opus'		''
-    'data/msgs/ru/disco.opus'			''
-    'data/msgs/ru/done_left.opus'		''
-    'data/msgs/ru/done_right.opus'		''
-    'data/msgs/ru/driving_up.opus'		''
-    'data/msgs/ru/op_complete.opus'		''
-    'data/msgs/ru/plan_end.opus'		''
-    'data/msgs/ru/plan_start.opus'		''
-    'data/msgs/ru/ready2conn.opus'		''
-    'data/msgs/ru/start_pb.opus'		''
-    'data/msgs/ru/start_tow.opus'		''
-    'data/msgs/ru/connected.opus'		''
-    'data/msgs/ru/disco.opus'			''
-    'data/msgs/ru/driving_up.opus'		''
-    'data/msgs/ru/op_complete.opus'		''
-    'data/msgs/ru/plan_end.opus'		''
-    'data/msgs/ru/plan_start.opus'		''
-    'data/msgs/ru/ready2conn.opus'		''
-    'data/msgs/ru/start_pb.opus'		''
-    'data/msgs/ru/start_tow.opus'		''
-    'data/msgs/ru/winch.opus'			''
-    'data/icons/ch/accept_plan.png'		''
-    'data/icons/ch/conn_first.png'		''
-    'data/icons/ch/delete_seg.png'		''
-    'data/icons/ch/place_seg.png'		''
-    'data/icons/ch/cancel_plan.png'		''
-    'data/icons/ch/move_view.png'		''
-    'data/icons/ch/rotate_seg.png'		''
-    'data/icons/en/accept_plan.png'		''
-    'data/icons/en/conn_first.png'		''
-    'data/icons/en/delete_seg.png'		''
-    'data/icons/en/place_seg.png'		''
-    'data/icons/en/cancel_plan.png'		''
-    'data/icons/en/move_view.png'		''
-    'data/icons/en/rotate_seg.png'		''
-    'data/icons/de/accept_plan.png'		''
-    'data/icons/de/conn_first.png'		''
-    'data/icons/de/delete_seg.png'		''
-    'data/icons/de/place_seg.png'		''
-    'data/icons/de/cancel_plan.png'		''
-    'data/icons/de/move_view.png'		''
-    'data/icons/de/rotate_seg.png'		''
-    'data/icons/fr/accept_plan.png'		''
-    'data/icons/fr/conn_first.png'		''
-    'data/icons/fr/delete_seg.png'		''
-    'data/icons/fr/place_seg.png'		''
-    'data/icons/fr/cancel_plan.png'		''
-    'data/icons/fr/move_view.png'		''
-    'data/icons/fr/rotate_seg.png'		''
-    'data/icons/ru/accept_plan.png'		''
-    'data/icons/ru/conn_first.png'		''
-    'data/icons/ru/delete_seg.png'		''
-    'data/icons/ru/place_seg.png'		''
-    'data/icons/ru/cancel_plan.png'		''
-    'data/icons/ru/move_view.png'		''
-    'data/icons/ru/rotate_seg.png'		''
     'data/po/ch/strings.po'			''
     'data/po/de/strings.po'			''
     'data/po/fr/strings.po'			''
     'data/po/ru/strings.po'			''
-    'objects/tugs/AST-3F.tug/AST-3F.obj'	''
-    'objects/tugs/AST-3F.tug/air.wav'		''
-    'objects/tugs/AST-3F.tug/beeper.wav'	''
-    'objects/tugs/AST-3F.tug/engine.wav'	''
-    'objects/tugs/AST-3F.tug/info.cfg'		''
-    'objects/tugs/AST-3F.tug/liveries/generic.livery/AST-3F_tex.png' \
-	'//PNG2DDS//'
-    'objects/tugs/AST-3F.tug/liveries/generic.livery/AST-3F_lit.png' \
-	'//PNG2DDS//'
-    'objects/tugs/AST-3F.tug/liveries/GlobeGroundBerlin.livery/info.cfg' \
-	''
-    'objects/tugs/AST-3F.tug/liveries/GlobeGroundBerlin.livery/AST-3F_tex.png' \
-	'//PNG2DDS//'
-    'objects/tugs/AST-3F.tug/liveries/HAviationGroundServices.livery/info.cfg' \
-	''
-    'objects/tugs/AST-3F.tug/liveries/HAviationGroundServices.livery/AST-3F_tex.png' \
-	'//PNG2DDS//'
-    'objects/tugs/AST-3F.tug/liveries/LEOS.livery/info.cfg'	''
-    'objects/tugs/AST-3F.tug/liveries/LEOS.livery/AST-3F_tex.png' '//PNG2DDS//'
-    'objects/tugs/AST-3F.tug/liveries/Swissport.livery/info.cfg'	''
-    'objects/tugs/AST-3F.tug/liveries/Swissport.livery/AST-3F_tex.png' \
-	'//PNG2DDS//'
-    'objects/tugs/AST-1X.tug/AST-1X.obj'	''
-    'objects/tugs/AST-1X.tug/beeper.wav'	''
-    'objects/tugs/AST-1X.tug/engine.wav'	''
-    'objects/tugs/AST-1X.tug/info.cfg'		''
-    'objects/tugs/AST-1X.tug/liveries/generic.livery/AST-1X_tex.png' \
-	'//PNG2DDS//'
-    'objects/tugs/AP88.tug/AP88.obj'		''
-    'objects/tugs/AP88.tug/engine.wav'		''
-    'objects/tugs/AP88.tug/info.cfg'		''
-    'objects/tugs/AP88.tug/liveries/generic.livery/AP88_lit.png' '//PNG2DDS//'
-    'objects/tugs/AP88.tug/liveries/generic.livery/AP88_tex.png' '//PNG2DDS//'
+    'objects/tugs/LIVERIES_HOWTO.txt'		''
 )
+
+function install_xtra_file() {
+	FILE="$1"
+	DSTDIR="$2"
+	if [[ "$DSTDIR" = "//PNG2DDS//" ]]; then
+		DSTDIR=""
+		XFERCMD="convert"
+		TGTFILE="$(basename "$FILE")"
+		TGTFILE="${TGTFILE/%.png/.dds}"
+	else
+		TGTFILE="$(basename "$FILE")"
+		XFERCMD="cp"
+	fi
+	if [[ "$DSTDIR" = "" ]]; then
+		DSTDIR="$(dirname "$FILE")"
+	fi
+	mkdir -p "BetterPushback/$DSTDIR"
+	$XFERCMD "$FILE" "BetterPushback/$DSTDIR/$TGTFILE"
+}
 
 function install_xtra_files() {
 	for (( I=0; $I < ${#DIST_FILES[@]}; I=$I + 2 )); do
-		FILE="${DIST_FILES[$I]}"
-		DSTDIR="${DIST_FILES[$I+1]}"
-		if [[ "$DSTDIR" = "//PNG2DDS//" ]]; then
-			DSTDIR=""
-			XFERCMD="convert"
-			TGTFILE="$(basename "$FILE")"
-			TGTFILE="${TGTFILE/%.png/.dds}"
-		else
-			TGTFILE="$(basename "$FILE")"
-			XFERCMD="cp"
-		fi
-		if [[ "$DSTDIR" = "" ]]; then
-			DSTDIR="$(dirname "$FILE")"
-		fi
-		mkdir -p "BetterPushback/$DSTDIR"
-		$XFERCMD "$FILE" "BetterPushback/$DSTDIR/$TGTFILE"
+		install_xtra_file "${DIST_FILES[$I]}" "${DIST_FILES[$I + 1]}"
+	done
+}
+
+function install_audio_files() {
+	FILES=(
+		'connected.opus'
+		'disco.opus'
+		'done_left.opus'
+		'done_right.opus'
+		'driving_up.opus'
+		'op_complete.opus'
+		'plan_end.opus'
+		'plan_start.opus'
+		'ready2conn.opus'
+		'start_pb.opus'
+		'start_tow.opus'
+		'connected.opus'
+		'disco.opus'
+		'driving_up.opus'
+		'op_complete.opus'
+		'plan_end.opus'
+		'plan_start.opus'
+		'ready2conn.opus'
+		'start_pb.opus'
+		'start_tow.opus'
+		'winch.opus'
+	)
+	for DIR in data/msgs/[a-z][a-z]; do
+		for FILE in ${FILES[@]}; do
+			install_xtra_file "$DIR/$FILE" ""
+		done
+	done
+}
+
+function install_icon_files() {
+	FILES=(
+		'accept_plan.png'
+		'conn_first.png'
+		'delete_seg.png'
+		'place_seg.png'
+		'cancel_plan.png'
+		'move_view.png'
+		'rotate_seg.png'
+	)
+	for DIR in data/icons/[a-z][a-z]; do
+		for FILE in ${FILES[@]}; do
+			install_xtra_file "$DIR/$FILE" ""
+		done
+	done
+}
+
+function install_tug_files() {
+	for DIR in objects/tugs/*.tug; do
+		FILES=($(find "objects/tugs" -type f \
+		    -iregex '.*\.\(obj\|cfg\|wav\|opus\|png\)'))
+		for FILE in ${FILES[@]}; do
+			if [[ "$FILE" = *.png ]]; then
+				TGTFILE='//PNG2DDS//'
+			else
+				TGTFILE=''
+			fi
+			install_xtra_file "$FILE" "$TGTFILE"
+		done
 	done
 }
 
@@ -182,27 +119,30 @@ rm -rf BetterPushback
 (cd pcre2 && ./build_pcre2_deps ) || exit 1
 (cd libxml2 && ./build_libxml2_deps ) || exit 1
 
+set -e
+
 case `uname` in
 Linux)
-	set -e
 	( cd qmake && ./build-win-lin )
 	mkdir -p BetterPushback/{32,64}
 	cp qmake/output/32/{win,lin}.xpl BetterPushback/32
 	cp qmake/output/64/{win,lin}.xpl BetterPushback/64
-	install_xtra_files
-	set +e
 	;;
 Darwin)
-	set -e
 	( cd qmake && ./build-mac )
 	mkdir -p BetterPushback/{32,64}
 	cp qmake/output/32/mac.xpl BetterPushback/32
 	cp qmake/output/64/mac.xpl BetterPushback/64
-	install_xtra_files
-	set +e
 	;;
 *)
 	echo "Unsupported platform" >&2
 	exit 1
 	;;
 esac
+
+install_xtra_files
+install_audio_files
+install_icon_files
+install_tug_files
+
+set +e
