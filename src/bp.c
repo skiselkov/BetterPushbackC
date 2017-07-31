@@ -1926,7 +1926,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 #define	RED_TUPLE		VECT3(1, 0, 0)		/* RGB color */
 #define	GREEN_TUPLE		VECT3(0, 1, 0)		/* RGB color */
 
-#define	CLICK_THRESHOLD_US	200000			/* microseconds */
+#define	CLICK_DISPL_THRESH	5			/* pixels */
 #define	US_PER_CLICK_ACCEL	60000			/* microseconds */
 #define	US_PER_CLICK_DEACCEL	120000			/* microseconds */
 #define	MAX_ACCEL_MULT		10
@@ -2566,27 +2566,48 @@ static int
 fake_win_click(XPLMWindowID inWindowID, int x, int y, XPLMMouseStatus inMouse,
     void *inRefcon)
 {
-	static uint64_t down_t = 0;
+	static int last_x = 0, last_y = 0;
 	static int down_x = 0, down_y = 0;
+	static bool_t dragging = B_FALSE;
 
 	UNUSED(inWindowID);
 	UNUSED(inRefcon);
 
+	/*
+	 * The mouse handling logic is as follows:
+	 * 1) On mouse-down, we memorize where the click started, check if
+	 *	we hit a button and reset the dragging variable.
+	 * 2) While receiving dragging events, we check if the displacement
+	 *	from the original start position is sufficient to consider
+	 *	this click-and-drag. If it is, we set the `dragging' flag
+	 *	to true. This inhibits clicking.
+	 * 3) On mouse-up, if there was no click-and-drag, check if the
+	 *	button we're on is still the same as what we hit on the
+	 *	initial mouse-down (prevents from clicking one button and
+	 *	sliding onto another one). If no button was hit and no
+	 *	click-and-drag took place, count it as a click on the screen
+	 *	attempting to place a segment.
+	 */
 	if (inMouse == xplm_MouseDown) {
-		down_t = microclock();
-		down_x = x;
-		down_y = y;
+		last_x = down_x = x;
+		last_y = down_y = y;
 		force_root_win_focus = B_FALSE;
 		button_hit = button_hit_check(x, y);
+		dragging = B_FALSE;
 	} else if (inMouse == xplm_MouseDrag) {
-		if ((x != down_x || y != down_y) && button_hit == -1) {
+		if (!dragging) {
+			dragging = (ABS(x - down_x) >= CLICK_DISPL_THRESH ||
+			    ABS(y - down_y) >= CLICK_DISPL_THRESH);
+		}
+		if (dragging && (x != last_x || y != last_y) &&
+		    button_hit == -1) {
 			int w, h;
 			double fov_h, fov_v, rx, ry, rw, rh, dx, dy;
 			vect2_t v;
 
 			XPLMGetScreenSize(&w, &h);
-			rx = ((double)x - down_x) / (w / 2);
-			ry = ((double)y - down_y) / (h / 2);
+			rx = ((double)x - last_x) / (w / 2);
+			ry = ((double)y - last_y) / (h / 2);
 			fov_h = DEG2RAD(dr_getf(&drs.camera_fov_h));
 			fov_v = DEG2RAD(dr_getf(&drs.camera_fov_v));
 			rw = cam_height * tan(fov_h / 2);
@@ -2596,21 +2617,24 @@ fake_win_click(XPLMWindowID inWindowID, int x, int y, XPLMMouseStatus inMouse,
 			v = vect2_rot(VECT2(dx, dy), cam_hdg);
 			cam_pos.x -= v.x;
 			cam_pos.z -= v.y;
-			down_x = x;
-			down_y = y;
+			last_x = x;
+			last_y = y;
 		}
 	} else {
-		if (button_hit != -1 && button_hit == button_hit_check(x, y)) {
-			/* simulate a key press */
-			ASSERT(buttons[button_hit].vk != -1);
-			key_sniffer(0, xplm_DownFlag, buttons[button_hit].vk,
-			    NULL);
-		} else if (microclock() - down_t < CLICK_THRESHOLD_US) {
-			/*
-			 * Transfer whatever is in pred_segs to the normal
-			 * segments and clear pred_segs.
-			 */
-			list_move_tail(&bp.segs, &pred_segs);
+		if (!dragging) {
+			if (button_hit != -1 &&
+			    button_hit == button_hit_check(x, y)) {
+				/* simulate a key press */
+				ASSERT(buttons[button_hit].vk != -1);
+				key_sniffer(0, xplm_DownFlag,
+				    buttons[button_hit].vk, NULL);
+			} else {
+				/*
+				 * Transfer whatever is in pred_segs to
+				 * the normal segments and clear pred_segs.
+				 */
+				list_move_tail(&bp.segs, &pred_segs);
+			}
 		}
 		button_hit = -1;
 		force_root_win_focus = B_TRUE;
