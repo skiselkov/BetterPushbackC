@@ -1,0 +1,24 @@
+I
+800
+OBJ
+
+# CDDL HEADER START
+#
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
+#
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# http://www.illumos.org/license/CDDL.
+#
+# CDDL HEADER END
+
+# Copyright 2017 Saso Kiselkov. All rights reserved.
+
+# This object contains just one powerful directional night light pointed
+# straight down. BetterPushback places this object under the cursor when
+# planning a pushback to help the user find the taxi lines at night.
+
+LIGHT_PARAM	full_custom_halo_night	0 80 0	1 1 1 1	200 0 -1 0	0.01

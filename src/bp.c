@@ -1973,6 +1973,7 @@ static bool_t		force_root_win_focus = B_TRUE;
 static float		saved_visibility;
 static int		saved_cloud_types[3];
 static bool_t		saved_real_wx;
+static XPLMObjectRef	cam_lamp_obj = NULL;
 
 static view_cmd_info_t view_cmds[] = {
     { .name = "sim/general/left", .incr = VECT3(-INCR_MED, 0, 0) },
@@ -2363,6 +2364,7 @@ draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 	seg_t *seg;
 	XPLMProbeRef probe = XPLMCreateProbe(xplm_ProbeY);
 	XPLMProbeInfo_t info = { .structSize = sizeof (XPLMProbeInfo_t) };
+	XPLMDrawInfo_t di;
 
 	UNUSED(phase);
 	UNUSED(before);
@@ -2425,6 +2427,19 @@ draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 		    ABV_TERR_HEIGHT, seg->end_pos.y), seg->end_hdg,
 		    bp.veh.wheelbase, GREEN_TUPLE);
 	}
+
+	/* Draw the night-lighting lamp so the user can see under the cursor */
+	VERIFY3U(XPLMProbeTerrainXYZ(probe, cursor_world_pos.x, 0,
+	    -cursor_world_pos.y, &info), ==, xplm_ProbeHitTerrain);
+	di.structSize = sizeof (di);
+	di.x = cursor_world_pos.x;
+	di.y = info.locationY;
+	di.z = -cursor_world_pos.y;
+	di.heading = 0;
+	di.pitch = 0;
+	di.roll = 0;
+	logMsg("drawing night lamp at %.0fx%.0fx%.0f", di.x, di.y, di.z);
+	XPLMDrawObjects(cam_lamp_obj, 1, &di, 1, 1);
 
 	XPLMDestroyProbe(probe);
 
@@ -2734,9 +2749,21 @@ bp_cam_start(void)
 	    .refcon = NULL
 	};
 	char icao[8] = { 0 };
+	char *cam_obj_path;
 
 	if (cam_inited || !bp_init())
 		return (B_FALSE);
+
+	cam_obj_path = mkpathname(bp_xpdir, bp_plugindir, "objects",
+	    "night_lamp.obj", NULL);
+	cam_lamp_obj = XPLMLoadObject(cam_obj_path);
+	if (cam_lamp_obj == NULL) {
+		logMsg("Error loading pushback lamp %s. Please reinstall "
+		    "BetterPushback.", cam_obj_path);
+		free(cam_obj_path);
+		return (B_FALSE);
+	}
+	free(cam_obj_path);
 
 	if (!acf_is_compatible()) {
 		XPLMSpeakString(_("Pushback failure: aircraft is incompatible "
@@ -2839,6 +2866,9 @@ bp_cam_stop(void)
 
 	if (!cam_inited)
 		return (B_FALSE);
+
+	XPLMUnloadObject(cam_lamp_obj);
+	cam_lamp_obj = NULL;
 
 	while ((seg = list_remove_head(&pred_segs)) != NULL)
 		free(seg);
