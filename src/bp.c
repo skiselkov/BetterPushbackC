@@ -288,17 +288,13 @@ find_nearest_airport(char icao[8])
 	for (arpt = list_head(list); arpt != NULL;
 	    arpt = list_next(list, arpt)) {
 		double dist = vect3_dist(arpt->ecef, my_pos_ecef);
-		logMsg("candidate: %s dist: %.0f", arpt->icao, dist);
 		if (dist < min_dist) {
 			strlcpy(icao, arpt->icao, sizeof (arpt->icao));
 			min_dist = dist;
-			logMsg("new closest: %s dist: %.0f", arpt->icao, dist);
 		}
 	}
 	free_nearest_airport_list(list);
 	unload_distant_airport_tiles(airportdb, NULL_GEO_POS2);
-
-	logMsg("nearest airport: \"%s\"", icao);
 
 	return (*icao != 0);
 }
