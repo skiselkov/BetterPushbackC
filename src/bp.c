@@ -2438,7 +2438,6 @@ draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 	di.heading = 0;
 	di.pitch = 0;
 	di.roll = 0;
-	logMsg("drawing night lamp at %.0fx%.0fx%.0f", di.x, di.y, di.z);
 	XPLMDrawObjects(cam_lamp_obj, 1, &di, 1, 1);
 
 	XPLMDestroyProbe(probe);
