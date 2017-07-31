@@ -22,7 +22,7 @@ DIST_FILES=(
     'data/po/fr/strings.po'			''
     'data/po/ru/strings.po'			''
     'objects/tugs/LIVERIES_HOWTO.txt'		''
-    'objects/night_lamp.obj	'		''
+    'objects/night_lamp.obj'			''
 )
 
 function install_xtra_file() {

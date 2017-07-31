@@ -1308,10 +1308,11 @@ pb_step_lift(void)
 static void
 pb_step_connected(void)
 {
-	if (pbrake_is_set()) {
+	if (pbrake_is_set() ||
+	    bp.cur_t - bp.last_voice_t < msg_dur(MSG_CONNECTED)) {
 		/*
 		 * Keep resetting the start time to enforce the state delay
-		 * after the parking brake is released.
+		 * after the message is done and the parking brake is released.
 		 */
 		bp.step_start_t = bp.cur_t;
 	} else if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
