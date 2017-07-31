@@ -1,0 +1,86 @@
+# CDDL HEADER START
+#
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
+#
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# http://www.illumos.org/license/CDDL.
+#
+# CDDL HEADER END
+
+# Copyright 2017 Saso Kiselkov. All rights reserved.
+
+msgid ""
+msgstr ""
+"Last-Translator: Wei Shuai <cpuwolf@gmail.com>"
+
+msgid "Can't start planner: aircraft not stationary."
+msgstr "无法按计划推车：飞机不是静止状态"
+
+msgid ""
+"Can't start planner: pushback already in progress. Please stop the pushback "
+"operation first."
+msgstr "无法按计划推车：正在推车。请先停止推车"
+
+msgid "Can't start pushback planner: please set the parking brake first."
+msgstr "无法按计划推车：请先制动手刹"
+
+msgid ""
+"Pushback advisory: you have your radio volume turned very low and may not be "
+"able to hear ground crew. Please increase your radio volume in the X-Plane "
+"sound preferences."
+msgstr "推车建议：你的无线电音量太小，有可能听不见地勤人员的声音。"
+"请在X-Plane声音设置中，把无线电音量调大"
+
+msgid ""
+"Pushback failure: X-Plane version too old. This plugin requires at least X-"
+"Plane %s to operate."
+msgstr "推车失败：X-Plane的版本太低。本插件需要至少X-Plane %s"
+
+msgid "Pushback failure: aircraft appears to not have any steerable gears."
+msgstr "推车失败：这架飞机机轮似乎没有推把"
+
+msgid ""
+"Pushback failure: aircraft has non-positive wheelbase. Sorry, tail draggers "
+"aren't supported."
+msgstr "推车失败：这架飞机似乎没有前轮，不好意思，后轮推车不支持"
+
+msgid "Pushback failure: aircraft is incompatible with BetterPushback."
+msgstr "推车失败：这架飞机不支持"
+
+msgid ""
+"Pushback failure: master requested tug \"%s\", which we don't have in our in "
+"our library. Please sync your tug libraries before trying again."
+msgstr "推车失败：请求的推车 \"%s\ 不在车库里。请更新最新的推车车库"
+
+msgid "Pushback failure: no suitable tug for your aircraft."
+msgstr "推车失败：这架飞机找不到合适的推车"
+
+msgid ""
+"Pushback failure: smartcopilot attempted to switch master/slave or network "
+"connection lost. Stopping operation."
+msgstr "推车失败：smartcopilot插件有干扰，或者网络连接失败。推车停止"
+
+msgid "Start pushback"
+msgstr "开始推车"
+
+msgid "Stop pushback"
+msgstr "停止推车"
+
+msgid "Start pushback planner"
+msgstr "启动推车计划"
+
+msgid "Stop pushback planner"
+msgstr "停止推车计划"
+
+msgid "Connect tug before entering pushback plan"
+msgstr "先连接推钩，再开始推车计划"
+
+msgid "Pre-plan pushback"
+msgstr "开始设计推车计划"
+
+msgid "Close pushback planner"
+msgstr "关闭推车计划"
