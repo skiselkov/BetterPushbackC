@@ -67,6 +67,9 @@
 
 #define	STRAIGHT_SEG_ANGLE_LIM	0.1
 
+/* Turns on aggressive debug logging. */
+/*#define	DRIVING_DEBUG_LOGGING*/
+
 /*
  * A route table is an AVL tree that holds sets of driving segments, each
  * associated with a particular starting position (first start_pos & start_hdg
@@ -396,6 +399,12 @@ drive_on_line(const vehicle_pos_t *pos, const vehicle_t *veh,
 		steer = STEER_GATE(rhdg + MAX_OFF_PATH_ANGLE, veh->max_steer);
 		overcorrecting = B_TRUE;
 	}
+
+#ifdef	DRIVING_DEBUG_LOGGING
+	logMsg("mis_hdg: %.2f d_mis_hdg: %.2f rhdg: %.2f arm: %.1f",
+	    mis_hdg, d_mis_hdg, rhdg, steering_arm);
+#endif	/* DRIVING_DEBUG_LOGGING */
+
 	/*
 	 * If we've come off the path even with overcorrection, slow down
 	 * until we're re-established again.

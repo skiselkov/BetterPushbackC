@@ -1086,6 +1086,12 @@ tug_alloc_common(tug_info_t *ti, double tirrad)
 		fdr_find(&tug->cockpit_window_drs[1],
 		    "ixeg/733/misc/copilot_window");
 		tug->num_cockpit_window_drs = 2;
+	/* Felis Tu-154M integration */
+	} else if (dr_find(&tug->cockpit_window_drs[0],
+		"sim/custom/anim/cockpit_window_left")) {
+		fdr_find(&tug->cockpit_window_drs[1],
+		    "sim/custom/anim/cockpit_window_right");
+		tug->num_cockpit_window_drs = 2;
 	}
 
 	/*

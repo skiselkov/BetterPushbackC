@@ -74,6 +74,8 @@ const char *const	bp_plugindir = plugindir;
 static bool_t		smartcopilot_present;
 static dr_t		smartcopilot_state;
 
+int			bp_xp_ver, bp_xplm_ver;
+XPLMHostApplicationID	bp_host_id;
 airportdb_t		*airportdb = NULL;
 
 /*
@@ -400,6 +402,8 @@ XPluginStart(char *name, char *sig, char *desc)
 	    "bp/plan_complete");
 	dr_create_b(&bp_tug_name_dr, bp_tug_name, sizeof (bp_tug_name),
 	    B_TRUE, "bp/tug_name");
+
+	XPLMGetVersions(&bp_xp_ver, &bp_xplm_ver, &bp_host_id);
 
 	return (1);
 }

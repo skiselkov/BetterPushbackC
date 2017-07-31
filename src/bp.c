@@ -78,11 +78,11 @@
  * X-Plane 10's tire model is a bit less forgiving of slow creeping,
  * so bump the minimum breakaway speed on that version.
  */
-#define	BREAKAWAY_THRESH	(bp.xplane_version >= 11000 ? 0.1 : 0.35)
+#define	BREAKAWAY_THRESH	(bp_xp_ver >= 11000 ? 0.1 : 0.35)
 #define	SEG_TURN_MULT		0.9	/* leave 10% for oversteer */
 #define	SPEED_COMPLETE_THRESH	0.05	/* m/s */
 /* beyond this our push algos go nuts */
-#define	MAX_STEER_ANGLE		(bp.xplane_version < 11000 ? 50 : 65)
+#define	MAX_STEER_ANGLE		(bp_xp_ver < 11000 ? 50 : 65)
 #define	MIN_STEER_ANGLE		40	/* minimum sensible tire steer angle */
 #define	MAX_ANG_VEL		2.5	/* degrees per second */
 #define	PB_CRADLE_DELAY		10	/* seconds */
@@ -142,10 +142,6 @@ typedef struct {
 } acf_t;
 
 typedef struct {
-	int			xplane_version;
-	int			xplm_version;
-	XPLMHostApplicationID	host_id;
-
 	vehicle_t	veh;
 	acf_t		acf;		/* our aircraft */
 
@@ -205,6 +201,7 @@ static struct {
 	dr_t	override_steer;
 	dr_t	gear_types;
 	dr_t	gear_steers;
+	dr_t	gear_on_ground;
 	dr_t	gear_deploy;
 
 	dr_t	camera_fov_h, camera_fov_v;
@@ -438,8 +435,15 @@ static bool_t
 read_gear_info(void)
 {
 	double tire_z[10];
-	int gear_steers[10], gear_types[10], gear_is[10];
+	int gear_steers[10], gear_types[10], gear_on_ground[10], gear_is[10],
+	    gear_deploy[10];
 	int n_gear = 0;
+
+	dr_getvi(&drs.gear_deploy, gear_deploy, 0, 10);
+	if (bp_xp_ver >= 11000)
+		dr_getvi(&drs.gear_on_ground, gear_on_ground, 0, 10);
+	else
+		memset(gear_on_ground, 0xff, sizeof (gear_on_ground));
 
 	/* First determine where the gears are */
 	for (int i = 0, n = dr_getvi(&drs.gear_types, gear_types, 0, 10);
@@ -450,8 +454,14 @@ read_gear_info(void)
 		 * 1) Skid.
 		 * 2+) Wheel based gear in various arrangements. A tug can
 		 *	provide a filter for this.
+		 *
+		 * Also make sure to ONLY select gears which are deployed and
+		 * are touching the ground. Some aircraft models have weird
+		 * gears which are, for whatever reason, hovering in mid air
+		 * (huh?).
 		 */
-		if (gear_types[i] >= 2)
+		if (gear_types[i] >= 2 && gear_on_ground[i] != 0 &&
+		    gear_deploy[i] != 0)
 			gear_is[n_gear++] = i;
 	}
 
@@ -498,9 +508,7 @@ bp_state_init(void)
 	memset(&bp, 0, sizeof (bp));
 	list_create(&bp.segs, sizeof (seg_t), offsetof(seg_t, node));
 
-	XPLMGetVersions(&bp.xplane_version, &bp.xplm_version,
-	    &bp.host_id);
-	if (bp.xplane_version < MIN_XPLANE_VERSION) {
+	if (bp_xp_ver < MIN_XPLANE_VERSION) {
 		char msg[256];
 		snprintf(msg, sizeof (msg), _("Pushback failure: X-Plane "
 		    "version too old. This plugin requires at least X-Plane "
@@ -602,6 +610,10 @@ bp_init(void)
 	fdr_find(&drs.override_steer,
 	    "sim/operation/override/override_wheel_steer");
 	fdr_find(&drs.gear_types, "sim/aircraft/parts/acf_gear_type");
+	if (bp_xp_ver >= 11000) {
+		fdr_find(&drs.gear_on_ground,
+		    "sim/flightmodel2/gear/on_ground");
+	}
 	fdr_find(&drs.gear_steers, "sim/aircraft/overflow/acf_gear_steers");
 	fdr_find(&drs.gear_deploy, "sim/aircraft/parts/acf_gear_deploy");
 

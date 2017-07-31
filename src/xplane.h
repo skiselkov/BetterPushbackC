@@ -42,6 +42,9 @@ extern char bp_tug_name[64];
 
 extern airportdb_t *airportdb;
 
+extern int bp_xp_ver, bp_xplm_ver;
+extern XPLMHostApplicationID bp_host_id;
+
 /*
  * X-Plane-specific plugin hooks.
  */
