@@ -17,7 +17,7 @@
 
 DIST_FILES=(
     'COPYING'					''
-    'data/po/ch/strings.po'			''
+    'data/po/cn/strings.po'			''
     'data/po/de/strings.po'			''
     'data/po/fr/strings.po'			''
     'data/po/ru/strings.po'			''
