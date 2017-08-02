@@ -25,7 +25,6 @@
 #include <XPLMPlugin.h>
 #include <XPLMProcessing.h>
 
-#include <acfutils/acfutils.h>
 #include <acfutils/assert.h>
 #include <acfutils/crc64.h>
 #include <acfutils/helpers.h>
@@ -35,6 +34,7 @@
 #include <acfutils/time.h>
 
 #include "bp.h"
+#include "cfg.h"
 #include "msg.h"
 #include "tug.h"
 #include "xplane.h"
@@ -57,6 +57,7 @@ static XPLMMenuID	root_menu;
 static int		plugins_menu_item;
 static int		start_pb_plan_menu_item, stop_pb_plan_menu_item;
 static int		start_pb_menu_item, stop_pb_menu_item;
+static int		prefs_menu_item;
 
 static int start_pb_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 static int stop_pb_handler(XPLMCommandRef, XPLMCommandPhase, void *);
@@ -241,7 +242,12 @@ static void
 menu_cb(void *inMenuRef, void *inItemRef)
 {
 	UNUSED(inMenuRef);
-	XPLMCommandOnce((XPLMCommandRef)inItemRef);
+
+	if (inItemRef == &prefs_menu_item) {
+		bp_conf_open();
+	} else {
+		XPLMCommandOnce((XPLMCommandRef)inItemRef);
+	}
 }
 
 void
@@ -255,6 +261,15 @@ bp_done_notify(void)
 	}
 
 	bp_tug_name[0] = '\0';
+}
+
+const char *
+bp_get_lang(void)
+{
+	const char *c;
+	if (conf_get_str(bp_conf, "lang", &c))
+		return (c);
+	return (acfutils_xplang2code(XPLMGetLanguage()));
 }
 
 void
@@ -325,13 +340,21 @@ smartcopilot_check(float elapsed, float elapsed2, int counter, void *refcon)
 	return (SMARTCOPILOT_CHECK_INTVAL);
 }
 
+static void
+xlate_init(void)
+{
+	char *po_file = mkpathname(xpdir, plugindir, "data", "po",
+	    bp_get_lang(), "strings.po", NULL);
+	(void) acfutils_xlate_init(po_file);
+	free(po_file);
+}
+
 PLUGIN_API int
 XPluginStart(char *name, char *sig, char *desc)
 {
-	char *po_file;
 	char *p;
 
-	acfutils_logfunc = XPLMDebugString;
+	log_init(XPLMDebugString, "BetterPushback");
 	crc64_init();
 	crc64_srand(microclock());
 	logMsg("This is BetterPushback-" BP_PLUGIN_VERSION);
@@ -371,11 +394,12 @@ XPluginStart(char *name, char *sig, char *desc)
 	strcpy(sig, BP_PLUGIN_SIG);
 	strcpy(desc, BP_PLUGIN_DESCRIPTION);
 
+	/* We need the configuration very early to be able to pick the lang */
+	if (!bp_conf_init())
+		return (0);
+
 	/* We need the i18n support really early, so init early */
-	po_file = mkpathname(xpdir, plugindir, "data", "po",
-	    acfutils_xplang2code(XPLMGetLanguage()), "strings.po", NULL);
-	(void) acfutils_xlate_init(po_file);
-	free(po_file);
+	xlate_init();
 
 	/* We can't delete commands, so put their creation here */
 	start_pb = XPLMCreateCommand("BetterPushback/start",
@@ -411,6 +435,7 @@ XPluginStart(char *name, char *sig, char *desc)
 PLUGIN_API void
 XPluginStop(void)
 {
+	bp_conf_fini();
 	acfutils_xlate_fini();
 	tug_glob_fini();
 	dr_delete(&bp_started_dr);
@@ -430,7 +455,7 @@ XPluginEnable(void)
 	airportdb = calloc(1, sizeof (*airportdb));
 	airportdb_create(airportdb, bp_xpdir, cachedir);
 
-	if (!recreate_cache(airportdb) || !openal_init() || !msg_init())
+	if (!recreate_cache(airportdb) || !openal_init())
 		goto errout;
 
 	XPLMRegisterCommandHandler(start_pb, start_pb_handler, 1, NULL);
@@ -452,6 +477,8 @@ XPluginEnable(void)
 	    _("Start pushback"), start_pb, 1);
 	stop_pb_menu_item = XPLMAppendMenuItem(root_menu,
 	    _("Stop pushback"), stop_pb, 1);
+	prefs_menu_item = XPLMAppendMenuItem(root_menu,
+	    _("Preferences..."), &prefs_menu_item, 1);
 
 	XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_TRUE);
 	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
@@ -469,7 +496,6 @@ XPluginEnable(void)
 
 errout:
 	openal_fini();
-	msg_fini();
 	if (cachedir != NULL)
 		free(cachedir);
 	if (airportdb != NULL) {
@@ -487,18 +513,17 @@ XPluginDisable(void)
 	if (!inited)
 		return;
 
-	airportdb_destroy(airportdb);
-	free(airportdb);
-	airportdb = NULL;
-
 	XPLMUnregisterCommandHandler(start_pb, start_pb_handler, 1, NULL);
 	XPLMUnregisterCommandHandler(stop_pb, stop_pb_handler, 1, NULL);
 	XPLMUnregisterCommandHandler(start_cam, start_pb_handler, 1, NULL);
 	XPLMUnregisterCommandHandler(stop_cam, stop_pb_handler, 1, NULL);
 	XPLMUnregisterCommandHandler(conn_first, conn_first_handler, 1, NULL);
 	bp_fini();
-	msg_fini();
 	openal_fini();
+
+	airportdb_destroy(airportdb);
+	free(airportdb);
+	airportdb = NULL;
 
 	XPLMDestroyMenu(root_menu);
 	XPLMRemoveMenuItem(XPLMFindPluginsMenu(), plugins_menu_item);

@@ -22,6 +22,7 @@
 #include <stdlib.h>
 
 #include <XPLMDefs.h>
+#include <XPLMUtilities.h>
 
 #include <acfutils/avl.h>
 #include <acfutils/airportdb.h>
@@ -55,6 +56,7 @@ PLUGIN_API void XPluginDisable(void);
 PLUGIN_API void XPluginReceiveMessage(XPLMPluginID from, int msg, void *param);
 
 void bp_done_notify(void);
+const char *bp_get_lang(void);
 
 #ifdef __cplusplus
 }

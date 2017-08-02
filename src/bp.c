@@ -56,6 +56,7 @@
 #include <acfutils/wav.h>
 
 #include "bp.h"
+#include "cfg.h"
 #include "driving.h"
 #include "msg.h"
 #include "tug.h"
@@ -501,6 +502,7 @@ read_gear_info(void)
 static bool_t
 bp_state_init(void)
 {
+
 	memset(&bp, 0, sizeof (bp));
 	list_create(&bp.segs, sizeof (seg_t), offsetof(seg_t, node));
 
@@ -523,6 +525,7 @@ bp_state_init(void)
 		    "wheelbase. Sorry, tail draggers aren't supported."));
 		return (B_FALSE);
 	}
+
 	bp.veh.max_steer = MIN(MAX(dr_getf(&drs.nw_steerdeg1),
 	    dr_getf(&drs.nw_steerdeg2)), MAX_STEER_ANGLE);
 	/*
@@ -540,6 +543,23 @@ bp_state_init(void)
 
 	bp.step = PB_STEP_OFF;
 	bp.step_start_t = 0;
+
+	return (B_TRUE);
+}
+
+static bool_t
+audio_sys_init(void)
+{
+	lang_pref_t	lang_pref = LANG_PREF_MATCH_REAL;
+	char		icao[8];
+
+	find_nearest_airport(icao);
+	(void) conf_get_i(bp_conf, "lang_pref", (int *)&lang_pref);
+	if (!msg_init(bp_get_lang(), icao, lang_pref)) {
+		XPLMSpeakString(_("Pushback failure: error initialising audio "
+		    "messages. Please reinstall BetterPushback."));
+		return (B_FALSE);
+	}
 
 	return (B_TRUE);
 }
@@ -626,7 +646,7 @@ bp_init(void)
 
 	fdr_find(&drs.author, "sim/aircraft/view/acf_author");
 
-	if (!bp_state_init())
+	if (!audio_sys_init() || !bp_state_init())
 		return (B_FALSE);
 
 	if (!load_buttons())
@@ -791,6 +811,8 @@ bp_fini(void)
 {
 	if (!inited)
 		return;
+
+	msg_fini();
 
 	bp_complete();
 	if (floop_registered) {
@@ -2056,7 +2078,7 @@ load_icon(button_t *btn)
 
 	/* try the localized version first */
 	filename = mkpathname(bp_xpdir, bp_plugindir, "data", "icons",
-	    acfutils_xplang2code(XPLMGetLanguage()), btn->filename, NULL);
+	    bp_get_lang(), btn->filename, NULL);
 	if (!file_exists(filename, NULL)) {
 		/* if the localized version failed, try the English version */
 		free(filename);

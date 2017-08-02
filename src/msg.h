@@ -26,6 +26,12 @@ extern "C" {
 #endif
 
 typedef enum {
+	LANG_PREF_MATCH_REAL,
+	LANG_PREF_NATIVE,
+	LANG_PREF_MATCH_ENGLISH
+} lang_pref_t;
+
+typedef enum {
 	MSG_PLAN_START,
 	MSG_PLAN_END,
 	MSG_DRIVING_UP,
@@ -41,7 +47,7 @@ typedef enum {
 	MSG_NUM_MSGS
 } message_t;
 
-bool_t msg_init(void);
+bool_t msg_init(const char *my_lang, const char *icao, lang_pref_t lang_pref);
 void msg_fini();
 void msg_play(message_t msg);
 double msg_dur(message_t msg);

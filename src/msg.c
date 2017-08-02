@@ -16,11 +16,14 @@
  * Copyright 2017 Saso Kiselkov. All rights reserved.
  */
 
+#include <string.h>
+
 #include <XPLMUtilities.h>
 
 #include <acfutils/assert.h>
 #include <acfutils/dr.h>
 #include <acfutils/helpers.h>
+#include <acfutils/icao2cc.h>
 #include <acfutils/intl.h>
 #include <acfutils/log.h>
 #include <acfutils/wav.h>
@@ -53,27 +56,83 @@ static dr_t sound_on;
 static dr_t radio_vol;
 
 bool_t
-msg_init(void)
+msg_init(const char *my_lang, const char *icao, lang_pref_t lang_pref)
 {
+	const char *arpt_cc;
+	char msg_dir_name[8];
 	char *path;
+	bool_t isdir;
 
 	ASSERT(!inited);
 
-	for (message_t msg = 0; msg < MSG_NUM_MSGS; msg++) {
-		/* first try the localized version */
-		path = mkpathname(bp_xpdir, bp_plugindir, "data", "msgs",
-		    acfutils_xplang2code(XPLMGetLanguage()),
-		    msgs[msg].filename, NULL);
-		if (!file_exists(path, NULL)) {
-			/* if that doesn't exist, try the English version */
+	switch (lang_pref) {
+	case LANG_PREF_MATCH_REAL:
+		arpt_cc = icao2cc(icao);
+		break;
+	case LANG_PREF_NATIVE:
+		arpt_cc = NULL;
+		break;
+	default:
+		VERIFY3U(lang_pref, ==, LANG_PREF_MATCH_ENGLISH);
+		my_lang = "en";
+		arpt_cc = icao2cc(icao);
+		break;
+	};
+
+	if (arpt_cc != NULL) {
+		snprintf(msg_dir_name, sizeof (msg_dir_name), "%s_%s",
+		    my_lang, arpt_cc);
+	} else {
+		strlcpy(msg_dir_name, my_lang, sizeof (msg_dir_name));
+	}
+
+	/* First we try the exact lang_country combo. */
+	path = mkpathname(bp_xpdir, bp_plugindir, "data", "msgs",
+	    msg_dir_name, NULL);
+	if (arpt_cc != NULL && (!file_exists(path, &isdir) || !isdir)) {
+		/*
+		 * If our language matches the local one, try a plain
+		 * version of the language pack.
+		 */
+		const char *lang = cc2lang(arpt_cc);
+		if (strcmp(my_lang, lang) == 0) {
+			strlcpy(msg_dir_name, lang, sizeof (msg_dir_name));
 			free(path);
 			path = mkpathname(bp_xpdir, bp_plugindir, "data",
-			    "msgs", "en", msgs[msg].filename, NULL);
+			    "msgs", lang, NULL);
 		}
+	}
+	if (arpt_cc != NULL && (!file_exists(path, &isdir) || !isdir)) {
+		/* Try a country-local variant of English */
+		snprintf(msg_dir_name, sizeof (msg_dir_name),
+		    "en_%s", arpt_cc);
+		free(path);
+		path = mkpathname(bp_xpdir, bp_plugindir, "data",
+		    "msgs", msg_dir_name, NULL);
+	}
+	if (arpt_cc != NULL && (!file_exists(path, &isdir) || !isdir)) {
+		/* Try a language-local variant of english */
+		const char *lang = cc2lang(arpt_cc);
+
+		snprintf(msg_dir_name, sizeof (msg_dir_name), "en-%s", lang);
+		free(path);
+		path = mkpathname(bp_xpdir, bp_plugindir, "data",
+		    "msgs", msg_dir_name, NULL);
+	}
+	if (!file_exists(path, &isdir) || !isdir) {
+		/* No matching lang_CC, fall back to default "en". */
+		strlcpy(msg_dir_name, "en", sizeof (msg_dir_name));
+	}
+	free(path);
+
+	for (message_t msg = 0; msg < MSG_NUM_MSGS; msg++) {
+		char *path = mkpathname(bp_xpdir, bp_plugindir, "data",
+		    "msgs", msg_dir_name, msgs[msg].filename, NULL);
 		msgs[msg].wav = wav_load(path, msgs[msg].filename);
 		if (msgs[msg].wav == NULL) {
 			logMsg("BetterPushback initialization error, unable "
-			    "to load sound file %s", path);
+			    "to load sound file %s (prefdir: %s)", path,
+			    msg_dir_name);
 			free(path);
 			goto errout;
 		}
