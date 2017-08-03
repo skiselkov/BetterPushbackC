@@ -90,3 +90,48 @@ msgstr "Préplanifier le repoussage"
 
 msgid "Close pushback planner"
 msgstr "Fermer le planificateur de repoussage"
+
+msgid "Preferences..."
+msgstr "Préférences..."
+
+msgid "BetterPushback Preferences"
+msgstr "Préférences de BetterPushback"
+
+msgid "User interface"
+msgstr "Interface utilisateur"
+
+msgid "X-Plane's language"
+msgstr "Langue de l'interface de X-Plane"
+
+msgid "Ground crew audio"
+msgstr "Langue de l'équipe au sol"
+
+msgid "My language only at domestic airports"
+msgstr "Ma langue uniquement pour les aéroports nationaux"
+
+msgid "My language at all airports"
+msgstr "Ma langue pour tous les aéroports"
+
+msgid "English at all airports"
+msgstr "L'anglais pour tous les aéroports"
+
+msgid "Save preferences"
+msgstr "Sauver les préférences"
+
+msgid "Ground crew speaks my language only if the country the airport is\n"
+"in speaks my language. Otherwise the ground crew speaks English\n"
+"with a local accent."
+msgstr "L'équipe au sol parle ma langue uniquement si le pays où se trouve\n"
+"l'aéroport parle ma langue. Sinon, l'équipe au sol parle anglais\n"
+"avec un accent local."
+
+msgid "Ground crew speaks my language irrespective of what country the "
+"airport is in."
+msgstr "L'équipe au sol parle ma langue quelque soit le pays dans lequel "
+"se trouve l'aéroport."
+
+msgid "Ground crew always speaks English with a local accent."
+msgstr "L'équipe au sol parle toujours en anglais avec l'accent local."
+
+msgid "Save current preferences to disk."
+msgstr "Sauver les préférences."

@@ -19,6 +19,7 @@
 #include <string.h>
 #include <errno.h>
 
+#include <XPLMGraphics.h>
 #include <XPWidgets.h>
 #include <XPStandardWidgets.h>
 
@@ -42,10 +43,9 @@ static XPWidgetID main_win = NULL;
 #define	MARGIN			30
 
 #define	BUTTON_HEIGHT		22
-#define	BUTTON_WIDTH		150
+#define	BUTTON_WIDTH		200
+#define	CHECKBOX_SIZE		20
 
-#define	MAIN_WINDOW_WIDTH	\
-	(MARGIN + BUTTON_WIDTH + MARGIN + 2 * BUTTON_WIDTH + MARGIN)
 #define	MAIN_WINDOW_HEIGHT	\
 	(MARGIN + 8 * BUTTON_HEIGHT + MARGIN)
 
@@ -68,18 +68,15 @@ static struct {
 const char *null_tooltip = NULL;
 const char *null_tooltip_xlated[2] = { NULL, NULL };
 
-const char *match_real_tooltip = "Ground crew speaks my language only if "
-    "the country the airport is in speaks my language. Otherwise the ground "
-    "crew speaks English with a local accent.";
-const char *match_real_tooltip_xlated[2] = { NULL, NULL };
+const char *match_real_tooltip =
+    "Ground crew speaks my language only if the country the airport is\n"
+    "in speaks my language. Otherwise the ground crew speaks English\n"
+    "with a local accent.";
 const char *native_tooltip = "Ground crew speaks my language irrespective "
     "of what country the airport is in.";
-const char *native_tooltip_xlated[2] = { NULL, NULL };
 const char *match_english_tooltip = "Ground crew always speaks English "
     "with a local accent.";
-const char *match_english_tooltip_xlated[2] = { NULL, NULL };
 const char *save_prefs_tooltip = "Save current preferences to disk.";
-const char *save_prefs_tooltip_xlated[2] = { NULL, NULL };
 
 static void
 lang_buttons_update(void)
@@ -153,13 +150,103 @@ main_window_cb(XPWidgetMessage msg, XPWidgetID widget, intptr_t param1,
 	return (0);
 }
 
+typedef struct {
+	const char	*string;
+	XPWidgetID	*widget;
+	const char	*tooltip;
+} checkbox_t;
+
+static int
+measure_checkboxes_width(checkbox_t *checkboxes)
+{
+	int width = 0;
+	for (int i = 0; checkboxes[i].string != NULL; i++) {
+		int w = XPLMMeasureString(xplmFont_Proportional,
+		    checkboxes[i].string, strlen(checkboxes[i].string));
+		width = MAX(width, w);
+	}
+	return (width + CHECKBOX_SIZE);
+}
+
+static void
+layout_checkboxes(checkbox_t *checkboxes, int x, int y, tooltip_set_t *tts)
+{
+	int width = measure_checkboxes_width(checkboxes);
+	int n;
+
+	for (n = 0; checkboxes[n].string != NULL; n++)
+		;
+
+	(void) create_widget_rel(x, y, B_FALSE, width, BUTTON_HEIGHT, 1,
+	    checkboxes[0].string, 0, main_win, xpWidgetClass_Caption);
+	y += BUTTON_HEIGHT;
+
+	(void) create_widget_rel(x, y, B_FALSE, width + 6,
+	    (n - 1) * BUTTON_HEIGHT, 1, "", 0, main_win,
+	    xpWidgetClass_SubWindow);
+
+	for (int i = 1; i < n; i++) {
+		int off_x = x;
+		if (checkboxes[i].widget != NULL) {
+			*checkboxes[i].widget = create_widget_rel(x, y + 2,
+			    B_FALSE, CHECKBOX_SIZE, CHECKBOX_SIZE, 1, "",
+			    0, main_win, xpWidgetClass_Button);
+			XPSetWidgetProperty(*checkboxes[i].widget,
+			    xpProperty_ButtonType, xpRadioButton);
+			XPSetWidgetProperty(*checkboxes[i].widget,
+			    xpProperty_ButtonBehavior,
+			    xpButtonBehaviorCheckBox);
+			off_x += CHECKBOX_SIZE;
+		}
+		(void) create_widget_rel(off_x, y, B_FALSE,
+		    width - (off_x - x), BUTTON_HEIGHT, 1,
+		    checkboxes[i].string, 0, main_win, xpWidgetClass_Caption);
+		if (checkboxes[i].tooltip != NULL) {
+			tooltip_new(tts, x, y, CHECKBOX_SIZE + width,
+			    BUTTON_HEIGHT, _(checkboxes[i].tooltip));
+		}
+		y += BUTTON_HEIGHT;
+	}
+}
+
 static void
 create_main_window(void)
 {
-	int x, y;
 	tooltip_set_t *tts;
+	int col1_width, col2_width, main_window_width;
 
-	main_win = create_widget_rel(100, 100, B_FALSE, MAIN_WINDOW_WIDTH,
+	checkbox_t col1[] = {
+	    { _("User interface"), NULL, NULL },
+	    { _("X-Plane's language"), &buttons.xplang, NULL },
+	    { "Deutsch", &buttons.german, NULL },
+	    { "English", &buttons.english, NULL },
+	    { "Français", &buttons.french, NULL },
+	    { "Русский", &buttons.russian, NULL },
+	    { "中文", &buttons.chinese, NULL },
+	    { NULL, NULL, NULL }
+	};
+	checkbox_t col2[] = {
+	    { _("Ground crew audio"), NULL, NULL },
+	    {
+		_("My language only at domestic airports"),
+		&buttons.lang_pref_match_real, match_real_tooltip
+	    },
+	    {
+		_("My language at all airports"),
+		&buttons.lang_pref_native, native_tooltip
+	    },
+	    {
+		_("English at all airports"),
+		&buttons.lang_pref_match_english, match_english_tooltip
+	    },
+	    { NULL, NULL, NULL }
+	};
+
+	col1_width = measure_checkboxes_width(col1);
+	col2_width = measure_checkboxes_width(col2);
+	main_window_width = 3 * MARGIN + col1_width + col2_width;
+
+	main_win = create_widget_rel(100, 100, B_FALSE, main_window_width,
 	    MAIN_WINDOW_HEIGHT, 0, _("BetterPushback Preferences"), 1, NULL,
 	    xpWidgetClass_MainWindow);
 	XPSetWidgetProperty(main_win, xpProperty_MainWindowHasCloseBoxes, 1);
@@ -167,82 +254,20 @@ create_main_window(void)
 
 	tts = tooltip_set_new(main_win);
 
-#define	LAYOUT_BUTTON(var, text, width, type, behavior, tooltip) \
-	do { \
-		buttons.var = create_widget_rel(x, y + 2, B_FALSE, 20, \
-		    BUTTON_HEIGHT - 5, 1, "", 0, main_win, \
-		    xpWidgetClass_Button); \
-		XPSetWidgetProperty(buttons.var, xpProperty_ButtonType, \
-		    xpRadioButton); \
-		XPSetWidgetProperty(buttons.var, xpProperty_ButtonBehavior, \
-		    xpButtonBehavior ## behavior); \
-		(void) create_widget_rel(x + 20, y, B_FALSE, \
-		    width - 20, BUTTON_HEIGHT - 5, 1, text, 0, \
-		    main_win, xpWidgetClass_Caption); \
-		if (tooltip != NULL) { \
-			tooltip ## _xlated[0] = _(tooltip); \
-			tooltip_new(tts, x, y, width, BUTTON_HEIGHT, \
-			    tooltip ## _xlated); \
-		} \
-		y += BUTTON_HEIGHT; \
-	} while (0)
-
-	x = MARGIN;
-	y = MARGIN;
-
-	(void) create_widget_rel(x, y, B_FALSE, BUTTON_WIDTH, BUTTON_HEIGHT, 1,
-	    _("User interface"), 0, main_win, xpWidgetClass_Caption);
-
-	y += BUTTON_HEIGHT;
-
-	(void) create_widget_rel(x, y, B_FALSE, BUTTON_WIDTH,
-	    6 * BUTTON_HEIGHT, 1, "", 0, main_win, xpWidgetClass_SubWindow);
-
-	LAYOUT_BUTTON(xplang, _("X-Plane's language"), BUTTON_WIDTH,
-	    PushButton, CheckBox, null_tooltip);
-	LAYOUT_BUTTON(german, "Deutsch", BUTTON_WIDTH, PushButton, CheckBox,
-	    null_tooltip);
-	LAYOUT_BUTTON(english, "English", BUTTON_WIDTH, PushButton, CheckBox,
-	    null_tooltip);
-	LAYOUT_BUTTON(french, "Français", BUTTON_WIDTH, PushButton, CheckBox,
-	    null_tooltip);
-	LAYOUT_BUTTON(russian, "Русский", BUTTON_WIDTH, PushButton, CheckBox,
-	    null_tooltip);
-	LAYOUT_BUTTON(chinese, "中文", BUTTON_WIDTH, PushButton, CheckBox,
-	    null_tooltip);
-
-	x = MARGIN + BUTTON_WIDTH + MARGIN;
-	y = MARGIN;
-
-	(void) create_widget_rel(x, y, B_FALSE, 2 * BUTTON_WIDTH,
-	    BUTTON_HEIGHT, 1, _("Ground crew audio"), 0, main_win,
-	    xpWidgetClass_Caption);
-
-	y += BUTTON_HEIGHT;
-
-	(void) create_widget_rel(x, y, B_FALSE, 2 * BUTTON_WIDTH,
-	    3 * BUTTON_HEIGHT, 1, "", 0, main_win, xpWidgetClass_SubWindow);
-
-	LAYOUT_BUTTON(lang_pref_match_real,
-	    _("My language only at domestic airports"), 2 * BUTTON_WIDTH,
-	    PushButton, CheckBox, match_real_tooltip);
-	LAYOUT_BUTTON(lang_pref_native, _("My language at all airports"),
-	    2 * BUTTON_WIDTH, PushButton, CheckBox, native_tooltip);
-	LAYOUT_BUTTON(lang_pref_match_english, _("English at all airports"),
-	    2 * BUTTON_WIDTH, PushButton, CheckBox, match_english_tooltip);
+	layout_checkboxes(col1, MARGIN, MARGIN, tts);
+	layout_checkboxes(col2, MARGIN + col1_width + MARGIN, MARGIN, tts);
 
 #define LAYOUT_PUSH_BUTTON(var, x, y, w, h, label, tooltip) \
 	do { \
 		buttons.var = create_widget_rel(x, y, B_FALSE, w, h, 1, \
 		    label, 0, main_win, xpWidgetClass_Button); \
 		if (tooltip != NULL) { \
-			tooltip ## _xlated[0] = _(tooltip); \
-			tooltip_new(tts, x, y, w, h, tooltip ## _xlated); \
+			tooltip_new(tts, x, y, w, h, _(tooltip)); \
 		} \
 	} while (0)
 
 
-	LAYOUT_PUSH_BUTTON(save_cfg, (MAIN_WINDOW_WIDTH - BUTTON_WIDTH) / 2,
+	LAYOUT_PUSH_BUTTON(save_cfg, (main_window_width - BUTTON_WIDTH) / 2,
 	    MAIN_WINDOW_HEIGHT - MARGIN, BUTTON_WIDTH, BUTTON_HEIGHT,
 	    _("Save preferences"), save_prefs_tooltip);
 }
