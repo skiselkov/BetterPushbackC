@@ -74,12 +74,8 @@ function install_audio_files() {
 		'start_tow.opus'
 		'winch.opus'
 	)
-	find data/msgs -mindepth 1 -maxdepth 1 -type d -regex \
-	    '.*/[a-z]\{2,3\}\([-_][a-z]\{2,3\}\)\{0,1\}$' -and \
-	    -not -name src | while read; do
-		for FILE in ${FILES[@]}; do
-			install_xtra_file "$REPLY/$FILE" ""
-		done
+	find data/msgs -type f -iname '*.opus' | while read; do
+		install_xtra_file "$REPLY" ""
 	done
 }
 
