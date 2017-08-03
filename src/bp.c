@@ -792,6 +792,7 @@ bp_start(void)
 		route_save(&bp.segs);
 
 	bp_started = B_TRUE;
+	bp_conf_set_save_enabled(!bp_started);
 
 	return (B_TRUE);
 }
@@ -947,6 +948,7 @@ bp_complete(void)
 		return;
 
 	bp_started = B_FALSE;
+	bp_conf_set_save_enabled(!bp_started);
 	late_plan_requested = B_FALSE;
 	plan_complete = B_FALSE;
 

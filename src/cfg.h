@@ -31,6 +31,8 @@ bool_t bp_conf_init();
 bool_t bp_conf_save();
 void bp_conf_fini();
 
+void bp_conf_set_save_enabled(bool_t flag);
+
 void bp_conf_open(void);
 
 #ifdef	__cplusplus

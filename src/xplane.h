@@ -57,6 +57,7 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID from, int msg, void *param);
 
 void bp_done_notify(void);
 const char *bp_get_lang(void);
+void bp_sched_reload(void);
 
 #ifdef __cplusplus
 }

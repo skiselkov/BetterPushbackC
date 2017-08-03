@@ -79,6 +79,19 @@ int			bp_xp_ver, bp_xplm_ver;
 XPLMHostApplicationID	bp_host_id;
 airportdb_t		*airportdb = NULL;
 
+static bool_t bp_priv_enable(void);
+static void bp_priv_disable(void);
+static float bp_do_reload(float, float, int, void *);
+
+static bool_t			reload_rqst = B_FALSE;
+static XPLMCreateFlightLoop_t	reload_floop = {
+    .structSize = sizeof (reload_floop),
+    .phase = xplm_FlightLoop_Phase_AfterFlightModel,
+    .callbackFunc = bp_do_reload,
+    .refcon = NULL
+};
+static XPLMFlightLoopID		reload_floop_ID = NULL;
+
 /*
  * These datarefs are for syncing two instances of BetterPushback over the
  * net via syncing addons such as smartcopilot. This works as follows:
@@ -429,6 +442,8 @@ XPluginStart(char *name, char *sig, char *desc)
 
 	XPLMGetVersions(&bp_xp_ver, &bp_xplm_ver, &bp_host_id);
 
+	reload_floop_ID = XPLMCreateFlightLoop(&reload_floop);
+
 	return (1);
 }
 
@@ -442,15 +457,68 @@ XPluginStop(void)
 	dr_delete(&slave_mode_dr);
 	dr_delete(&op_complete_dr);
 	dr_delete(&bp_tug_name_dr);
+
+	if (reload_floop_ID != NULL) {
+		XPLMDestroyFlightLoop(reload_floop_ID);
+		reload_floop_ID = NULL;
+	}
 }
 
+/*
+ * The actual enable/disable bootstrapping code is in bp_priv_{enable,disable}.
+ * This is to allow these routines to be called from our configuration code
+ * as well, but using the XPlugin{Enable,Disable} interface could result in
+ * linking problems, since every plugin in the system needs to have these
+ * functions externally exported.
+ */
 PLUGIN_API int
 XPluginEnable(void)
+{
+	return (bp_priv_enable());
+}
+
+PLUGIN_API void
+XPluginDisable(void)
+{
+	bp_priv_disable();
+}
+
+PLUGIN_API void
+XPluginReceiveMessage(XPLMPluginID from, int msg, void *param)
+{
+	UNUSED(from);
+	UNUSED(param);
+
+	switch (msg) {
+	case XPLM_MSG_AIRPORT_LOADED:
+	case XPLM_MSG_PLANE_LOADED:
+	case XPLM_MSG_PLANE_UNLOADED:
+		/* Force a reinit to re-read aircraft size params */
+		smartcopilot_present = dr_find(&smartcopilot_state,
+		    "scp/api/ismaster");
+		bp_fini();
+		bp_tug_name[0] = '\0';
+		break;
+	}
+}
+
+static bool_t
+bp_priv_enable(void)
 {
 	char *cachedir = mkpathname(xpdir, "Output", "caches",
 	    "BetterPushbackAirports.cache", NULL);
 
 	ASSERT(!inited);
+
+	/*
+	 * Reinit translations & config to allow switching languages on
+	 * the fly.
+	 */
+	acfutils_xlate_fini();
+	xlate_init();
+	bp_conf_fini();
+	if (!bp_conf_init())
+		return (0);
 
 	airportdb = calloc(1, sizeof (*airportdb));
 	airportdb_create(airportdb, bp_xpdir, cachedir);
@@ -507,8 +575,8 @@ errout:
 	return (0);
 }
 
-PLUGIN_API void
-XPluginDisable(void)
+static void
+bp_priv_disable(void)
 {
 	if (!inited)
 		return;
@@ -532,21 +600,25 @@ XPluginDisable(void)
 	inited = B_FALSE;
 }
 
-PLUGIN_API void
-XPluginReceiveMessage(XPLMPluginID from, int msg, void *param)
+static float
+bp_do_reload(float u1, float u2, int u3, void *u4)
 {
-	UNUSED(from);
-	UNUSED(param);
-
-	switch (msg) {
-	case XPLM_MSG_AIRPORT_LOADED:
-	case XPLM_MSG_PLANE_LOADED:
-	case XPLM_MSG_PLANE_UNLOADED:
-		/* Force a reinit to re-read aircraft size params */
-		smartcopilot_present = dr_find(&smartcopilot_state,
-		    "scp/api/ismaster");
-		bp_fini();
-		bp_tug_name[0] = '\0';
-		break;
+	UNUSED(u1);
+	UNUSED(u2);
+	UNUSED(u3);
+	UNUSED(u4);
+	if (reload_rqst) {
+		bp_priv_disable();
+		VERIFY(bp_priv_enable());
+		reload_rqst = B_FALSE;
 	}
+	return (0);
+}
+
+void
+bp_sched_reload(void)
+{
+	reload_rqst = B_TRUE;
+	ASSERT(reload_floop_ID != NULL);
+	XPLMScheduleFlightLoop(reload_floop_ID, -1, 1);
 }

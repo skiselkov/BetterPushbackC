@@ -78,8 +78,7 @@ const char *native_tooltip_xlated[2] = { NULL, NULL };
 const char *match_english_tooltip = "Ground crew always speaks English "
     "with a local accent.";
 const char *match_english_tooltip_xlated[2] = { NULL, NULL };
-const char *save_prefs_tooltip = "Save current preferences to disk. Note: "
-    "restart X-Plane for changes to take effect.";
+const char *save_prefs_tooltip = "Save current preferences to disk.";
 const char *save_prefs_tooltip_xlated[2] = { NULL, NULL };
 
 static void
@@ -122,8 +121,9 @@ main_window_cb(XPWidgetMessage msg, XPWidgetID widget, intptr_t param1,
 		XPHideWidget(main_win);
 		return (1);
 	} else if (msg == xpMsg_PushButtonPressed) {
-		if (btn == buttons.save_cfg) {
+		if (btn == buttons.save_cfg && !bp_started) {
 			(void) bp_conf_save();
+			bp_sched_reload();
 		}
 		return (0);
 	} else if (msg == xpMsg_ButtonStateChanged) {
@@ -335,14 +335,28 @@ bp_conf_fini(void)
 	inited = B_FALSE;
 }
 
+static void
+gui_init(void)
+{
+	tooltip_init();
+	create_main_window();
+	lang_buttons_update();
+}
+
+void
+bp_conf_set_save_enabled(bool_t flag)
+{
+	ASSERT(inited);
+	if (main_win == NULL)
+		gui_init();
+	XPSetWidgetProperty(buttons.save_cfg, xpProperty_Enabled, flag);
+}
+
 void
 bp_conf_open(void)
 {
 	ASSERT(inited);
-	if (main_win == NULL) {
-		tooltip_init();
-		create_main_window();
-		lang_buttons_update();
-	}
+	if (main_win == NULL)
+		gui_init();
 	XPShowWidget(main_win);
 }
