@@ -21,3 +21,7 @@
 for FILE in *.wav; do
 	opusenc --bitrate 54 --framesize 60 "$FILE" "${FILE/%.wav/.opus}"
 done
+
+for FILE in *.flac; do
+	opusenc --bitrate 54 --framesize 60 "$FILE" "${FILE/%.flac/.opus}"
+done
