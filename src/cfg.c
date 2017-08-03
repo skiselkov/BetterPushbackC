@@ -72,8 +72,8 @@ const char *match_real_tooltip = "Ground crew speaks my language only if "
     "the country the airport is in speaks my language. Otherwise the ground "
     "crew speaks English with a local accent.";
 const char *match_real_tooltip_xlated[2] = { NULL, NULL };
-const char *native_tooltip = "Ground crew speaks my language regardless "
-    "of what language the country the airport is in.";
+const char *native_tooltip = "Ground crew speaks my language irrespective "
+    "of what country the airport is in.";
 const char *native_tooltip_xlated[2] = { NULL, NULL };
 const char *match_english_tooltip = "Ground crew always speaks English "
     "with a local accent.";
@@ -246,7 +246,7 @@ create_main_window(void)
 
 	LAYOUT_PUSH_BUTTON(save_cfg, (MAIN_WINDOW_WIDTH - BUTTON_WIDTH) / 2,
 	    MAIN_WINDOW_HEIGHT - MARGIN, BUTTON_WIDTH, BUTTON_HEIGHT,
-	    "Save preferences", save_prefs_tooltip);
+	    _("Save preferences"), save_prefs_tooltip);
 }
 
 static void

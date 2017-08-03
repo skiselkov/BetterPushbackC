@@ -23,6 +23,7 @@ CONFIG -= thread exceptions qt rtti debug
 VERSION = 1.0.0
 
 INCLUDEPATH += ../SDK/CHeaders/XPLM
+INCLUDEPATH += ../SDK/CHeaders/Widgets
 # Always just use the shipped OpenAL headers for predictability.
 # The ABI is X-Plane-internal and stable anyway.
 INCLUDEPATH += ../OpenAL/include
@@ -68,6 +69,7 @@ win32:contains(CROSS_COMPILE, x86_64-w64-mingw32-) {
 	LIBS += $$system("$$[LIBACFUTILS]/pkg-config-deps win-64 --libs")
 
 	LIBS += -L../SDK/Libraries/Win -lXPLM_64
+	LIBS += -L../SDK/Libraries/Win -lXPWidgets_64
 	LIBS += -L../OpenAL/libs/Win64 -lOpenAL32
 	LIBS += -L../GL_for_Windows/lib -lopengl32
 
@@ -93,6 +95,7 @@ win32:contains(CROSS_COMPILE, i686-w64-mingw32-) {
 	LIBS += $$system("$$[LIBACFUTILS]/pkg-config-deps win-32 --libs")
 
 	LIBS += -L../SDK/Libraries/Win -lXPLM
+	LIBS += -L../SDK/Libraries/Win -lXPWidgets
 	LIBS += -L../OpenAL/libs/Win32 -lOpenAL32
 	LIBS += -L../GL_for_Windows/lib -lopengl32
 
@@ -169,6 +172,7 @@ macx {
 	INCLUDEPATH += ../OpenAL/include
 	LIBS += -F../SDK/Libraries/Mac
 	LIBS += -framework OpenGL -framework OpenAL -framework XPLM
+	LIBS += -framework XPWidgets
 }
 
 macx-clang {

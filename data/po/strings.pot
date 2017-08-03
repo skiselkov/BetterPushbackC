@@ -83,3 +83,46 @@ msgstr ""
 
 msgid "Close pushback planner"
 msgstr ""
+
+msgid "Preferences"
+msgstr ""
+
+msgid "BetterPushback Preferences"
+msgstr ""
+
+msgid "User interface"
+msgstr ""
+
+msgid "X-Plane's language"
+msgstr ""
+
+msgid "Ground crew audio"
+msgstr ""
+
+msgid "My language only at domestic airports"
+msgstr ""
+
+msgid "My language at all airports"
+msgstr ""
+
+msgid "English at all airports"
+msgstr ""
+
+msgid "Save preferences"
+msgstr ""
+
+msgid "Ground crew speaks my language only if the country the airport is in "
+"speaks my language. Otherwise the ground crew speaks English with a local "
+"accent."
+msgstr ""
+
+msgid "Ground crew speaks my language irrespective of what country the "
+"airport is in."
+msgstr ""
+
+msgid "Ground crew always speaks English with a local accent."
+msgstr ""
+
+msgid "Save current preferences to disk. Note: restart X-Plane for changes "
+"to take effect.
+msgstr ""

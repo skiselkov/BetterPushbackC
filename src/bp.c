@@ -200,6 +200,7 @@ static struct {
 	dr_t	nw_steerdeg1, nw_steerdeg2;
 	dr_t	tire_steer_cmd;
 	dr_t	override_steer;
+	dr_t	nw_steer_on;
 	dr_t	gear_types;
 	dr_t	gear_steers;
 	dr_t	gear_on_ground;
@@ -625,6 +626,7 @@ bp_init(void)
 	    "sim/flightmodel/parts/tire_steer_cmd");
 	fdr_find(&drs.override_steer,
 	    "sim/operation/override/override_wheel_steer");
+	fdr_find(&drs.nw_steer_on, "sim/cockpit2/controls/nosewheel_steer_on");
 	fdr_find(&drs.gear_types, "sim/aircraft/parts/acf_gear_type");
 	if (bp_xp_ver >= 11000) {
 		fdr_find(&drs.gear_on_ground,
@@ -1761,10 +1763,12 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 
 	if (!slave_mode) {
 		if (bp.step >= PB_STEP_DRIVING_UP_CONNECT &&
-		    bp.step <= PB_STEP_MOVING_AWAY)
+		    bp.step <= PB_STEP_MOVING_AWAY) {
 			dr_seti(&drs.override_steer, 1);
-		else
+			dr_seti(&drs.nw_steer_on, 1);
+		} else {
 			dr_seti(&drs.override_steer, 0);
+		}
 	}
 
 	/*
