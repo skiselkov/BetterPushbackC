@@ -74,9 +74,9 @@ function install_audio_files() {
 		'start_tow.opus'
 		'winch.opus'
 	)
-	find data/msgs -regextype egrep -mindepth 1 -maxdepth 1 -type d \
-	    -regex '.*/[a-z]{2,3}([-_][a-zA-Z]{2,3})?$' -and -not -name src | \
-	    while read; do
+	find data/msgs -mindepth 1 -maxdepth 1 -type d -regex \
+	    '.*/[a-z]\{2,3\}\([-_][a-z]\{2,3\}\)\{0,1\}$' -and \
+	    -not -name src | while read; do
 		for FILE in ${FILES[@]}; do
 			install_xtra_file "$REPLY/$FILE" ""
 		done
@@ -101,8 +101,9 @@ function install_icon_files() {
 }
 
 function install_tug_files() {
-	FILES=($(find objects/tugs/*.tug -type f \
-	    -iregex '.*\.\(obj\|cfg\|wav\|opus\|png\)$'))
+	FILES=( $( find objects/tugs/*.tug -type f \
+	    '(' -iname '*.obj' -or -iname '*.cfg' -or -iname '*.wav' -or \
+	    -iname '*.opus' -or -iname '*.png' ')' ) )
 	for FILE in ${FILES[@]}; do
 		if [[ "$FILE" = *.png ]]; then
 			TGTFILE='//PNG2DDS//'
