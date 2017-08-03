@@ -91,3 +91,48 @@ msgstr "Планирование маршрута буксировки"
 
 msgid "Close pushback planner"
 msgstr "Закрыть планировщик"
+
+msgid "Preferences..."
+msgstr "Настройки..."
+
+msgid "BetterPushback Preferences"
+msgstr "Настройки BetterPushback"
+
+msgid "User interface"
+msgstr "Пользовательский интерфейс"
+
+msgid "X-Plane's language"
+msgstr "Язык X-Plane"
+
+msgid "Ground crew audio"
+msgstr "Голос наземной службы"
+
+msgid "My language only at domestic airports"
+msgstr "Мой язык, только в домашних аэропортах"
+
+msgid "My language at all airports"
+msgstr "Мой язык, во всех аэропортах"
+
+msgid "English at all airports"
+msgstr "Английский, во всех аэропортах"
+
+msgid "Save preferences"
+msgstr "Сохранить настройки"
+
+msgid "Ground crew speaks my language only if the country the airport is in "
+"speaks my language. Otherwise the ground crew speaks English with a local "
+"accent."
+msgstr "Наземная служба говорит на моем языке, только если аэропорт "
+"в стране, говорящей на моем языке. Иначе, наземная служба говорит по "
+"Английски, с местным акцентом."
+
+msgid "Ground crew speaks my language irrespective of what country the "
+"airport is in."
+msgstr "Наземная служба говорит на моем языке, независимо от страны "
+"расположения аэропорта."
+
+msgid "Ground crew always speaks English with a local accent."
+msgstr "Наземная служба всегда говорит по Английски, с местным акцентом."
+
+msgid "Save current preferences to disk."
+msgstr "Сохранить текущие настройки на диск."

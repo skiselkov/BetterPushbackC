@@ -84,7 +84,7 @@ msgstr ""
 msgid "Close pushback planner"
 msgstr ""
 
-msgid "Preferences"
+msgid "Preferences..."
 msgstr ""
 
 msgid "BetterPushback Preferences"
@@ -123,6 +123,5 @@ msgstr ""
 msgid "Ground crew always speaks English with a local accent."
 msgstr ""
 
-msgid "Save current preferences to disk. Note: restart X-Plane for changes "
-"to take effect.
+msgid "Save current preferences to disk."
 msgstr ""
