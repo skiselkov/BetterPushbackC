@@ -89,7 +89,6 @@ lang_buttons_update(void)
 	lang_pref_t lang_pref;
 
 	(void) conf_get_str(bp_conf, "lang", &lang);
-	logMsg("lang is %s", lang);
 #define	SET_LANG_BTN(btn, l) \
 	(XPSetWidgetProperty(buttons.btn, xpProperty_ButtonState, \
 	    strcmp(lang, l) == 0))
@@ -124,7 +123,6 @@ main_window_cb(XPWidgetMessage msg, XPWidgetID widget, intptr_t param1,
 		return (1);
 	} else if (msg == xpMsg_PushButtonPressed) {
 		if (btn == buttons.save_cfg) {
-			logMsg("save");
 			(void) bp_conf_save();
 		}
 		return (0);
@@ -306,7 +304,6 @@ bp_conf_save(void)
 	free(path);
 
 	path = mkpathname(CONF_DIRS, CONF_FILENAME, NULL);
-	logMsg("opening %s", path);
 	fp = fopen(path, "wb");
 	if (fp != NULL && conf_write(bp_conf, fp)) {
 		res = B_TRUE;
