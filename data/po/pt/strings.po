@@ -11,117 +11,128 @@
 #
 # CDDL HEADER END
 
-# Copyright 2017 Saso Kiselkov. All rights reserved.
+# Copyright 2017 jorgeuvo. All rights reserved.
 
 msgid ""
 msgstr ""
-"Last-Translator: FULL NAME <EMAIL@ADDRESS>"
+"Last-Translator: jorgeuvo"
 
 msgid "Can't start planner: aircraft not stationary."
-msgstr ""
+msgstr "Não pode iniciar o planificador: aeronave não está parada."
 
 msgid ""
 "Can't start planner: pushback already in progress. Please stop the pushback "
 "operation first."
-msgstr ""
+msgstr "Não pode iniciar o planificador: pushback já em progresso. "
+"Por favor primeiro pare a operação de pushback."
 
 msgid "Can't start pushback planner: please set the parking brake first."
-msgstr ""
+msgstr "Não pode iniciar o planificador: por favor primeiro acione o freio "
+"de estacionamento."
 
 msgid ""
 "Pushback advisory: you have your radio volume turned very low and may not be "
 "able to hear ground crew. Please increase your radio volume in the X-Plane "
 "sound preferences."
-msgstr ""
+msgstr "Alerta do Pushback: você tem seu volume de rádio muito baixo e pode "
+"não ser capaz de ouvir a equipe de solo. Por favor aumente seu volume de "
+"rádio nas preferências de som do X-Plane."
 
 msgid ""
 "Pushback failure: X-Plane version too old. This plugin requires at least X-"
 "Plane %s to operate."
-msgstr ""
+msgstr "Falha do Pushback: Versão muito antiga do X-Plane. Esse plugin requer "
+"versão %s, ou mais recente, do X-Plane para operar."
 
 msgid "Pushback failure: aircraft appears to not have any steerable gears."
-msgstr ""
+msgstr "Falha do Pushback: aeronave parece não ter rodas manobráveis."
 
 msgid ""
 "Pushback failure: aircraft has non-positive wheelbase. Sorry, tail draggers "
 "aren't supported."
-msgstr ""
+msgstr "Falha do Pushback: aeronave não tem a distância entre eixos adequada. "
+"Desculpe, trens de pouso convencionais não são suportados."
 
 msgid "Pushback failure: aircraft is incompatible with BetterPushback."
-msgstr ""
+msgstr "Falha do Pushback: aeronave incompatível com o BetterPushback."
 
 msgid ""
 "Pushback failure: master requested tug \"%s\", which we don't have in our in "
 "our library. Please sync your tug libraries before trying again."
-msgstr ""
+msgstr "Falha do Pushback: Rebocador solicitado \"%s\", não existe em nossa "
+"biblioteca. Por favor sincronize suas bibliotecas de rebocadores antes de "
+"tentar novamente."
 
 msgid "Pushback failure: no suitable tug for your aircraft."
-msgstr ""
+msgstr "Falha do Pushback: rebocador incompatível com sua aeronave."
 
 msgid ""
 "Pushback failure: smartcopilot attempted to switch master/slave or network "
 "connection lost. Stopping operation."
-msgstr ""
+msgstr "Falha do Pushback: smartcopilot tentou alternar master/slave ou a "
+"conexão de rede foi perdida. Parando a operação."
 
 msgid "Start pushback"
-msgstr ""
+msgstr "Inicia o pushback"
 
 msgid "Stop pushback"
-msgstr ""
+msgstr "Para o pushback"
 
 msgid "Start pushback planner"
-msgstr ""
+msgstr "Inicia o planificador do pushback"
 
 msgid "Stop pushback planner"
-msgstr ""
+msgstr "Para o planificador do pushback"
 
 msgid "Connect tug before entering pushback plan"
-msgstr ""
+msgstr "Conecta o rebocador antes de solicitar um plano de pushback"
 
 msgid "Pre-plan pushback"
-msgstr ""
+msgstr "Planificação prévia do pushback"
 
 msgid "Close pushback planner"
-msgstr ""
+msgstr "Fecha o planificador do pushback"
 
 msgid "Preferences..."
-msgstr ""
+msgstr "Preferências..."
 
 msgid "BetterPushback Preferences"
-msgstr ""
+msgstr "Preferências do BetterPushback"
 
 msgid "User interface"
-msgstr ""
+msgstr "Interface do usuário"
 
 msgid "X-Plane's language"
-msgstr ""
+msgstr "Idioma do X-Plane"
 
 msgid "Ground crew audio"
-msgstr ""
+msgstr "Audio do pessoal de solo"
 
 msgid "My language only at domestic airports"
-msgstr ""
+msgstr "Meu idioma somente em aeroportos domésticos"
 
 msgid "My language at all airports"
-msgstr ""
+msgstr "Meu idioma em todos os aeroportos"
 
 msgid "English at all airports"
-msgstr ""
+msgstr "Inglês em todos os aeroportos"
 
 msgid "Save preferences"
-msgstr ""
+msgstr "Salvar preferências"
 
 msgid "Ground crew speaks my language only if the country the airport is\n"
 "in speaks my language. Otherwise the ground crew speaks English\n"
 "with a local accent."
-msgstr ""
+msgstr "Pessoal de solo fala meu idioma somente se o país\n"
+"do aeroporto fala meu idioma. Caso contrário o pessoal\n"
+"de solo fala inglês com o sotaque local."
 
 msgid "Ground crew speaks my language irrespective of what country the "
 "airport is in."
-msgstr ""
+msgstr "Pessoal de solo fala meu idioma independente do país do aeroporto."
 
 msgid "Ground crew always speaks English with a local accent."
-msgstr ""
+msgstr "Pessoal de solo sempre fala inglês com o sotaque local."
 
 msgid "Save current preferences to disk."
-msgstr ""
+msgstr "Salvar preferências."

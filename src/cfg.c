@@ -47,13 +47,14 @@ static XPWidgetID main_win = NULL;
 #define	CHECKBOX_SIZE		20
 
 #define	MAIN_WINDOW_HEIGHT	\
-	(MARGIN + 8 * BUTTON_HEIGHT + MARGIN)
+	(MARGIN + 9 * BUTTON_HEIGHT + MARGIN)
 
 static struct {
 	XPWidgetID	xplang;
 	XPWidgetID	german;
 	XPWidgetID	english;
 	XPWidgetID	french;
+	XPWidgetID	portuguese;
 	XPWidgetID	russian;
 	XPWidgetID	chinese;
 
@@ -92,6 +93,7 @@ lang_buttons_update(void)
 	SET_LANG_BTN(german, "de");
 	SET_LANG_BTN(english, "en");
 	SET_LANG_BTN(french, "fr");
+	SET_LANG_BTN(portuguese, "pt");
 	SET_LANG_BTN(russian, "ru");
 	SET_LANG_BTN(chinese, "cn");
 #undef	SET_LANG_BTN
@@ -132,6 +134,8 @@ main_window_cb(XPWidgetMessage msg, XPWidgetID widget, intptr_t param1,
 			conf_set_str(bp_conf, "lang", "en");
 		} else if (btn == buttons.french) {
 			conf_set_str(bp_conf, "lang", "fr");
+		} else if (btn == buttons.portuguese) {
+			conf_set_str(bp_conf, "lang", "pt");
 		} else if (btn == buttons.russian) {
 			conf_set_str(bp_conf, "lang", "ru");
 		} else if (btn == buttons.chinese) {
@@ -221,6 +225,7 @@ create_main_window(void)
 	    { "Deutsch", &buttons.german, NULL },
 	    { "English", &buttons.english, NULL },
 	    { "Français", &buttons.french, NULL },
+	    { "Português", &buttons.portuguese, NULL} ,
 	    { "Русский", &buttons.russian, NULL },
 	    { "中文", &buttons.chinese, NULL },
 	    { NULL, NULL, NULL }
