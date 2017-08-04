@@ -26,6 +26,7 @@
 #include <XPLMProcessing.h>
 
 #include <acfutils/assert.h>
+#include <acfutils/core.h>
 #include <acfutils/crc64.h>
 #include <acfutils/helpers.h>
 #include <acfutils/intl.h>
@@ -370,7 +371,8 @@ XPluginStart(char *name, char *sig, char *desc)
 	log_init(XPLMDebugString, "BetterPushback");
 	crc64_init();
 	crc64_srand(microclock());
-	logMsg("This is BetterPushback-" BP_PLUGIN_VERSION);
+	logMsg("This is BetterPushback-" BP_PLUGIN_VERSION
+	    " libacfutils-%s", libacfutils_version);
 
 	/* Always use Unix-native paths on the Mac! */
 	XPLMEnableFeature("XPLM_USE_NATIVE_PATHS", 1);
