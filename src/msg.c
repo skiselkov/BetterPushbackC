@@ -58,72 +58,79 @@ static dr_t radio_vol;
 bool_t
 msg_init(const char *my_lang, const char *icao, lang_pref_t lang_pref)
 {
-	const char *arpt_cc;
-	char msg_dir_name[8];
-	char *path;
-	bool_t isdir;
+	const char *arpt_cc = icao2cc(icao);
+	const char *arpt_lang = cc2lang(arpt_cc);
+	enum { MAX_MATCHES = 5 };
+	char match_set[MAX_MATCHES][8] = { {0}, {0}, {0}, {0}, {0} };
+	const char *msg_dir_name = NULL;
 
 	ASSERT(!inited);
 
 	switch (lang_pref) {
 	case LANG_PREF_MATCH_REAL:
-		arpt_cc = icao2cc(icao);
+		/*
+		 * For match real our preference order is:
+		 * 1) try "my_lang_CC" for country-local accent of my language
+		 * 2) if arpt_lang == my_lang, try "my_lang" for generic
+		 *	language fallback
+		 * 3) try "en_CC" for country-local English accent
+		 * 4) try "en-arpt_lang" for generic English accent of local
+		 *	language
+		 * 5) final fallback: generic English
+		 */
+		snprintf(match_set[0], sizeof (*match_set), "%s_%s",
+		    my_lang, arpt_cc);
+		if (strcmp(arpt_lang, my_lang) == 0)
+			strlcpy(match_set[1], my_lang, sizeof (*match_set));
+		snprintf(match_set[2], sizeof (*match_set), "en_%s", arpt_cc);
+		snprintf(match_set[3], sizeof (*match_set), "en-%s", arpt_lang);
+		strlcpy(match_set[4], "en", sizeof (*match_set));
+		CTASSERT(MAX_MATCHES > 4);
 		break;
 	case LANG_PREF_NATIVE:
-		arpt_cc = NULL;
+		/*
+		 * For native, our preference order is:
+		 * 1) try "my_lang", ignoring any local accent
+		 * 2) try "my_lang_CC" for country-local accent
+		 * 3) final fallback: generic English
+		 */
+		strlcpy(match_set[0], my_lang, sizeof (*match_set));
+		snprintf(match_set[1], sizeof (*match_set), "%s_%s",
+		    my_lang, arpt_cc);
+		strlcpy(match_set[3], "en", sizeof (*match_set));
+		CTASSERT(MAX_MATCHES > 3);
 		break;
 	default:
+		/*
+		 * For match-English, preference order is:
+		 * 1) try "en_CC" for country-local English accent
+		 * 2) try "en-arpt_lang" for generic English accent of local
+		 *	language
+		 * 3) final fallback: generic English
+		 */
 		VERIFY3U(lang_pref, ==, LANG_PREF_MATCH_ENGLISH);
-		my_lang = "en";
-		arpt_cc = icao2cc(icao);
+		snprintf(match_set[0], sizeof (*match_set), "en_%s", arpt_cc);
+		snprintf(match_set[1], sizeof (*match_set), "en-%s", arpt_lang);
+		strlcpy(match_set[2], "en", sizeof (*match_set));
+		CTASSERT(MAX_MATCHES > 2);
 		break;
 	};
 
-	if (arpt_cc != NULL) {
-		snprintf(msg_dir_name, sizeof (msg_dir_name), "%s_%s",
-		    my_lang, arpt_cc);
-	} else {
-		strlcpy(msg_dir_name, my_lang, sizeof (msg_dir_name));
-	}
+	for (int i = 0; i < MAX_MATCHES; i++) {
+		char *path;
+		bool_t isdir;
 
-	/* First we try the exact lang_country combo. */
-	path = mkpathname(bp_xpdir, bp_plugindir, "data", "msgs",
-	    msg_dir_name, NULL);
-	if (arpt_cc != NULL && (!file_exists(path, &isdir) || !isdir)) {
-		/*
-		 * If our language matches the local one, try a plain
-		 * version of the language pack.
-		 */
-		const char *lang = cc2lang(arpt_cc);
-		if (strcmp(my_lang, lang) == 0) {
-			strlcpy(msg_dir_name, lang, sizeof (msg_dir_name));
+		if (*match_set[i] == 0)
+			continue;
+		path = mkpathname(bp_xpdir, bp_plugindir, "data", "msgs",
+		    match_set[i], NULL);
+		if (file_exists(path, &isdir) && isdir) {
 			free(path);
-			path = mkpathname(bp_xpdir, bp_plugindir, "data",
-			    "msgs", lang, NULL);
+			msg_dir_name = match_set[i];
+			break;
 		}
-	}
-	if (arpt_cc != NULL && (!file_exists(path, &isdir) || !isdir)) {
-		/* Try a country-local variant of English */
-		snprintf(msg_dir_name, sizeof (msg_dir_name),
-		    "en_%s", arpt_cc);
 		free(path);
-		path = mkpathname(bp_xpdir, bp_plugindir, "data",
-		    "msgs", msg_dir_name, NULL);
 	}
-	if (arpt_cc != NULL && (!file_exists(path, &isdir) || !isdir)) {
-		/* Try a language-local variant of english */
-		const char *lang = cc2lang(arpt_cc);
-
-		snprintf(msg_dir_name, sizeof (msg_dir_name), "en-%s", lang);
-		free(path);
-		path = mkpathname(bp_xpdir, bp_plugindir, "data",
-		    "msgs", msg_dir_name, NULL);
-	}
-	if (!file_exists(path, &isdir) || !isdir) {
-		/* No matching lang_CC, fall back to default "en". */
-		strlcpy(msg_dir_name, "en", sizeof (msg_dir_name));
-	}
-	free(path);
 
 	for (message_t msg = 0; msg < MSG_NUM_MSGS; msg++) {
 		char *path = mkpathname(bp_xpdir, bp_plugindir, "data",

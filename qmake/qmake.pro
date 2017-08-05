@@ -29,7 +29,8 @@ INCLUDEPATH += ../SDK/CHeaders/Widgets
 INCLUDEPATH += ../OpenAL/include
 INCLUDEPATH += $$[LIBACFUTILS]/src
 
-QMAKE_CFLAGS += -std=c99 -g -W -Wall -Wextra -Werror -fvisibility=hidden
+QMAKE_CFLAGS += -std=c99 -g -W -Wall -Wextra -Werror -fvisibility=hidden \
+    -Wno-unused-local-typedefs
 QMAKE_CFLAGS += -Wunused-result
 
 # _GNU_SOURCE needed on Linux for getline()

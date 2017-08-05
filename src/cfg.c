@@ -46,17 +46,17 @@ static XPWidgetID main_win = NULL;
 #define	BUTTON_WIDTH		200
 #define	CHECKBOX_SIZE		20
 
-#define	MAIN_WINDOW_HEIGHT	\
-	(MARGIN + 9 * BUTTON_HEIGHT + MARGIN)
+#define	MAIN_WINDOW_HEIGHT	(MARGIN + 10 * BUTTON_HEIGHT + MARGIN)
 
 static struct {
-	XPWidgetID	xplang;
-	XPWidgetID	german;
+	XPWidgetID	chinese;
 	XPWidgetID	english;
 	XPWidgetID	french;
+	XPWidgetID	german;
 	XPWidgetID	portuguese;
 	XPWidgetID	russian;
-	XPWidgetID	chinese;
+	XPWidgetID	spanish;
+	XPWidgetID	xplang;
 
 	XPWidgetID	lang_pref_match_real;
 	XPWidgetID	lang_pref_native;
@@ -89,13 +89,14 @@ lang_buttons_update(void)
 #define	SET_LANG_BTN(btn, l) \
 	(XPSetWidgetProperty(buttons.btn, xpProperty_ButtonState, \
 	    strcmp(lang, l) == 0))
-	SET_LANG_BTN(xplang, "XX");
+	SET_LANG_BTN(chinese, "cn");
 	SET_LANG_BTN(german, "de");
 	SET_LANG_BTN(english, "en");
 	SET_LANG_BTN(french, "fr");
 	SET_LANG_BTN(portuguese, "pt");
+	SET_LANG_BTN(spanish, "es");
 	SET_LANG_BTN(russian, "ru");
-	SET_LANG_BTN(chinese, "cn");
+	SET_LANG_BTN(xplang, "XX");
 #undef	SET_LANG_BTN
 
 	if (!conf_get_i(bp_conf, "lang_pref", (int *)&lang_pref))
@@ -132,6 +133,8 @@ main_window_cb(XPWidgetMessage msg, XPWidgetID widget, intptr_t param1,
 			conf_set_str(bp_conf, "lang", "de");
 		} else if (btn== buttons.english) {
 			conf_set_str(bp_conf, "lang", "en");
+		} else if (btn== buttons.spanish) {
+			conf_set_str(bp_conf, "lang", "es");
 		} else if (btn == buttons.french) {
 			conf_set_str(bp_conf, "lang", "fr");
 		} else if (btn == buttons.portuguese) {
@@ -224,8 +227,9 @@ create_main_window(void)
 	    { _("X-Plane's language"), &buttons.xplang, NULL },
 	    { "Deutsch", &buttons.german, NULL },
 	    { "English", &buttons.english, NULL },
+	    { "Español", &buttons.spanish, NULL},
 	    { "Français", &buttons.french, NULL },
-	    { "Português", &buttons.portuguese, NULL} ,
+	    { "Português", &buttons.portuguese, NULL},
 	    { "Русский", &buttons.russian, NULL },
 	    { "中文", &buttons.chinese, NULL },
 	    { NULL, NULL, NULL }
