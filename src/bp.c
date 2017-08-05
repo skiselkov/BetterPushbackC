@@ -267,6 +267,18 @@ acf_is_compatible(void)
 	return (B_TRUE);
 }
 
+static bool_t
+acf_is_felis_tu154m(void)
+{
+	char my_acf[512], my_path[512];
+	char my_author[512];
+
+	XPLMGetNthAircraftModel(0, my_acf, my_path);
+	dr_gets(&drs.author, my_author, sizeof (my_author));
+	return (strcmp(my_acf, "tu154.acf") == 0 &&
+	    strcmp(my_author, "Felis") == 0);
+}
+
 /*
  * Locates the airport nearest to our current location, but which is also
  * within 10km (MAX_ARPT_DIST). If a suitable airport is found, its ICAO
@@ -476,6 +488,15 @@ read_gear_info(void)
 			bp.acf.nw_i = gear_is[i];
 			bp.acf.nw_z = tire_z[gear_is[i]];
 		}
+	}
+	/*
+	 * The Tu-154M needs some special care here, because it overrides
+	 * gear_steers to 0 until the hydraulics are powered. We don't want
+	 * to refuse to work in that case, so just hard-set the nw_i to 0.
+	 */
+	if (acf_is_felis_tu154m()) {
+		bp.acf.nw_i = gear_is[0];
+		bp.acf.nw_z = tire_z[gear_is[0]];
 	}
 	if (bp.acf.nw_i == -1) {
 		XPLMSpeakString(_("Pushback failure: aircraft appears to not "
