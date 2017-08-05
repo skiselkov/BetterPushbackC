@@ -62,7 +62,7 @@
 #include "tug.h"
 #include "xplane.h"
 
-#define	PB_DEBUG_INTF
+/*#define	PB_DEBUG_INTF*/
 
 #define	MIN_XPLANE_VERSION	10500	/* X-Plane 10.50 */
 #define	MIN_XPLANE_VERSION_STR	"10.50"	/* X-Plane 10.50 */
