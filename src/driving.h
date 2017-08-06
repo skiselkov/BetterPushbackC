@@ -116,7 +116,8 @@ typedef struct {
 	double	max_steer;	/* max steer angle, degrees */
 	double	max_fwd_spd;	/* max forward speed, m/s */
 	double	max_rev_spd;	/* max rev speed, m/s */
-	double	max_ang_vel;	/* max turn angular velocity, deg/s */
+	double	max_fwd_ang_vel;/* max forward turn angular velocity, deg/s */
+	double	max_rev_ang_vel;/* max reverse turn angular velocity, deg/s */
 	double	max_accel;	/* max acceleration, m/s^2 */
 	double	max_decel;	/* max deceleration, m/s^2 */
 	bool_t	xp10_bug_ign;	/* ignore X-Plane 10 stickiness bug */

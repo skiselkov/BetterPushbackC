@@ -68,7 +68,7 @@
 #define	MIN_XPLANE_VERSION_STR	"10.50"	/* X-Plane 10.50 */
 
 #define	STRAIGHT_STEER_RATE	20	/* degrees per second */
-#define	TURN_STEER_RATE		10	/* degrees per second */
+#define	TURN_STEER_RATE		20	/* degrees per second */
 #define	MAX_FWD_SPEED		4	/* m/s [~8 knots] */
 #define	MAX_REV_SPEED		1.11	/* m/s [4 km/h, "walking speed"] */
 #define	NORMAL_ACCEL		0.25	/* m/s^2 */
@@ -85,7 +85,8 @@
 /* beyond this our push algos go nuts */
 #define	MAX_STEER_ANGLE		(bp_xp_ver < 11000 ? 50 : 65)
 #define	MIN_STEER_ANGLE		40	/* minimum sensible tire steer angle */
-#define	MAX_ANG_VEL		2.5	/* degrees per second */
+#define	MAX_FWD_ANG_VEL		6	/* degrees per second */
+#define	MAX_REV_ANG_VEL		2.5	/* degrees per second */
 #define	PB_CRADLE_DELAY		10	/* seconds */
 #define	PB_WINCH_DELAY		10	/* seconds */
 #define	PB_CONN_DELAY		25.0	/* seconds */
@@ -559,7 +560,8 @@ bp_state_init(void)
 		bp.veh.max_steer = MAX_STEER_ANGLE;
 	bp.veh.max_fwd_spd = MAX_FWD_SPEED;
 	bp.veh.max_rev_spd = MAX_REV_SPEED;
-	bp.veh.max_ang_vel = MAX_ANG_VEL;
+	bp.veh.max_fwd_ang_vel = MAX_FWD_ANG_VEL;
+	bp.veh.max_rev_ang_vel = MAX_REV_ANG_VEL;
 	bp.veh.max_accel = NORMAL_ACCEL;
 	bp.veh.max_decel = NORMAL_DECEL;
 

@@ -419,7 +419,10 @@ drive_on_line(const vehicle_pos_t *pos, const vehicle_t *veh,
 	 */
 	turn_radius = tan(DEG2RAD(90 - ABS(steer))) * veh->wheelbase;
 	ang_vel = RAD2DEG(ABS(speed) / turn_radius);
-	speed *= MIN(veh->max_ang_vel / ang_vel, 1);
+	if (speed >= 0)
+		speed *= MIN(veh->max_fwd_ang_vel / ang_vel, 1);
+	else
+		speed *= MIN(veh->max_rev_ang_vel / ang_vel, 1);
 
 	/* Steering works in reverse when pushing back. */
 	if (speed < 0)
@@ -458,7 +461,7 @@ next_seg_speed(const int xpversion, const vehicle_t *veh, list_t *segs,
  * Estimates the speed we want to achieve during a turn run. This basically
  * treats the circle we're supposed to travel as if it were a straight line
  * (thus employing the straight_run_speed algorithm), but limits the maximum
- * angular velocity around the circle to MAX_ANG_VEL (2.5 deg/s) to limit
+ * angular velocity around the circle to max_{fwd,rev}_ang_vel to limit
  * side-loading. This means the tighter the turn, the slower our speed.
  */
 static double
@@ -471,7 +474,10 @@ turn_run_speed(const int xpversion, const vehicle_t *veh, list_t *segs,
 	double rmng_t = rmng_d / spd;
 	double ang_vel = rhdg / rmng_t;
 
-	spd *= MIN(veh->max_ang_vel / ang_vel, 1);
+	if (!backward)
+		spd *= MIN(veh->max_fwd_ang_vel / ang_vel, 1);
+	else
+		spd *= MIN(veh->max_rev_ang_vel / ang_vel, 1);
 	if (xpversion < 11000 && !veh->xp10_bug_ign) {
 		/*
 		 * X-Plane 10's tire model is much sticker, so don't slow down

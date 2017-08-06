@@ -1024,7 +1024,8 @@ tug_alloc_common(tug_info_t *ti, double tirrad)
 	tug->veh.max_steer = tug->info->max_steer;
 	tug->veh.max_fwd_spd = tug->info->max_fwd_speed;
 	tug->veh.max_rev_spd = tug->info->max_rev_speed;
-	tug->veh.max_ang_vel = TUG_MAX_ANG_VEL;
+	tug->veh.max_fwd_ang_vel = TUG_MAX_ANG_VEL;
+	tug->veh.max_rev_ang_vel = TUG_MAX_ANG_VEL;
 	tug->veh.max_accel = tug->info->max_accel;
 	tug->veh.max_decel = tug->info->max_decel;
 	tug->veh.xp10_bug_ign = B_TRUE;
