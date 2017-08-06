@@ -1457,7 +1457,8 @@ pb_step_stopped(void)
 		 * when the parking brake is set.
 		 */
 		bp.step_start_t = bp.cur_t;
-	} else if (bp.cur_t - bp.step_start_t >= msg_dur(MSG_OP_COMPLETE) +
+	} else if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY &&
+	    bp.cur_t - bp.last_voice_t >= msg_dur(MSG_OP_COMPLETE) +
 	    STATE_TRANS_DELAY) {
 		msg_play(MSG_DISCO);
 		bp.step++;
