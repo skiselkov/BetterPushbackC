@@ -59,7 +59,7 @@ bool_t
 msg_init(const char *my_lang, const char *icao, lang_pref_t lang_pref)
 {
 	const char *arpt_cc = icao2cc(icao);
-	const char *arpt_lang = cc2lang(arpt_cc);
+	const char *arpt_lang = icao2lang(icao);
 	enum { MAX_MATCHES = 5 };
 	char match_set[MAX_MATCHES][8] = { {0}, {0}, {0}, {0}, {0} };
 	const char *msg_dir_name = NULL;
