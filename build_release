@@ -17,11 +17,6 @@
 
 DIST_FILES=(
     'COPYING'					''
-    'data/po/cn/strings.po'			''
-    'data/po/de/strings.po'			''
-    'data/po/fr/strings.po'			''
-    'data/po/pt/strings.po'			''
-    'data/po/ru/strings.po'			''
     'objects/tugs/LIVERIES_HOWTO.txt'		''
     'objects/night_lamp.obj'			''
 )
@@ -111,6 +106,13 @@ function install_tug_files() {
 	done
 }
 
+function install_po_files() {
+	FILES=( $( find data/po -iname '*.po' ) )
+	for FILE in ${FILES[@]}; do
+		install_xtra_file "$FILE" ""
+	done
+}
+
 rm -rf BetterPushback
 
 (cd zlib && ./build_zlib_deps ) || exit 1
@@ -140,6 +142,7 @@ Darwin)
 esac
 
 install_xtra_files
+install_po_files
 install_audio_files
 install_icon_files
 install_tug_files
