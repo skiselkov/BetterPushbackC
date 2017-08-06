@@ -17,10 +17,7 @@
 TEMPLATE = lib
 QT -= gui core
 
-# Make sure to disable Qmake's own warnings system, because it overrides
-# our warning flags. This breaks CTASSERT, which relies on an unused local
-# typedef.
-CONFIG += warn_off plugin release
+CONFIG += plugin release
 CONFIG -= thread exceptions qt rtti debug
 
 VERSION = 1.0.0
@@ -33,8 +30,13 @@ INCLUDEPATH += ../OpenAL/include
 INCLUDEPATH += $$[LIBACFUTILS]/src
 
 QMAKE_CFLAGS += -std=c99 -g -W -Wall -Wextra -Werror -fvisibility=hidden \
-    -Wno-unused-local-typedefs
-QMAKE_CFLAGS += -Wunused-result
+    -Wno-unused-local-typedefs -Wunused-result
+
+# Make sure to disable Qmake's own warnings system, because it overrides
+# our warning flags. This breaks CTASSERT, which relies on an unused local
+# typedef.
+QMAKE_CFLAGS_WARN_ON -= -W -Wall
+QMAKE_CXXFLAGS_WARN_ON -= -W -Wall
 
 # _GNU_SOURCE needed on Linux for getline()
 # DEBUG - used by our ASSERT macro
