@@ -98,6 +98,10 @@ typedef struct {
 	char	*air_snd;	/* air release sound WAV */
 	char	*beeper_snd;	/* bepper sound WAV */
 
+	char	*engine_snd_in;	/* engine noise WAV (inside) */
+	char	*air_snd_in;	/* air release sound WAV (inside) */
+	char	*beeper_snd_in;	/* bepper sound WAV (inside) */
+
 	int	sort_rand;	/* random sorting number */
 
 	/*
@@ -140,10 +144,14 @@ typedef struct {
 	double		tirrad;			/* acf tire radius, meters */
 
 	bool_t		engine_snd_playing;
-	float		pitch;
+
 	wav_t		*engine_snd;
 	wav_t		*air_snd;
 	wav_t		*beeper_snd;
+
+	wav_t		*engine_snd_in;
+	wav_t		*air_snd_in;
+	wav_t		*beeper_snd_in;
 
 	bool_t		cradle_air_on;
 	bool_t		cradle_air_snd_on;
@@ -160,7 +168,7 @@ typedef struct {
 	dr_t		cam_is_ext;
 
 	dr_t		sound_on;
-	dr_t		ext_vol;
+	dr_t		ext_vol, int_vol;
 
 	unsigned	num_cockpit_window_drs;
 	dr_t		cockpit_window_drs[2];

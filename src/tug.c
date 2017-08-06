@@ -48,8 +48,7 @@
 
 #define	TUG_MIN_WHEELBASE	5	/* meters */
 
-#define	TUG_SND_MAX_DIST	15	/* meters */
-#define	VOLUME_INSIDE_MODIFIER	0.2
+#define	VOLUME_INSIDE_MODIFIER	0.5
 
 #define	TUG_TE_RAMP_UP_DELAY		3	/* seconds */
 #define	TUG_TE_FAST_RAMP_UP_DELAY	1	/* seconds */
@@ -237,6 +236,9 @@ tug_info_free(tug_info_t *ti)
 	free(ti->engine_snd);
 	free(ti->air_snd);
 	free(ti->beeper_snd);
+	free(ti->engine_snd_in);
+	free(ti->air_snd_in);
+	free(ti->beeper_snd_in);
 	free(ti->livname);
 	free(ti);
 }
@@ -573,6 +575,12 @@ tug_info_read(const char *tugdir, const char *tug_name, const char *icao)
 			READ_FILENAME("air_snd", ti->air_snd);
 		} else if (strcmp(option, "beeper_snd") == 0) {
 			READ_FILENAME("beeper_snd", ti->beeper_snd);
+		} else if (strcmp(option, "engine_snd_inside") == 0) {
+			READ_FILENAME("engine_snd_inside", ti->engine_snd_in);
+		} else if (strcmp(option, "air_snd_inside") == 0) {
+			READ_FILENAME("air_snd_inside", ti->air_snd_in);
+		} else if (strcmp(option, "beeper_snd_inside") == 0) {
+			READ_FILENAME("beeper_snd_inside", ti->beeper_snd_in);
 		} else if (strcmp(option, "anim_debug") == 0) {
 			logMsg("Animation debugging active on %s", tugdir);
 			ti->anim_debug = B_TRUE;
@@ -682,6 +690,13 @@ tug_info_read(const char *tugdir, const char *tug_name, const char *icao)
 		VALIDATE_TUG_REAL_NAN(ti->plat_z, "plat_z");
 		VALIDATE_TUG_REAL_NAN(ti->plat_h, "plat_h");
 	}
+
+	if (ti->engine_snd_in == NULL)
+		ti->engine_snd_in = strdup(ti->engine_snd);
+	if (ti->air_snd_in == NULL && ti->air_snd != NULL)
+		ti->air_snd_in = strdup(ti->air_snd);
+	if (ti->beeper_snd_in == NULL && ti->beeper_snd != NULL)
+		ti->beeper_snd_in = strdup(ti->beeper_snd);
 
 #undef	VALIDATE_TUG_STR
 #undef	VALIDATE_TUG_REAL
@@ -1037,30 +1052,27 @@ tug_alloc_common(tug_info_t *ti, double tirrad)
 		goto errout;
 	}
 
-	tug->engine_snd = wav_load(tug->info->engine_snd, "tug_engine");
-	if (tug->engine_snd == NULL) {
-		logMsg("Error loading tug sound %s", tug->info->engine_snd);
-		goto errout;
-	}
-	wav_set_loop(tug->engine_snd, B_TRUE);
+#define	LOAD_TUG_SOUND(sound) \
+	do { \
+		tug->sound = wav_load(tug->info->sound, #sound); \
+		if (tug->sound == NULL) { \
+			logMsg("Error loading tug sound %s", \
+			    tug->info->sound); \
+			goto errout; \
+		} \
+		wav_set_loop(tug->sound, B_TRUE); \
+	} while (0)
+
+	LOAD_TUG_SOUND(engine_snd);
+	LOAD_TUG_SOUND(engine_snd_in);
 
 	if (tug->info->air_snd != NULL) {
-		tug->air_snd = wav_load(tug->info->air_snd, "tug_air");
-		if (tug->air_snd == NULL) {
-			logMsg("Error loading tug sound %s",
-			    tug->info->engine_snd);
-			goto errout;
-		}
-		wav_set_loop(tug->air_snd, B_TRUE);
+		LOAD_TUG_SOUND(air_snd);
+		LOAD_TUG_SOUND(air_snd_in);
 	}
 	if (tug->info->beeper_snd != NULL) {
-		tug->beeper_snd = wav_load(tug->info->beeper_snd, "tug_beeper");
-		if (tug->beeper_snd == NULL) {
-			logMsg("Error loading tug sound %s",
-			    tug->info->beeper_snd);
-			goto errout;
-		}
-		wav_set_loop(tug->beeper_snd, B_TRUE);
+		LOAD_TUG_SOUND(beeper_snd);
+		LOAD_TUG_SOUND(beeper_snd_in);
 	}
 
 	fdr_find(&tug->cam_x, "sim/graphics/view/view_x");
@@ -1069,9 +1081,15 @@ tug_alloc_common(tug_info_t *ti, double tirrad)
 	fdr_find(&tug->cam_hdg, "sim/graphics/view/view_heading");
 	fdr_find(&tug->cam_is_ext, "sim/graphics/view/view_is_external");
 	fdr_find(&tug->sound_on, "sim/operation/sound/sound_on");
-	if (!dr_find(&tug->ext_vol,
-	    "sim/operation/sound/exterior_volume_ratio")) {
+	if (bp_xp_ver >= 11000) {
 		fdr_find(&tug->ext_vol,
+		    "sim/operation/sound/exterior_volume_ratio");
+		fdr_find(&tug->int_vol,
+		    "sim/operation/sound/interior_volume_ratio");
+	} else {
+		fdr_find(&tug->ext_vol,
+		    "sim/operation/sound/engine_volume_ratio");
+		fdr_find(&tug->int_vol,
 		    "sim/operation/sound/engine_volume_ratio");
 	}
 
@@ -1158,18 +1176,20 @@ tug_free(tug_t *tug)
 	if (tug->tug != NULL)
 		XPLMUnloadObject(tug->tug);
 
-	if (tug->engine_snd != NULL) {
-		wav_stop(tug->engine_snd);
-		wav_free(tug->engine_snd);
-	}
-	if (tug->air_snd != NULL) {
-		wav_stop(tug->air_snd);
-		wav_free(tug->air_snd);
-	}
-	if (tug->beeper_snd != NULL) {
-		wav_stop(tug->beeper_snd);
-		wav_free(tug->beeper_snd);
-	}
+#define	WAV_STOP_AND_DESTROY(sound) \
+	do { \
+		if (tug->sound != NULL) { \
+			wav_stop(tug->sound); \
+			wav_free(tug->sound); \
+			tug->sound = NULL; \
+		} \
+	} while (0)
+	WAV_STOP_AND_DESTROY(engine_snd);
+	WAV_STOP_AND_DESTROY(engine_snd_in);
+	WAV_STOP_AND_DESTROY(air_snd);
+	WAV_STOP_AND_DESTROY(air_snd_in);
+	WAV_STOP_AND_DESTROY(beeper_snd);
+	WAV_STOP_AND_DESTROY(beeper_snd_in);
 
 	free(tug);
 	glob_tug = NULL;
@@ -1377,7 +1397,7 @@ tug_draw(tug_t *tug, double cur_t)
 	XPLMProbeRef probe = XPLMCreateProbe(xplm_ProbeY);
 	XPLMProbeInfo_t info = { .structSize = sizeof (XPLMProbeInfo_t) };
 	vect3_t pos, norm, norm_hdg;
-	double gain;
+	double gain_in, gain_out;
 
 	/* X-Plane's Z axis is inverted to ours */
 	VERIFY3U(XPLMProbeTerrainXYZ(probe, tug->pos.pos.x, 0,
@@ -1407,6 +1427,7 @@ tug_draw(tug_t *tug, double cur_t)
 	 */
 	if (!tug->engine_snd_playing) {
 		wav_play(tug->engine_snd);
+		wav_play(tug->engine_snd_in);
 		tug->engine_snd_playing = B_TRUE;
 	}
 
@@ -1418,63 +1439,90 @@ tug_draw(tug_t *tug, double cur_t)
 
 		/* Camera distance modifier */
 		cam_dist = MAX(cam_dist, 1);
-		gain = POW2(TUG_SND_MAX_DIST / cam_dist);
-		gain = MIN(gain, 1.0);
-		gain *= dr_getf(&tug->ext_vol);
+		gain_in = POW2((2 * tug->veh.wheelbase) / cam_dist);
+		gain_in = MIN(gain_in, 1.0);
+
+		if (tug->info->electric_drive) {
+			double x;
+			if (tug->TE_override) {
+				x = tug->last_TE_fract;
+			} else {
+				if (tug->pos.spd == 0) {
+					x = 0;
+				} else {
+					x = (ABS(tug->pos.spd) /
+					    tug->info->max_fwd_speed) + 0.2;
+				}
+			}
+			gain_in *= x;
+		}
+
+		/*
+		 * Up to this point both internal and external noises behave
+		 * the same from a volume perspective.
+		 */
+		gain_out = gain_in;
+
+		gain_out *= dr_getf(&tug->ext_vol);
+		gain_in *= dr_getf(&tug->int_vol) * VOLUME_INSIDE_MODIFIER;
 
 		/* Cockpit-window-open modifier */
 		for (unsigned i = 0; i < tug->num_cockpit_window_drs; i++) {
 			window = MAX(dr_getf(&tug->cockpit_window_drs[i]),
 			    window);
 		}
+
 		/* We're only interested in the first 1/4 of the window range */
 		window = MIN(1, window * 4);
-		if (dr_geti(&tug->cam_is_ext) == 0)
-			gain *= wavg(VOLUME_INSIDE_MODIFIER, 1, window);
-		if (gain < 0.001)
-			gain = 0;
-	} else {
-		gain = 0;
-	}
-
-	if (tug->info->electric_drive) {
-		double x;
-		if (tug->TE_override) {
-			x = tug->last_TE_fract;
+		if (dr_geti(&tug->cam_is_ext) == 0) {
+			gain_in *= wavg(1, 0, window);
+			gain_out *= wavg(0, 1, window);
 		} else {
-			if (tug->pos.spd == 0) {
-				x = 0;
-			} else {
-				x = (ABS(tug->pos.spd) /
-				    tug->info->max_fwd_speed) + 0.2;
-			}
+			gain_in = 0;
 		}
-		gain *= x;
+
+		/* Cutoff for minimum noise intensity */
+		if (gain_in < 0.001)
+			gain_in = 0;
+		if (gain_out < 0.001)
+			gain_out = 0;
+	} else {
+		gain_in = 0;
+		gain_out = 0;
 	}
 
-	wav_set_gain(tug->engine_snd, gain);
+	wav_set_gain(tug->engine_snd, gain_out);
+	wav_set_gain(tug->engine_snd_in, gain_in);
 
-	if (tug->beeper_snd != NULL)
-		wav_set_gain(tug->beeper_snd, gain);
+	if (tug->beeper_snd != NULL) {
+		wav_set_gain(tug->beeper_snd, gain_out);
+		wav_set_gain(tug->beeper_snd_in, gain_in);
+	}
 
 	if (tug->air_snd != NULL) {
 		if (tug->cradle_air_on) {
 			double ramp = MIN((cur_t - tug->cradle_air_chg_t) /
 			    TUG_CRADLE_CHG_D_T, 1);
-			wav_set_gain(tug->air_snd, gain * ramp *
+			wav_set_gain(tug->air_snd, gain_out * ramp *
+			    TUG_CRADLE_AIR_MOD);
+			wav_set_gain(tug->air_snd_in, gain_in * ramp *
 			    TUG_CRADLE_AIR_MOD);
 			if (!tug->cradle_air_snd_on) {
 				wav_play(tug->air_snd);
+				wav_play(tug->air_snd_in);
 				tug->cradle_air_snd_on = B_TRUE;
 			}
 		} else if (cur_t - tug->cradle_air_chg_t <=
 		    TUG_CRADLE_CHG_D_T) {
 			double ramp = 1 - ((cur_t - tug->cradle_air_chg_t) /
 			    TUG_CRADLE_CHG_D_T);
-			wav_set_gain(tug->air_snd, gain * ramp *
+			wav_set_gain(tug->air_snd, gain_out * ramp *
+			    TUG_CRADLE_AIR_MOD);
+			wav_set_gain(tug->air_snd_in, gain_in * ramp *
 			    TUG_CRADLE_AIR_MOD);
 		} else if (tug->cradle_air_snd_on) {
 			wav_stop(tug->air_snd);
+			wav_stop(tug->air_snd_in);
 			tug->cradle_air_snd_on = B_FALSE;
 		}
 	}
@@ -1509,6 +1557,7 @@ tug_set_TE_snd(tug_t *tug, double TE_fract, double d_t)
 	tug->last_TE_fract += d_TE_fract;
 
 	wav_set_pitch(tug->engine_snd, 0.5 + tug->last_TE_fract);
+	wav_set_pitch(tug->engine_snd_in, 0.5 + tug->last_TE_fract);
 }
 
 void
@@ -1524,10 +1573,14 @@ void
 tug_set_cradle_beeper_on(tug_t *tug, bool_t flag)
 {
 	if (tug->beeper_snd != NULL) {
-		if (flag && !tug->cradle_beeper_snd_on)
+		if (flag && !tug->cradle_beeper_snd_on) {
 			wav_play(tug->beeper_snd);
-		else if (!flag && tug->cradle_beeper_snd_on)
+			wav_play(tug->beeper_snd_in);
+		}
+		else if (!flag && tug->cradle_beeper_snd_on) {
 			wav_stop(tug->beeper_snd);
+			wav_stop(tug->beeper_snd_in);
+		}
 	}
 	tug->cradle_beeper_snd_on = flag;
 }
