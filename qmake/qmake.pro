@@ -17,7 +17,10 @@
 TEMPLATE = lib
 QT -= gui core
 
-CONFIG += warn_on plugin release
+# Make sure to disable Qmake's own warnings system, because it overrides
+# our warning flags. This breaks CTASSERT, which relies on an unused local
+# typedef.
+CONFIG += warn_off plugin release
 CONFIG -= thread exceptions qt rtti debug
 
 VERSION = 1.0.0
