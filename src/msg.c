@@ -55,16 +55,59 @@ bool_t inited = B_FALSE;
 static dr_t sound_on;
 static dr_t radio_vol;
 
+/*
+ * This examines an optional "cc_aliases.cfg" file in our messages directory.
+ * This can used to remap a country code to another code to for example
+ * utilize the second country's audio set as a common set. One example of
+ * this is en_GB, which also applies in British overseas territories.
+ */
+static void
+alias_cc(const char *cc, char aliased_cc[3])
+{
+	char *path = mkpathname(bp_xpdir, bp_plugindir, "data", "msgs",
+	    "cc_aliases.cfg", NULL);
+	FILE *fp = fopen(path, "r");
+	char cc_in[8], cc_out[8];
+
+	free(path);
+	if (fp == NULL)
+		goto errout;
+
+	while (!feof(fp)) {
+		if (fscanf(fp, "%7s %7s", cc_in, cc_out) != 2)
+			break;
+		if (*cc_in == '#') {
+			int c;
+			do {
+				c = fgetc(fp);
+			} while (c != '\n' && c != '\r' && c != EOF);
+			continue;
+		}
+		if (strcmp(cc, cc_in) == 0) {
+			strlcpy(aliased_cc, cc_out, 3);
+			fclose(fp);
+			return;
+		}
+	}
+
+	fclose(fp);
+errout:
+	strlcpy(aliased_cc, cc, 3);
+}
+
 bool_t
 msg_init(const char *my_lang, const char *icao, lang_pref_t lang_pref)
 {
 	const char *arpt_cc = icao2cc(icao);
 	const char *arpt_lang = icao2lang(icao);
-	enum { MAX_MATCHES = 5 };
-	char match_set[MAX_MATCHES][8] = { {0}, {0}, {0}, {0}, {0} };
+	enum { MAX_MATCHES = 4 };
+	char match_set[MAX_MATCHES][8] = { {0}, {0}, {0}, {0} };
 	const char *msg_dir_name = NULL;
+	char cc[3];
 
 	ASSERT(!inited);
+
+	alias_cc(arpt_cc, cc);
 
 	switch (lang_pref) {
 	case LANG_PREF_MATCH_REAL:
@@ -76,29 +119,25 @@ msg_init(const char *my_lang, const char *icao, lang_pref_t lang_pref)
 		 * 3) try "en_CC" for country-local English accent
 		 * 4) try "en-arpt_lang" for generic English accent of local
 		 *	language
-		 * 5) final fallback: generic English
 		 */
 		snprintf(match_set[0], sizeof (*match_set), "%s_%s",
-		    my_lang, arpt_cc);
+		    my_lang, cc);
 		if (strcmp(arpt_lang, my_lang) == 0)
 			strlcpy(match_set[1], my_lang, sizeof (*match_set));
-		snprintf(match_set[2], sizeof (*match_set), "en_%s", arpt_cc);
+		snprintf(match_set[2], sizeof (*match_set), "en_%s", cc);
 		snprintf(match_set[3], sizeof (*match_set), "en-%s", arpt_lang);
-		strlcpy(match_set[4], "en", sizeof (*match_set));
-		CTASSERT(MAX_MATCHES > 4);
+		CTASSERT(MAX_MATCHES > 3);
 		break;
 	case LANG_PREF_NATIVE:
 		/*
 		 * For native, our preference order is:
 		 * 1) try "my_lang", ignoring any local accent
 		 * 2) try "my_lang_CC" for country-local accent
-		 * 3) final fallback: generic English
 		 */
 		strlcpy(match_set[0], my_lang, sizeof (*match_set));
 		snprintf(match_set[1], sizeof (*match_set), "%s_%s",
-		    my_lang, arpt_cc);
-		strlcpy(match_set[3], "en", sizeof (*match_set));
-		CTASSERT(MAX_MATCHES > 3);
+		    my_lang, cc);
+		CTASSERT(MAX_MATCHES > 1);
 		break;
 	default:
 		/*
@@ -106,13 +145,11 @@ msg_init(const char *my_lang, const char *icao, lang_pref_t lang_pref)
 		 * 1) try "en_CC" for country-local English accent
 		 * 2) try "en-arpt_lang" for generic English accent of local
 		 *	language
-		 * 3) final fallback: generic English
 		 */
 		VERIFY3U(lang_pref, ==, LANG_PREF_MATCH_ENGLISH);
-		snprintf(match_set[0], sizeof (*match_set), "en_%s", arpt_cc);
+		snprintf(match_set[0], sizeof (*match_set), "en_%s", cc);
 		snprintf(match_set[1], sizeof (*match_set), "en-%s", arpt_lang);
-		strlcpy(match_set[2], "en", sizeof (*match_set));
-		CTASSERT(MAX_MATCHES > 2);
+		CTASSERT(MAX_MATCHES > 1);
 		break;
 	};
 
@@ -130,6 +167,11 @@ msg_init(const char *my_lang, const char *icao, lang_pref_t lang_pref)
 			break;
 		}
 		free(path);
+	}
+
+	if (msg_dir_name == NULL) {
+		/* final fallback for everything: generic English */
+		msg_dir_name = "en";
 	}
 
 	for (message_t msg = 0; msg < MSG_NUM_MSGS; msg++) {
