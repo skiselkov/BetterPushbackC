@@ -107,7 +107,10 @@ msg_init(const char *my_lang, const char *icao, lang_pref_t lang_pref)
 
 	ASSERT(!inited);
 
-	alias_cc(arpt_cc, cc);
+	if (arpt_cc != NULL)
+		alias_cc(arpt_cc, cc);
+	else
+		strcpy(cc, "XX");
 
 	switch (lang_pref) {
 	case LANG_PREF_MATCH_REAL:

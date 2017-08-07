@@ -31,7 +31,7 @@ void bp_fini(void);
 bool_t bp_start(void);
 bool_t bp_stop(void);
 
-bool_t bp_can_start(char **reason);
+bool_t bp_can_start(const char **reason);
 unsigned bp_num_segs(void);
 
 bool_t bp_cam_start(void);

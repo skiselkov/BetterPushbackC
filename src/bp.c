@@ -205,6 +205,7 @@ static struct {
 	dr_t	gear_types;
 	dr_t	gear_steers;
 	dr_t	gear_on_ground;
+	dr_t	onground_all;
 	dr_t	gear_deploy;
 
 	dr_t	camera_fov_h, camera_fov_v;
@@ -525,7 +526,6 @@ read_gear_info(void)
 static bool_t
 bp_state_init(void)
 {
-
 	memset(&bp, 0, sizeof (bp));
 	list_create(&bp.segs, sizeof (seg_t), offsetof(seg_t, node));
 
@@ -588,9 +588,34 @@ audio_sys_init(void)
 	return (B_TRUE);
 }
 
+static bool_t
+acf_on_gnd_stopped(const char **reason)
+{
+	if (dr_geti(&drs.onground_all) != 1) {
+		if (reason != NULL)
+			*reason = _("Pushback failure: aircraft not on ground.");
+		return (B_FALSE);
+	}
+	if (vect3_abs(VECT3(dr_getf(&drs.vx), dr_getf(&drs.vy),
+	    dr_getf(&drs.vz))) >= 1) {
+		if (reason != NULL) {
+			*reason = _("Pushback failure: aircraft not "
+			    "stationary.");
+		}
+		return (B_FALSE);
+	}
+	if (dr_getf(&drs.gear_deploy) != 1) {
+		if (reason != NULL)
+			*reason = _("Pushback failure: gear not extended.");
+		return (B_FALSE);
+	}
+	return (B_TRUE);
+}
+
 bool_t
 bp_init(void)
 {
+	const char *reason;
 	dr_t radio_vol, sound_on;
 
 	/*
@@ -655,6 +680,7 @@ bp_init(void)
 		fdr_find(&drs.gear_on_ground,
 		    "sim/flightmodel2/gear/on_ground");
 	}
+	fdr_find(&drs.onground_all, "sim/flightmodel/failures/onground_all");
 	fdr_find(&drs.gear_steers, "sim/aircraft/overflow/acf_gear_steers");
 	fdr_find(&drs.gear_deploy, "sim/aircraft/parts/acf_gear_deploy");
 
@@ -671,8 +697,20 @@ bp_init(void)
 
 	fdr_find(&drs.author, "sim/aircraft/view/acf_author");
 
-	if (!audio_sys_init() || !bp_state_init())
+	/*
+	 * We do this check before attempting to read gear info, because
+	 * in-flight the gear info check will fail with "non-steerable"
+	 * gears, which is a little cryptic to understand to the user.
+	 */
+	if (!acf_on_gnd_stopped(&reason)) {
+		XPLMSpeakString(reason);
 		return (B_FALSE);
+	}
+
+	if (!audio_sys_init() || !bp_state_init()) {
+		msg_fini();
+		return (B_FALSE);
+	}
 
 	if (!load_buttons())
 		return (B_FALSE);
@@ -736,34 +774,25 @@ draw_tugs(XPLMDrawingPhase phase, int before, void *refcon)
 }
 
 bool_t
-bp_can_start(char **reason)
+bp_can_start(const char **reason)
 {
 	seg_t *seg;
 
 	if (!acf_is_compatible()) {
 		if (reason != NULL)
-			*reason = "Pushback failure: aircraft is not "
-			    "compatible with BetterPushback.";
+			*reason = _("Pushback failure: aircraft is not "
+			    "compatible with BetterPushback.");
 		return (B_FALSE);
 	}
 
-	if (dr_getf(&drs.gear_deploy) != 1) {
-		if (reason != NULL)
-			*reason = "Pushback failure: gear not extended.";
+	if (!acf_on_gnd_stopped(reason))
 		return (B_FALSE);
-	}
-	if (vect3_abs(VECT3(dr_getf(&drs.vx), dr_getf(&drs.vy),
-	    dr_getf(&drs.vz))) >= 1) {
-		if (reason != NULL)
-			*reason = "Pushback failure: aircraft not stationary.";
-		return (B_FALSE);
-	}
 
 	seg = list_head(&bp.segs);
 	if (seg == NULL && !late_plan_requested && !slave_mode) {
 		if (reason != NULL) {
-			*reason = "Pushback failure: please first plan your "
-			    "pushback to tell me where you want to go.";
+			*reason = _("Pushback failure: please first plan your "
+			    "pushback to tell me where you want to go.");
 		}
 		return (B_FALSE);
 	}
@@ -782,7 +811,7 @@ bp_delete_all_segs(void)
 bool_t
 bp_start(void)
 {
-	char *reason;
+	const char *reason;
 
 	if (bp_started)
 		return (B_TRUE);
