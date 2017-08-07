@@ -2872,7 +2872,7 @@ bp_cam_start(void)
 		    "set the parking brake first."));
 		return (B_FALSE);
 	}
-	if (bp_started) {
+	if (bp_started && !late_plan_requested) {
 		XPLMSpeakString(_("Can't start planner: pushback already in "
 		    "progress. Please stop the pushback operation first."));
 		return (B_FALSE);
