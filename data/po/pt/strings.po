@@ -18,16 +18,16 @@ msgstr ""
 "Last-Translator: jorgeuvo"
 
 msgid "Can't start planner: aircraft not stationary."
-msgstr "Não pode iniciar o planificador: aeronave não está parada."
+msgstr "Não pode iniciar o planejador: aeronave não está parada."
 
 msgid ""
 "Can't start planner: pushback already in progress. Please stop the pushback "
 "operation first."
-msgstr "Não pode iniciar o planificador: pushback já em progresso. "
-"Por favor primeiro pare a operação de pushback."
+msgstr "Não pode iniciar o planejador: pushback já em progresso. "
+"Por favor primeiro pare a operação do pushback."
 
 msgid "Can't start pushback planner: please set the parking brake first."
-msgstr "Não pode iniciar o planificador: por favor primeiro acione o freio "
+msgstr "Não pode iniciar o planejador: por favor primeiro acione o freio "
 "de estacionamento."
 
 msgid ""
