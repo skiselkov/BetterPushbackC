@@ -73,25 +73,25 @@ msgstr "Falha do Pushback: smartcopilot tentou alternar master/slave ou a "
 "conexão de rede foi perdida. Parando a operação."
 
 msgid "Start pushback"
-msgstr "Inicia o pushback"
+msgstr "Iniciar o pushback"
 
 msgid "Stop pushback"
-msgstr "Para o pushback"
+msgstr "Parar o pushback"
 
 msgid "Start pushback planner"
-msgstr "Inicia o planificador do pushback"
+msgstr "Iniciar o planejador do pushback"
 
 msgid "Stop pushback planner"
-msgstr "Para o planificador do pushback"
+msgstr "Parar o planejador do pushback"
 
 msgid "Connect tug before entering pushback plan"
-msgstr "Conecta o rebocador antes de solicitar um plano de pushback"
+msgstr "Conectar o rebocador antes de solicitar um plano de pushback"
 
 msgid "Pre-plan pushback"
-msgstr "Planificação prévia do pushback"
+msgstr "Pré-planejamento do pushback"
 
 msgid "Close pushback planner"
-msgstr "Fecha o planificador do pushback"
+msgstr "Fechar o planejador do pushback"
 
 msgid "Preferences..."
 msgstr "Preferências..."
@@ -106,7 +106,7 @@ msgid "X-Plane's language"
 msgstr "Idioma do X-Plane"
 
 msgid "Ground crew audio"
-msgstr "Audio do pessoal de solo"
+msgstr "Audio da equipe do solo"
 
 msgid "My language only at domestic airports"
 msgstr "Meu idioma somente em aeroportos domésticos"
@@ -123,16 +123,16 @@ msgstr "Salvar preferências"
 msgid "Ground crew speaks my language only if the country the airport is\n"
 "in speaks my language. Otherwise the ground crew speaks English\n"
 "with a local accent."
-msgstr "Pessoal de solo fala meu idioma somente se o país\n"
-"do aeroporto fala meu idioma. Caso contrário o pessoal\n"
+msgstr "Equipe do solo fala meu idioma somente se o país\n"
+"do aeroporto fala meu idioma. Caso contrário o equipe\n"
 "de solo fala inglês com o sotaque local."
 
 msgid "Ground crew speaks my language irrespective of what country the "
 "airport is in."
-msgstr "Pessoal de solo fala meu idioma independente do país do aeroporto."
+msgstr "Equipe do solo fala meu idioma independente do país do aeroporto."
 
 msgid "Ground crew always speaks English with a local accent."
-msgstr "Pessoal de solo sempre fala inglês com o sotaque local."
+msgstr "Equipe do solo sempre fala inglês com o sotaque local."
 
 msgid "Save current preferences to disk."
-msgstr "Salvar preferências."
+msgstr "Salvar preferências no disco."
