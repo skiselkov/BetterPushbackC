@@ -136,4 +136,9 @@ msgstr "El personal de tierra siempre habla inglés con acento local."
 
 msgid "Save current preferences to disk."
 msgstr "Guardar las preferencias actuales."
- 
+
+msgid "Disconnect tow + headset and switch to hand signals."
+msgstr "Desconectar remolcador + auriculares y cambiar a señales manuales."
+
+msgid "Reconnect tow and await further instructions."
+msgstr "Reconectar remolcador y esperar instrucciones adicionales."

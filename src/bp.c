@@ -213,6 +213,8 @@ static struct {
 	dr_t	gear_on_ground;
 	dr_t	onground_all;
 	dr_t	gear_deploy;
+	dr_t	num_engns;
+	dr_t	engn_running;
 
 	dr_t	camera_fov_h, camera_fov_v;
 	dr_t	view_is_ext;
@@ -285,6 +287,21 @@ static bool_t
 pbrake_is_set(void)
 {
 	return (dr_getf(&drs.pbrake) != 0 || dr_getf(&drs.pbrake_rat) != 0);
+}
+
+static bool_t
+eng_is_running(void)
+{
+	int num_engns = MIN(dr_geti(&drs.num_engns), 100);
+	int engn_running[num_engns];
+
+	dr_getvi(&drs.engn_running, engn_running, 0, num_engns);
+	for (int i = 0; i < num_engns; i++) {
+		if (engn_running[i] != 0)
+			return (B_TRUE);
+	}
+
+	return (B_FALSE);
 }
 
 static void
@@ -754,6 +771,8 @@ bp_init(void)
 	fdr_find(&drs.onground_all, "sim/flightmodel/failures/onground_all");
 	fdr_find(&drs.gear_steers, "sim/aircraft/overflow/acf_gear_steers");
 	fdr_find(&drs.gear_deploy, "sim/aircraft/parts/acf_gear_deploy");
+	fdr_find(&drs.num_engns, "sim/aircraft/engine/acf_num_engines");
+	fdr_find(&drs.engn_running, "sim/flightmodel/engine/ENGN_running");
 
 	fdr_find(&drs.camera_fov_h,
 	    "sim/graphics/view/field_of_view_deg");
@@ -1479,10 +1498,17 @@ pb_step_connected(void)
 			seg_t *seg = list_head(&bp.segs);
 
 			ASSERT(seg != NULL);
-			if (seg->backward)
-				msg_play(MSG_START_PB);
-			else
-				msg_play(MSG_START_TOW);
+			if (seg->backward) {
+				if (eng_is_running())
+					msg_play(MSG_START_PB_NOSTART);
+				else
+					msg_play(MSG_START_PB);
+			} else {
+				if (eng_is_running())
+					msg_play(MSG_START_TOW_NOSTART);
+				else
+					msg_play(MSG_START_TOW);
+			}
 		} else {
 			/*
 			 * Since we don't know the segs, we'll just
@@ -1531,7 +1557,7 @@ pb_step_stopping(void)
 		push_at_speed(0, bp.veh.max_accel, B_FALSE);
 	}
 	acf2tug_steer();
-	if (ABS(bp.cur_pos.spd) > SPEED_COMPLETE_THRESH) {
+	if (ABS(bp.cur_pos.spd) >= SPEED_COMPLETE_THRESH) {
 		/*
 		 * Keep resetting the start time to enforce a delay
 		 * once stopped.
@@ -2092,10 +2118,12 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			 * If we're effectively stopped, skip the stopping
 			 * step to avoid playing MSG_OP_COMPLETE.
 			 */
-			if (bp.cur_pos.spd < SPEED_COMPLETE_THRESH)
+			if (ABS(bp.cur_pos.spd) < SPEED_COMPLETE_THRESH &&
+			    pbrake_is_set()) {
 				bp.step = PB_STEP_STOPPED;
-			else
+			} else {
 				bp.step = PB_STEP_STOPPING;
+			}
 		}
 	}
 
@@ -2160,7 +2188,10 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		}
 		if (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY) {
 			if (!bp.reconnect) {
-				msg_play(MSG_RDY2CONN);
+				if (pbrake_is_set())
+					msg_play(MSG_RDY2CONN_NOPARK);
+				else
+					msg_play(MSG_RDY2CONN);
 				bp.last_voice_t = bp.cur_t;
 			}
 			bp.step++;
@@ -3140,14 +3171,9 @@ bp_cam_start(void)
 
 #ifndef	PB_DEBUG_INTF
 	if (vect3_abs(VECT3(dr_getf(&drs.vx), dr_getf(&drs.vy),
-	    dr_getf(&drs.vz))) >= 1) {
+	    dr_getf(&drs.vz))) > 0.1) {
 		XPLMSpeakString(_("Can't start planner: aircraft not "
 		    "stationary."));
-		return (B_FALSE);
-	}
-	if (!pbrake_is_set()) {
-		XPLMSpeakString(_("Can't start pushback planner: please "
-		    "set the parking brake first."));
 		return (B_FALSE);
 	}
 	if (bp_started && !late_plan_requested) {
