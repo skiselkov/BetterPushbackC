@@ -149,7 +149,8 @@ start_pb_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_TRUE);
 		XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_FALSE);
 		XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
-		msg_play(MSG_PLAN_START);
+		if (!late_plan_requested)
+			msg_play(MSG_PLAN_START);
 		start_after_cam = B_TRUE;
 		return (1);
 	}

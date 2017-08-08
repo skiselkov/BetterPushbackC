@@ -73,7 +73,7 @@
 #define	MAX_REV_SPEED		1.11	/* m/s [4 km/h, "walking speed"] */
 #define	NORMAL_ACCEL		0.25	/* m/s^2 */
 #define	NORMAL_DECEL		0.17	/* m/s^2 */
-#define	BRAKE_PEDAL_THRESH	0.1	/* brake pedal angle, 0..1 */
+#define	BRAKE_PEDAL_THRESH	0.03	/* brake pedal angle, 0..1 */
 #define	FORCE_PER_TON		5000	/* max push force per ton, Newtons */
 /*
  * X-Plane 10's tire model is a bit less forgiving of slow creeping,
@@ -285,6 +285,19 @@ static bool_t
 pbrake_is_set(void)
 {
 	return (dr_getf(&drs.pbrake) != 0 || dr_getf(&drs.pbrake_rat) != 0);
+}
+
+static void
+brakes_set(bool_t flag)
+{
+	/*
+	 * Maximum we can set is 0.9. Any more and we might kick the parking
+	 * brake off.
+	 */
+	double val = (flag ? 0.9 : 0.0);
+	ASSERT(!slave_mode);
+	dr_setf(&drs.lbrake, val);
+	dr_setf(&drs.rbrake, val);
 }
 
 static bool_t
@@ -1040,10 +1053,12 @@ bp_run_push(void)
 		double steer, speed;
 
 		/* Pilot pressed brake pedals or set parking brake, stop */
-		if (dr_getf(&drs.lbrake) > BRAKE_PEDAL_THRESH ||
-		    dr_getf(&drs.rbrake) > BRAKE_PEDAL_THRESH ||
+		if (dr_getf(&drs.lbrake) >= BRAKE_PEDAL_THRESH ||
+		    dr_getf(&drs.rbrake) >= BRAKE_PEDAL_THRESH ||
 		    pbrake_is_set()) {
 			tug_set_TE_snd(bp.tug, 0, bp.d_t);
+			dr_setf(&drs.axial_force, 0);
+			dr_setf(&drs.rot_force_N, 0);
 			break;
 		}
 		if (drive_segs(&bp.cur_pos, &bp.veh, &bp.segs,
@@ -1087,8 +1102,7 @@ bp_complete(void)
 
 	if (!slave_mode) {
 		dr_seti(&drs.override_steer, 0);
-		dr_setf(&drs.lbrake, 0);
-		dr_setf(&drs.rbrake, 0);
+		brakes_set(B_FALSE);
 		dr_setvf(&drs.leg_len, &bp.acf.nw_len, bp.acf.nw_i, 1);
 	}
 
@@ -1274,10 +1288,8 @@ pb_step_waiting_for_pbrake(void)
 static void
 pb_step_driving_up_connect(void)
 {
-	if (!slave_mode) {
-		dr_setf(&drs.lbrake, 0.9);
-		dr_setf(&drs.rbrake, 0.9);
-	}
+	if (!slave_mode)
+		brakes_set(B_TRUE);
 	if (!tug_is_stopped(bp.tug)) {
 		/*
 		 * Keep resetting the start time to enforce a state
@@ -1302,8 +1314,7 @@ pb_step_connect_grab(void)
 
 	if (!slave_mode) {
 		/* When grabbing, keep the aircraft firmly in place */
-		dr_setf(&drs.lbrake, 0.9);
-		dr_setf(&drs.rbrake, 0.9);
+		brakes_set(B_TRUE);
 	}
 
 	if (cradle_closed_fract >= 1) {
@@ -1343,8 +1354,7 @@ pb_step_connect_winch(void)
 
 	if (!slave_mode) {
 		/* When grabbing, keep the aircraft firmly in place */
-		dr_setf(&drs.lbrake, 0);
-		dr_setf(&drs.rbrake, 0);
+		brakes_set(B_FALSE);
 	}
 
 	winch_total = ti->lift_wall_z - ti->plat_z - tug_lift_wall_off(bp.tug);
@@ -1403,8 +1413,7 @@ pb_step_lift(void)
 	lift = (bp.tug->info->lift_height * lift_fract) + bp.acf.nw_len +
 	    tug_plat_h(bp.tug);
 	if (!slave_mode) {
-		dr_setf(&drs.lbrake, 0.9);
-		dr_setf(&drs.rbrake, 0.9);
+		brakes_set(B_TRUE);
 		dr_setvf(&drs.leg_len, &lift, bp.acf.nw_i, 1);
 	}
 
@@ -1493,8 +1502,6 @@ static void
 pb_step_pushing(void)
 {
 	if (!slave_mode) {
-		dr_setf(&drs.lbrake, 0);
-		dr_setf(&drs.rbrake, 0);
 		dr_seti(&drs.override_steer, 1);
 		if (!bp_run_push()) {
 			bp.step++;
@@ -1531,10 +1538,8 @@ pb_step_stopping(void)
 		 */
 		bp.step_start_t = bp.cur_t;
 	} else {
-		if (!slave_mode) {
-			dr_setf(&drs.lbrake, 0.9);
-			dr_setf(&drs.rbrake, 0.9);
-		}
+		if (!slave_mode)
+			brakes_set(B_TRUE);
 		if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
 			msg_play(MSG_OP_COMPLETE);
 			bp.step++;
@@ -1550,8 +1555,7 @@ pb_step_stopped(void)
 	if (!slave_mode) {
 		turn_nosewheel(0, STRAIGHT_STEER_RATE);
 		push_at_speed(0, bp.veh.max_accel, B_FALSE);
-		dr_setf(&drs.lbrake, 0.9);
-		dr_setf(&drs.rbrake, 0.9);
+		brakes_set(B_TRUE);
 	}
 	acf2tug_steer();
 	if (!pbrake_is_set()) {
@@ -1580,8 +1584,7 @@ pb_step_lowering(void)
 
 	if (!slave_mode) {
 		turn_nosewheel(0, STRAIGHT_STEER_RATE);
-		dr_setf(&drs.lbrake, 0.9);
-		dr_setf(&drs.rbrake, 0.9);
+		brakes_set(B_TRUE);
 	}
 	acf2tug_steer();
 
@@ -1665,10 +1668,8 @@ pb_step_ungrabbing(void)
 		complete = pb_step_ungrabbing_winch();
 
 	if (complete) {
-		if (!slave_mode) {
-			dr_setf(&drs.lbrake, 0);
-			dr_setf(&drs.rbrake, 0);
-		}
+		if (!slave_mode)
+			brakes_set(B_FALSE);
 
 		tug_set_lift_in_transit(B_FALSE);
 		tug_set_TE_override(bp.tug, B_FALSE);
@@ -1785,6 +1786,7 @@ recon_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	bp.step_start_t = bp.cur_t;
 	/* Notify the UI to reenable the menu items. */
 	bp_reconnect_notify();
+	XPLMCommandOnce(XPLMFindCommand("BetterPushback/start"));
 	return (1);
 }
 
@@ -2182,8 +2184,10 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		pb_step_connected();
 		break;
 	case PB_STEP_STARTING:
-		if (!slave_mode)
+		if (!slave_mode) {
 			dr_seti(&drs.override_steer, 1);
+			brakes_set(B_FALSE);
+		}
 		if (bp.cur_t - bp.step_start_t >= PB_START_DELAY) {
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
@@ -3059,8 +3063,10 @@ key_sniffer(char inChar, XPLMKeyFlags inFlags, char inVirtualKey, void *refcon)
 	if (inFlags != xplm_DownFlag)
 		return (1);
 
-	switch (inVirtualKey) {
+	switch ((unsigned char)inVirtualKey) {
 	case XPLM_VK_RETURN:
+	case XPLM_VK_ENTER:
+	case XPLM_VK_NUMPAD_ENT:
 		XPLMCommandOnce(XPLMFindCommand("BetterPushback/stop_planner"));
 		return (0);
 	case XPLM_VK_ESCAPE:

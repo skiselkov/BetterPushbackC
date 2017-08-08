@@ -136,3 +136,9 @@ msgstr "Bodenpersonal spricht immer Englisch mit lokalem Akzent."
 
 msgid "Save current preferences to disk."
 msgstr "Aktuelle Einstellungen auf die Festplatte speichern."
+
+msgid "Disconnect tow + headset and switch to hand signals."
+msgstr "Schlepper und Headset trennen + weitere Anweisungen per Handzeichen."
+
+msgid "Reconnect tow and await further instructions."
+msgstr "Schlepper wieder ankoppeln und weitere Anweisungen erwarten."

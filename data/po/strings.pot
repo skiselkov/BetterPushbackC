@@ -125,3 +125,9 @@ msgstr ""
 
 msgid "Save current preferences to disk."
 msgstr ""
+
+msgid "Disconnect tow + headset and switch to hand signals."
+msgstr ""
+
+msgid "Reconnect tow and await further instructions."
+msgstr ""

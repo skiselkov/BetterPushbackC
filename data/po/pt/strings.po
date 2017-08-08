@@ -136,3 +136,9 @@ msgstr "Equipe do solo sempre fala inglês com o sotaque local."
 
 msgid "Save current preferences to disk."
 msgstr "Salvar preferências no disco."
+
+msgid "Disconnect tow + headset and switch to hand signals."
+msgstr "Desconecta rebocador + headset e switch no sinal com a mão."
+
+msgid "Reconnect tow and await further instructions."
+msgstr "Reconecta rebocador e aguarda instruções."
