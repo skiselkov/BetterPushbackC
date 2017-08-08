@@ -126,6 +126,7 @@ typedef enum {
 	PB_STEP_STOPPED,
 	PB_STEP_LOWERING,
 	PB_STEP_UNGRABBING,
+	PB_STEP_WAITING4OK2DISCO,
 	PB_STEP_MOVING_AWAY,
 	PB_STEP_CLOSING_CRADLE,
 	PB_STEP_STARTING2CLEAR,
@@ -172,6 +173,11 @@ typedef struct {
 	double		step_start_t;	/* PB step start time */
 	double		last_voice_t;	/* last voice message start time */
 
+	XPLMWindowID	disco_win;
+	XPLMWindowID	recon_win;
+	bool_t		ok2disco;	/* user has ok'd disconnection */
+	bool_t		reconnect;	/* user has requested reconnection */
+
 	tug_t		*tug;
 	vect2_t		start_pos;	/* where the pushback originated */
 	double		start_hdg;	/* which way we were facing at start */
@@ -217,6 +223,20 @@ static struct {
 	dr_t	author;
 } drs;
 
+typedef struct {
+	const char	*name;
+	XPLMCommandRef	cmd;
+	vect3_t		incr;
+} view_cmd_info_t;
+
+typedef struct {
+	const char	*filename;	/* PNG filename in data/icons/<lang> */
+	const int	vk;		/* function virtual key, -1 if none */
+	GLuint		tex;		/* OpenGL texture object */
+	GLbyte		*tex_data;	/* RGBA texture data */
+	int		w, h;		/* button width & height in pixels */
+} button_t;
+
 static bool_t inited = B_FALSE, cam_inited = B_FALSE;
 static bool_t floop_registered = B_FALSE;
 static bp_state_t bp;
@@ -228,10 +248,27 @@ static void unload_buttons(void);
 static int key_sniffer(char inChar, XPLMKeyFlags inFlags, char inVirtualKey,
     void *refcon);
 
+static bool_t load_icon(button_t *btn);
+static void unload_icon(button_t *btn);
+static void draw_icon(button_t *btn, int x, int y, double scale,
+    bool_t is_clicked, bool_t is_lit);
+static void nil_win_key(XPLMWindowID inWindowID, char inKey,
+    XPLMKeyFlags inFlags, char inVirtualKey, void *inRefcon, int losingFocus);
+
+static void disco_intf_hide(void);
+static int disco_handler(XPLMCommandRef, XPLMCommandPhase, void *);
+static int recon_handler(XPLMCommandRef, XPLMCommandPhase, void *);
+
 static bool_t radio_volume_warn = B_FALSE;
 
 static const acf_info_t incompatible_acf[] = {
     { .acf = NULL, .author = NULL }
+};
+
+static XPLMCommandRef disco_cmd = NULL, recon_cmd = NULL;
+static button_t disco_buttons[2] = {
+	{ .filename = "disconnect.png", .vk = -1, .tex = 0, .tex_data = NULL },
+	{ .filename = "reconnect.png", .vk = -1, .tex = 0, .tex_data = NULL },
 };
 
 /*
@@ -612,6 +649,27 @@ acf_on_gnd_stopped(const char **reason)
 	return (B_TRUE);
 }
 
+/*
+ * Normally, we delay calling bp_init and bp_fini until the plugin is actually
+ * needed. This can mess with 3rd party plugin integration which might need to
+ * look for things such as commands we create much earlier. To solve this, we
+ * have bp_boot_init and bp_shut_fini, which are called from XPluginStart and
+ * XPluginStop.
+ */
+void
+bp_boot_init(void)
+{
+	disco_cmd = XPLMCreateCommand("BetterPushback/disconnect",
+	    _("Disconnect tow + headset and switch to hand signals."));
+	recon_cmd = XPLMCreateCommand("BetterPushback/reconnect",
+	    _("Reconnect tow and await further instructions."));
+}
+
+void
+bp_shut_fini(void)
+{
+}
+
 bool_t
 bp_init(void)
 {
@@ -697,6 +755,9 @@ bp_init(void)
 
 	fdr_find(&drs.author, "sim/aircraft/view/acf_author");
 
+	XPLMRegisterCommandHandler(disco_cmd, disco_handler, 1, NULL);
+	XPLMRegisterCommandHandler(recon_cmd, recon_handler, 1, NULL);
+
 	/*
 	 * We do this check before attempting to read gear info, because
 	 * in-flight the gear info check will fail with "non-steerable"
@@ -707,17 +768,22 @@ bp_init(void)
 		return (B_FALSE);
 	}
 
-	if (!audio_sys_init() || !bp_state_init()) {
-		msg_fini();
-		return (B_FALSE);
-	}
-
-	if (!load_buttons())
-		return (B_FALSE);
+	if (!audio_sys_init() || !bp_state_init() ||
+	    !load_icon(&disco_buttons[0]) || !load_icon(&disco_buttons[1]) ||
+	    !load_buttons())
+		goto errout;
 
 	inited = B_TRUE;
 
 	return (B_TRUE);
+errout:
+	XPLMUnregisterCommandHandler(disco_cmd, disco_handler, 1, NULL);
+	XPLMUnregisterCommandHandler(recon_cmd, recon_handler, 1, NULL);
+	msg_fini();
+	unload_buttons();
+	unload_icon(&disco_buttons[0]);
+	unload_icon(&disco_buttons[1]);
+	return (B_FALSE);
 }
 
 static int
@@ -867,6 +933,9 @@ bp_fini(void)
 	if (!inited)
 		return;
 
+	XPLMUnregisterCommandHandler(disco_cmd, disco_handler, 1, NULL);
+	XPLMUnregisterCommandHandler(recon_cmd, recon_handler, 1, NULL);
+
 	msg_fini();
 
 	bp_complete();
@@ -878,6 +947,8 @@ bp_fini(void)
 	bp_delete_all_segs();
 	list_destroy(&bp.segs);
 
+	unload_icon(&disco_buttons[0]);
+	unload_icon(&disco_buttons[1]);
 	unload_buttons();
 
 	radio_volume_warn = B_FALSE;
@@ -1008,6 +1079,8 @@ bp_complete(void)
 		tug_free(bp.tug);
 		bp.tug = NULL;
 	}
+
+	disco_intf_hide();
 
 	XPLMUnregisterDrawCallback(draw_tugs, TUG_DRAWING_PHASE,
 	    TUG_DRAWING_PHASE_BEFORE, NULL);
@@ -1184,17 +1257,16 @@ pb_step_waiting_for_pbrake(void)
 	if (bp.cur_t - bp.step_start_t < STATE_TRANS_DELAY)
 		return;
 
-	dir = hdg2dir(bp.cur_pos.hdg);
+	dir = hdg2dir(bp.tug->pos.hdg);
 	if (bp.tug->info->lift_type == LIFT_GRAB) {
-		p_end = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-		    (-bp.acf.nw_z) + (-bp.tug->info->lift_wall_z) +
-		    tug_lift_wall_off(bp.tug)));
+		p_end = vect2_add(bp.tug->pos.pos, vect2_scmul(dir,
+		    -(bp.tug->info->apch_dist + bp.tug->info->lift_wall_z -
+		    tug_lift_wall_off(bp.tug))));
 	} else {
-		vect2_t d = vect2_neg(hdg2dir(bp.tug->pos.hdg));
-		p_end = vect2_add(bp.tug->pos.pos, vect2_scmul(d,
-		    bp.tug->info->apch_dist + bp.tug->info->plat_z));
+		p_end = vect2_add(bp.tug->pos.pos, vect2_scmul(dir,
+		    -(bp.tug->info->apch_dist + bp.tug->info->plat_z)));
 	}
-	(void) tug_drive2point(bp.tug, p_end, bp.cur_pos.hdg);
+	VERIFY(tug_drive2point(bp.tug, p_end, bp.cur_pos.hdg));
 	bp.step++;
 	bp.step_start_t = bp.cur_t;
 }
@@ -1213,7 +1285,6 @@ pb_step_driving_up_connect(void)
 		 */
 		bp.step_start_t = bp.cur_t;
 	} else if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
-		tug_set_cradle_beeper_on(bp.tug, B_TRUE);
 		bp.winching.start_acf_pos = bp.cur_pos.pos;
 		bp.step++;
 		bp.step_start_t = bp.cur_t;
@@ -1310,6 +1381,7 @@ pb_step_grab(void)
 		double steer = 0;
 		dr_setvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1);
 	}
+	tug_set_cradle_beeper_on(bp.tug, B_TRUE);
 	tug_set_lift_in_transit(B_TRUE);
 	if (bp.tug->info->lift_type == LIFT_GRAB)
 		pb_step_connect_grab();
@@ -1593,19 +1665,17 @@ pb_step_ungrabbing(void)
 		complete = pb_step_ungrabbing_winch();
 
 	if (complete) {
-		vect2_t dir, p;
-
-		dir = hdg2dir(bp.cur_pos.hdg);
 		if (!slave_mode) {
 			dr_setf(&drs.lbrake, 0);
 			dr_setf(&drs.rbrake, 0);
 		}
-		p = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-		    -bp.acf.nw_z + bp.tug->info->apch_dist));
 
 		tug_set_lift_in_transit(B_FALSE);
 		tug_set_TE_override(bp.tug, B_FALSE);
-		(void) tug_drive2point(bp.tug, p, bp.cur_pos.hdg);
+
+		/* reset the state for the disconnection phase */
+		bp.reconnect = B_FALSE;
+		bp.ok2disco = B_FALSE;
 
 		bp.step++;
 		bp.step_start_t = bp.cur_t;
@@ -1646,14 +1716,191 @@ pb_step_closing_cradle(void)
 	if (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY) {
 		/* determine which direction we'll drive away */
 		bool_t right = tug_clear_is_right();
-
 		msg_play(right ? MSG_DONE_RIGHT : MSG_DONE_LEFT);
 		tug_set_cradle_lights_on(B_FALSE);
+
 		tug_set_hazard_lights_on(B_FALSE);
 
 		bp.step++;
 		bp.step_start_t = bp.cur_t;
 		bp.last_voice_t = bp.cur_t;
+	}
+}
+
+static void
+disco_win_draw(XPLMWindowID inWindowID, void *inRefcon)
+{
+	int w, h, mx, my;
+
+	UNUSED(inRefcon);
+	XPLMGetScreenSize(&w, &h);
+	XPLMGetMouseLocation(&mx, &my);
+
+	if (inWindowID == bp.disco_win) {
+		bool_t is_lit = (mx >= w / 2 - 1.5 * disco_buttons[0].w &&
+		    mx <= w / 2 - 0.5 * disco_buttons[0].w &&
+		    my >= h - 1.5 * disco_buttons[0].h &&
+		    my <= h - 0.5 * disco_buttons[0].h);
+		draw_icon(&disco_buttons[0], w / 2 - 1.5 * disco_buttons[0].w,
+		    h - 1.5 * disco_buttons[0].h, 1.0,
+		    B_FALSE, is_lit);
+	} else {
+		bool_t is_lit = (mx >= w / 2 + 0.5 * disco_buttons[1].w &&
+		    mx <= w / 2 + 1.5 * disco_buttons[1].w &&
+		    my >= h - 1.5 * disco_buttons[1].h &&
+		    my <= h - 0.5 * disco_buttons[1].h);
+		ASSERT(inWindowID == bp.recon_win);
+		draw_icon(&disco_buttons[1], w / 2 + 0.5 * disco_buttons[1].w,
+		    h - 1.5 * disco_buttons[1].h, 1.0,
+		    B_FALSE, is_lit);
+	}
+}
+
+static int
+disco_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
+{
+	UNUSED(cmd);
+	UNUSED(phase);
+	UNUSED(refcon);
+
+	if (bp.step != PB_STEP_WAITING4OK2DISCO)
+		return (0);
+	bp.ok2disco = B_TRUE;
+
+	return (1);
+}
+
+static int
+recon_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
+{
+	UNUSED(cmd);
+	UNUSED(phase);
+	UNUSED(refcon);
+
+	if (bp.step != PB_STEP_WAITING4OK2DISCO)
+		return (0);
+
+	bp.reconnect = B_TRUE;
+	bp.step = PB_STEP_GRABBING;
+	bp.step_start_t = bp.cur_t;
+	/* Notify the UI to reenable the menu items. */
+	bp_reconnect_notify();
+	return (1);
+}
+
+static int
+disco_win_click(XPLMWindowID inWindowID, int x, int y, XPLMMouseStatus inMouse,
+    void *inRefcon)
+{
+	UNUSED(x);
+	UNUSED(y);
+	UNUSED(inRefcon);
+
+	if (inMouse != xplm_MouseUp)
+		return (1);
+	if (inWindowID == bp.disco_win) {
+		XPLMCommandOnce(disco_cmd);
+	} else if (inWindowID == bp.recon_win)
+		XPLMCommandOnce(recon_cmd);
+
+	return (1);
+}
+
+static XPLMCursorStatus
+nil_win_cursor(XPLMWindowID inWindowID, int x, int y, void *inRefcon)
+{
+	UNUSED(inWindowID);
+	UNUSED(x);
+	UNUSED(y);
+	UNUSED(inRefcon);
+	return (xplm_CursorDefault);
+}
+
+static int
+nil_win_wheel(XPLMWindowID inWindowID, int x, int y, int wheel, int clicks,
+    void *inRefcon)
+{
+	UNUSED(inWindowID);
+	UNUSED(x);
+	UNUSED(y);
+	UNUSED(wheel);
+	UNUSED(clicks);
+	UNUSED(inRefcon);
+	return (1);
+}
+
+static void
+disco_intf_show(void)
+{
+	XPLMCreateWindow_t disco_ops = {
+	    .structSize = sizeof (XPLMCreateWindow_t),
+	    .left = 0, .top = 0, .right = 0, .bottom = 0, .visible = 1,
+	    .drawWindowFunc = disco_win_draw,
+	    .handleMouseClickFunc = disco_win_click,
+	    .handleKeyFunc = nil_win_key,
+	    .handleCursorFunc = nil_win_cursor,
+	    .handleMouseWheelFunc = nil_win_wheel,
+	    .refcon = NULL
+	};
+	int w, h;
+
+	XPLMGetScreenSize(&w, &h);
+
+	disco_ops.left = w / 2 - 1.5 * disco_buttons[0].w;
+	disco_ops.right = w / 2 - 0.5 * disco_buttons[0].w;
+	disco_ops.top = h - 0.5 * disco_buttons[0].h;
+	disco_ops.bottom = h - 1.5 * disco_buttons[0].h;
+	bp.disco_win = XPLMCreateWindowEx(&disco_ops);
+	ASSERT(bp.disco_win != NULL);
+	XPLMBringWindowToFront(bp.disco_win);
+
+	disco_ops.left = w / 2 + 0.5 * disco_buttons[1].w;
+	disco_ops.right = w / 2 + 1.5 * disco_buttons[1].w;
+	disco_ops.top = h - 0.5 * disco_buttons[1].h;
+	disco_ops.bottom = h - 1.5 * disco_buttons[1].h;
+	bp.recon_win = XPLMCreateWindowEx(&disco_ops);
+	ASSERT(bp.recon_win != NULL);
+	XPLMBringWindowToFront(bp.recon_win);
+}
+
+static void
+disco_intf_hide(void)
+{
+	if (bp.disco_win != NULL) {
+		XPLMDestroyWindow(bp.disco_win);
+		bp.disco_win = NULL;
+	}
+	if (bp.recon_win != NULL) {
+		XPLMDestroyWindow(bp.recon_win);
+		bp.recon_win = NULL;
+	}
+}
+
+static void
+pb_step_waiting4ok2disco(void)
+{
+	if (!bp.ok2disco) {
+		if (bp.disco_win == NULL)
+			disco_intf_show();
+
+		/* Keep resetting the start time to enforce the delay */
+		bp.step_start_t = bp.cur_t;
+		return;
+	}
+
+	/* Once the user clicked disconnect, hide the buttons immediately */
+	disco_intf_hide();
+
+	if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
+		vect2_t dir, p;
+
+		dir = hdg2dir(bp.cur_pos.hdg);
+		p = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
+		    -bp.acf.nw_z + bp.tug->info->apch_dist));
+		(void) tug_drive2point(bp.tug, p, bp.cur_pos.hdg);
+
+		bp.step++;
+		bp.step_start_t = bp.cur_t;
 	}
 }
 
@@ -1839,7 +2086,14 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			return (0);
 		}
 		if (bp.step < PB_STEP_STOPPING) {
-			bp.step = PB_STEP_STOPPING;
+			/*
+			 * If we're effectively stopped, skip the stopping
+			 * step to avoid playing MSG_OP_COMPLETE.
+			 */
+			if (bp.cur_pos.spd < SPEED_COMPLETE_THRESH)
+				bp.step = PB_STEP_STOPPED;
+			else
+				bp.step = PB_STEP_STOPPING;
 		}
 	}
 
@@ -1868,6 +2122,15 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		}
 	}
 
+	if (bp.step != PB_STEP_WAITING4OK2DISCO) {
+		/*
+		 * If the user requests reconnection, we cannot destroy the
+		 * window from within the mouse handler, so we destroy it
+		 * here instead.
+		 */
+		disco_intf_hide();
+	}
+
 	switch (bp.step) {
 	case PB_STEP_OFF:
 		VERIFY(bp.step != PB_STEP_OFF);
@@ -1894,10 +2157,12 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
 		}
 		if (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY) {
-			msg_play(MSG_RDY2CONN);
+			if (!bp.reconnect) {
+				msg_play(MSG_RDY2CONN);
+				bp.last_voice_t = bp.cur_t;
+			}
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
-			bp.last_voice_t = bp.cur_t;
 		}
 		break;
 	}
@@ -1941,6 +2206,9 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		break;
 	case PB_STEP_UNGRABBING:
 		pb_step_ungrabbing();
+		break;
+	case PB_STEP_WAITING4OK2DISCO:
+		pb_step_waiting4ok2disco();
 		break;
 	case PB_STEP_MOVING_AWAY:
 		if (bp.tug->info->lift_type == LIFT_WINCH && !slave_mode) {
@@ -2028,20 +2296,6 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 
 #define	PREDICTION_DRAWING_PHASE	xplm_Phase_Airplanes
 #define	PREDICTION_DRAWING_PHASE_BEFORE	0
-
-typedef struct {
-	const char	*name;
-	XPLMCommandRef	cmd;
-	vect3_t		incr;
-} view_cmd_info_t;
-
-typedef struct {
-	const char	*filename;	/* PNG filename in data/icons/<lang> */
-	const int	vk;		/* function virtual key, -1 if none */
-	GLuint		tex;		/* OpenGL texture object */
-	GLbyte		*tex_data;	/* RGBA texture data */
-	int		w, h;		/* button width & height in pixels */
-} button_t;
 
 static vect3_t		cam_pos;
 static double		cam_height;
@@ -2231,6 +2485,19 @@ out:
 	return (res);
 }
 
+static void
+unload_icon(button_t *btn)
+{
+	if (btn->tex != 0) {
+		glDeleteTextures(1, &btn->tex);
+		btn->tex = 0;
+	}
+	if (btn->tex_data != NULL) {
+		free(btn->tex_data);
+		btn->tex_data = NULL;
+	}
+}
+
 static bool_t
 load_buttons(void)
 {
@@ -2251,12 +2518,8 @@ load_buttons(void)
 static void
 unload_buttons(void)
 {
-	for (int i = 0; buttons[i].filename != NULL; i++) {
-		if (buttons[i].tex != 0)
-			glDeleteTextures(1, &buttons[i].tex);
-		if (buttons[i].tex_data != NULL)
-			free(buttons[i].tex_data);
-	}
+	for (int i = 0; buttons[i].filename != NULL; i++)
+		unload_icon(&buttons[i]);
 }
 
 static int
@@ -2528,6 +2791,54 @@ draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 }
 
 static void
+draw_icon(button_t *btn, int x, int y, double scale, bool_t is_clicked,
+    bool_t is_lit)
+{
+	glBindTexture(GL_TEXTURE_2D, btn->tex);
+	glBegin(GL_QUADS);
+	glTexCoord2f(0, 1);
+	glVertex2f(x, y);
+	glTexCoord2f(0, 0);
+	glVertex2f(x, y + btn->h * scale);
+	glTexCoord2f(1, 0);
+	glVertex2f(x + btn->w * scale, y + btn->h * scale);
+	glTexCoord2f(1, 1);
+	glVertex2f(x + btn->w * scale, y);
+	glEnd();
+
+	if (is_clicked) {
+		/*
+		 * If this button was hit by a mouse click, highlight
+		 * it by drawing a translucent white quad over it.
+		 */
+		XPLMSetGraphicsState(0, 0, 0, 0, 1, 0, 0);
+		glColor4f(1, 1, 1, 0.3);
+		glBegin(GL_QUADS);
+		glVertex2f(x, y);
+		glVertex2f(x, y + btn->h * scale);
+		glVertex2f(x + btn->w * scale, y + btn->h * scale);
+		glVertex2f(x + btn->w * scale, y);
+		glEnd();
+		XPLMSetGraphicsState(0, 1, 0, 0, 1, 0, 0);
+
+	} else if (is_lit) {
+		XPLMSetGraphicsState(0, 0, 0, 0, 1, 0, 0);
+		glColor4f(1, 1, 1, 1);
+		glLineWidth(1);
+		glBegin(GL_LINES);
+		glVertex2f(x, y);
+		glVertex2f(x, y + btn->h * scale);
+		glVertex2f(x, y + btn->h * scale);
+		glVertex2f(x + btn->w * scale, y + btn->h * scale);
+		glVertex2f(x + btn->w * scale, y + btn->h * scale);
+		glVertex2f(x + btn->w * scale, y);
+		glVertex2f(x, y);
+		glEnd();
+		XPLMSetGraphicsState(0, 1, 0, 0, 1, 0, 0);
+	}
+}
+
+static void
 fake_win_draw(XPLMWindowID inWindowID, void *inRefcon)
 {
 	double scale;
@@ -2562,48 +2873,9 @@ fake_win_draw(XPLMWindowID inWindowID, void *inRefcon)
 
 		if (btn->tex == 0)
 			continue;
-		glBindTexture(GL_TEXTURE_2D, btn->tex);
-		glBegin(GL_QUADS);
-		glTexCoord2f(0, 1);
-		glVertex2f(w - btn->w * scale, h_off - btn->h * scale);
-		glTexCoord2f(0, 0);
-		glVertex2f(w - btn->w * scale, h_off);
-		glTexCoord2f(1, 0);
-		glVertex2f(w, h_off);
-		glTexCoord2f(1, 1);
-		glVertex2f(w, h_off - btn->h * scale);
-		glEnd();
 
-		if (i == button_hit) {
-			/*
-			 * If this button was hit by a mouse click, highlight
-			 * it by drawing a translucent white quad over it.
-			 */
-			XPLMSetGraphicsState(0, 0, 0, 0, 1, 0, 0);
-			glColor4f(1, 1, 1, 0.3);
-			glBegin(GL_QUADS);
-			glVertex2f(w - btn->w * scale, h_off - btn->h * scale);
-			glVertex2f(w - btn->w * scale, h_off);
-			glVertex2f(w, h_off);
-			glVertex2f(w, h_off - btn->h * scale);
-			glEnd();
-			XPLMSetGraphicsState(0, 1, 0, 0, 1, 0, 0);
-		} else if (i == button_lit) {
-			XPLMSetGraphicsState(0, 0, 0, 0, 1, 0, 0);
-			glColor4f(1, 1, 1, 1);
-			glLineWidth(1);
-			glBegin(GL_LINES);
-			glVertex2f(w - btn->w * scale, h_off - btn->h * scale);
-			glVertex2f(w - btn->w * scale, h_off);
-			glVertex2f(w - btn->w * scale, h_off);
-			glVertex2f(w, h_off);
-			glVertex2f(w, h_off);
-			glVertex2f(w, h_off - btn->h * scale);
-			glVertex2f(w, h_off - btn->h * scale);
-			glVertex2f(w - btn->w * scale, h_off - btn->h * scale);
-			glEnd();
-			XPLMSetGraphicsState(0, 1, 0, 0, 1, 0, 0);
-		}
+		draw_icon(btn, w - btn->w * scale, h_off - btn->h * scale,
+		    scale, i == button_hit, i == button_lit);
 	}
 }
 
@@ -2637,7 +2909,7 @@ button_hit_check(int x, int y)
 }
 
 static void
-fake_win_key(XPLMWindowID inWindowID, char inKey, XPLMKeyFlags inFlags,
+nil_win_key(XPLMWindowID inWindowID, char inKey, XPLMKeyFlags inFlags,
     char inVirtualKey, void *inRefcon, int losingFocus)
 {
 	UNUSED(inWindowID);
@@ -2824,7 +3096,7 @@ bp_cam_start(void)
 	    .left = 0, .top = 0, .right = 0, .bottom = 0, .visible = 1,
 	    .drawWindowFunc = fake_win_draw,
 	    .handleMouseClickFunc = fake_win_click,
-	    .handleKeyFunc = fake_win_key,
+	    .handleKeyFunc = nil_win_key,
 	    .handleCursorFunc = fake_win_cursor,
 	    .handleMouseWheelFunc = fake_win_wheel,
 	    .refcon = NULL

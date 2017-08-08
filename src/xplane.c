@@ -177,6 +177,11 @@ stop_pb_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 		return (1);
 	(void) bp_stop();
 	op_complete = B_TRUE;
+	if (!slave_mode) {
+		/* Reset the menu back */
+		late_plan_requested = B_FALSE;
+		XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_FALSE);
+	}
 	return (1);
 }
 
@@ -236,19 +241,8 @@ conn_first_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	UNUSED(refcon);
 	if (phase != xplm_CommandEnd || !bp_init() || bp_started)
 		return (1);
-
-	late_plan_requested = B_TRUE;
-	(void) bp_cam_stop();
-	if (!bp_start())
-		return (1);
-	if (!slave_mode) {
-		XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_FALSE);
-		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
-		XPLMEnableMenuItem(root_menu, start_pb_menu_item,
-		    bp_num_segs() == 0);
-		XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_TRUE);
-	}
-
+	/* Reconnection and connect-first are the same */
+	bp_reconnect_notify();
 	return (B_TRUE);
 }
 
@@ -275,6 +269,22 @@ bp_done_notify(void)
 	}
 
 	bp_tug_name[0] = '\0';
+}
+
+void
+bp_reconnect_notify(void)
+{
+	late_plan_requested = B_TRUE;
+	(void) bp_cam_stop();
+	if (!bp_start())
+		return;
+	if (!slave_mode) {
+		XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_FALSE);
+		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
+		XPLMEnableMenuItem(root_menu, start_pb_menu_item,
+		    bp_num_segs() == 0);
+		XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_TRUE);
+	}
 }
 
 const char *
@@ -428,6 +438,7 @@ XPluginStart(char *name, char *sig, char *desc)
 	conn_first = XPLMCreateCommand("BetterPushback/connect_first",
 	    _("Connect tug before entering pushback plan"));
 
+	bp_boot_init();
 	tug_glob_init();
 
 	dr_create_i(&bp_started_dr, (int *)&bp_started, B_FALSE,
@@ -455,6 +466,7 @@ XPluginStop(void)
 	bp_conf_fini();
 	acfutils_xlate_fini();
 	tug_glob_fini();
+	bp_shut_fini();
 	dr_delete(&bp_started_dr);
 	dr_delete(&slave_mode_dr);
 	dr_delete(&op_complete_dr);

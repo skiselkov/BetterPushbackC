@@ -25,6 +25,9 @@
 extern "C" {
 #endif
 
+void bp_boot_init(void);
+void bp_shut_fini(void);
+
 bool_t bp_init(void);
 void bp_fini(void);
 

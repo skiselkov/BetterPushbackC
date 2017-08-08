@@ -92,8 +92,8 @@ msgstr "Planificar el retroceso"
 msgid "Close pushback planner"
 msgstr "Cerrar planificador de retroceso"
 
-msgid "Preferences"
-msgstr "Preferencias"
+msgid "Preferences..."
+msgstr "Preferencias..."
 
 msgid "BetterPushback Preferences"
 msgstr "Preferencias de BetterPushback"
