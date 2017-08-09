@@ -173,6 +173,8 @@ typedef struct {
 	double		step_start_t;	/* PB step start time */
 	double		last_voice_t;	/* last voice message start time */
 
+	double		reverse_t;	/* when reversing direction */
+
 	XPLMWindowID	disco_win;
 	XPLMWindowID	recon_win;
 	bool_t		ok2disco;	/* user has ok'd disconnection */
@@ -1066,9 +1068,14 @@ acf2tug_steer(void)
 static bool_t
 bp_run_push(void)
 {
-	seg_t *seg;
+	seg_t *seg = list_head(&bp.segs);
+	/*
+	 * We memorize the direction of this segment in case we flip segments
+	 * and the next one goes in the opposite direction.
+	 */
+	bool_t last_backward = (seg != NULL ? seg->backward : B_FALSE);
 
-	while ((seg = list_head(&bp.segs)) != NULL) {
+	while (seg != NULL) {
 		double steer, speed;
 
 		/* Pilot pressed brake pedals or set parking brake, stop */
@@ -1080,6 +1087,17 @@ bp_run_push(void)
 			dr_setf(&drs.rot_force_N, 0);
 			break;
 		}
+		/*
+		 * If we have reversed direction, wait a little to simulate
+		 * the driver changing gear and flipping around.
+		 */
+		if (bp.reverse_t != 0.0) {
+			if (bp.cur_t - bp.reverse_t < 2 * STATE_TRANS_DELAY) {
+				push_at_speed(0, bp.veh.max_accel, B_TRUE);
+				break;
+			}
+			bp.reverse_t = 0.0;
+		}
 		if (drive_segs(&bp.cur_pos, &bp.veh, &bp.segs,
 		    &bp.last_mis_hdg, bp.d_t, &steer, &speed)) {
 			double steer_rate = (seg->type == SEG_TYPE_STRAIGHT ?
@@ -1088,6 +1106,11 @@ bp_run_push(void)
 			push_at_speed(speed, bp.veh.max_accel, B_TRUE);
 			acf2tug_steer();
 			break;
+		}
+		seg = list_head(&bp.segs);
+		if (seg != NULL && seg->backward != last_backward) {
+			bp.reverse_t = bp.cur_t;
+			last_backward = seg->backward;
 		}
 	}
 
