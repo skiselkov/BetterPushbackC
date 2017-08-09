@@ -42,12 +42,14 @@
 #define	SPEED_COMPLETE_THRESH	0.05	/* m/s */
 #define	MIN_TURN_RADIUS		1.5	/* in case the aircraft is tiny */
 #define	MIN_STEERING_ARM_LEN	4	/* meters */
-#define	HARD_STEER_ANGLE	10	/* degrees */
-#define	MAX_OFF_PATH_ANGLE	35	/* degrees */
+#define	MAX_OFF_PATH_ANGLE	20	/* degrees */
+#define	OFF_PATH_CORR_ANGLE	35	/* degrees */
 #define	STEERING_SENSITIVE	90	/* degrees */
 #define	MIN_SPEED_XP10		0.6	/* m/s */
 #define	CRAWL_SPEED(xpversion, veh)	/* m/s */ \
-	(((xpversion) >= 11000 || !veh->xp10_bug_ign) ? 0.1 : MIN_SPEED_XP10)
+	(((xpversion) >= 11000 || !veh->xp10_bug_ign) ? 0.05 : MIN_SPEED_XP10)
+
+#define	MIN_SEG_LEN		0.1	/* meters */
 
 #define	STEER_GATE(x, g)	MIN(MAX((x), -g), g)
 
@@ -65,7 +67,7 @@
  */
 #define	OBLIQUE_RADIUS_FACT	1.02
 
-#define	STRAIGHT_SEG_ANGLE_LIM	0.1
+#define	STRAIGHT_SEG_ANGLE_LIM	1
 
 /* Turns on aggressive debug logging. */
 /*#define	DRIVING_DEBUG_LOGGING*/
@@ -191,8 +193,12 @@ compute_segs_impl(const vehicle_t *veh, vect2_t start_pos, double start_hdg,
 	bool_t backward;
 
 	/* If the start & end positions overlap, no operation is required */
-	if (VECT2_EQ(start_pos, end_pos))
-		return (start_hdg == end_hdg ? 0 : -1);
+	if (vect2_dist(start_pos, end_pos) < MIN_SEG_LEN) {
+		if (ABS(start_hdg - end_hdg) < STRAIGHT_SEG_ANGLE_LIM)
+			return (0);
+		else
+			return (-1);
+	}
 	s2e_v = vect2_sub(end_pos, start_pos);
 	rhdg = rel_hdg(start_hdg, dir2hdg(s2e_v));
 	backward = (fabs(rhdg) > 90);
@@ -212,7 +218,7 @@ compute_segs_impl(const vehicle_t *veh, vect2_t start_pos, double start_hdg,
 	 */
 	if (fabs(start_hdg - end_hdg) < STRAIGHT_SEG_ANGLE_LIM &&
 	    (ABS(rhdg) < STRAIGHT_SEG_ANGLE_LIM ||
-	    ABS(rhdg > 180 - STRAIGHT_SEG_ANGLE_LIM))) {
+	    ABS(rhdg) > 180 - STRAIGHT_SEG_ANGLE_LIM)) {
 		vect2_t dir_v = hdg2dir(start_hdg + (backward ? 180 : 0));
 		double len = vect2_dotprod(dir_v, s2e_v);
 
@@ -241,12 +247,13 @@ compute_segs_impl(const vehicle_t *veh, vect2_t start_pos, double start_hdg,
 
 	turn_edge = vect2vect_isect(s1_v, start_pos, s2_v, end_pos, B_TRUE);
 	if (IS_NULL_VECT(turn_edge)) {
-		if (recurse)
+		if (recurse) {
 			return (compute_segs_oblique(veh, start_pos, start_hdg,
 			    end_pos, end_hdg, segs, backward, min_radius *
 			    OBLIQUE_RADIUS_FACT));
-		else
+		} else {
 			return (-1);
+		}
 	}
 
 	l1 = vect2_dist(turn_edge, start_pos);
@@ -383,8 +390,7 @@ drive_on_line(const vehicle_pos_t *pos, const vehicle_t *veh,
 	 * which point `c' is deflected from the ideal straight line. So
 	 * simply steer in the opposite direction to try and nullify it.
 	 */
-	steer = STEER_GATE(mis_hdg/* + d_mis_hdg * steer_corr_amp*/,
-	    veh->max_steer);
+	steer = STEER_GATE(mis_hdg + rhdg, veh->max_steer);
 
 	/*
 	 * Watch out for overcorrecting. If our heading is too far in the
@@ -393,24 +399,20 @@ drive_on_line(const vehicle_pos_t *pos, const vehicle_t *veh,
 	 * on track.
 	 */
 	if (mis_hdg < 0 && rhdg > MAX_OFF_PATH_ANGLE) {
-		steer = STEER_GATE(rhdg - MAX_OFF_PATH_ANGLE, veh->max_steer);
+		steer = STEER_GATE(rhdg - OFF_PATH_CORR_ANGLE, veh->max_steer);
 		overcorrecting = B_TRUE;
 	} else if (mis_hdg > 0 && rhdg < -MAX_OFF_PATH_ANGLE) {
-		steer = STEER_GATE(rhdg + MAX_OFF_PATH_ANGLE, veh->max_steer);
+		steer = STEER_GATE(rhdg + OFF_PATH_CORR_ANGLE, veh->max_steer);
 		overcorrecting = B_TRUE;
 	}
-
-#ifdef	DRIVING_DEBUG_LOGGING
-	logMsg("mis_hdg: %.2f d_mis_hdg: %.2f rhdg: %.2f arm: %.1f",
-	    mis_hdg, d_mis_hdg, rhdg, steering_arm);
-#endif	/* DRIVING_DEBUG_LOGGING */
 
 	/*
 	 * If we've come off the path even with overcorrection, slow down
 	 * until we're re-established again.
 	 */
-	if (overcorrecting)
+	if (overcorrecting) {
 		speed = MAX(MIN(speed, veh->max_rev_spd), -veh->max_rev_spd);
+	}
 
 	/*
 	 * Limit our speed to not overstep maximum angular velocity for
@@ -427,6 +429,23 @@ drive_on_line(const vehicle_pos_t *pos, const vehicle_t *veh,
 	/* Steering works in reverse when pushing back. */
 	if (speed < 0)
 		steer = -steer;
+
+#ifdef	DRIVING_DEBUG_LOGGING
+	printf("mis_hdg: %5.1f d_mis_hdg: %5.1f rhdg: %5.1f arm: %3.1f oc:%d "
+	    "st:%5.1f\n", mis_hdg, d_mis_hdg, rhdg, steering_arm,
+	    overcorrecting, steer);
+#endif	/* DRIVING_DEBUG_LOGGING */
+
+	/*
+	 * At very short wheelbases, the steering correction amplification is
+	 * causing more trouble than good. So gradually reduce it out as the
+	 * wheelbase goes from MIN_STEERING_ARM_LEN to 0.1m.
+	 */
+
+	if (veh->wheelbase < MIN_STEERING_ARM_LEN) {
+		steer_corr_amp = fx_lin(veh->wheelbase, 0.5, 1,
+		    MIN_STEERING_ARM_LEN, steer_corr_amp);
+	}
 
 	*steer_out = steer * steer_corr_amp;
 	*speed_out = speed;
@@ -496,11 +515,26 @@ static double
 straight_run_speed(const int xpversion, const vehicle_t *veh, list_t *segs,
     double rmng_d, bool_t backward, const seg_t *next)
 {
-	double next_spd, cruise_spd, spd;
+	double next_spd, cruise_spd, spd, crawl_spd;
 	double ts[2];
 
 	next_spd = next_seg_speed(xpversion, veh, segs, next, backward);
 	cruise_spd = (backward ? veh->max_rev_spd : veh->max_fwd_spd);
+	crawl_spd = CRAWL_SPEED(bp_xp_ver, veh);
+
+	if (rmng_d < crawl_spd)
+		return (MAX(next_spd, crawl_spd));
+
+	/*
+	 * Pretend we have less distance left so as to reach our target speed
+	 * 1-2 seconds ahead of entering the next segment. The purpose of this
+	 * is to help prevent an overshoot on the last segment (so we stop
+	 * almost exactly where we wanted to). This is because the deceleration
+	 * always trails our desired speed by a little, so when ending the tow,
+	 * we always end up going a little bit beyond our target.
+	 */
+	if (rmng_d > crawl_spd)
+		rmng_d -= crawl_spd;
 
 	/*
 	 * This algorithm works as follows:
@@ -595,7 +629,7 @@ turn_run(const vehicle_pos_t *pos, const vehicle_t *veh, const seg_t *seg,
 
 	speed = (!seg->backward ? speed : -speed);
 	drive_on_line(pos, veh, r, hdg, speed, veh->wheelbase / 5,
-	    2, last_mis_hdg, d_t, out_steer, out_speed);
+	    3, last_mis_hdg, d_t, out_steer, out_speed);
 }
 
 bool_t
@@ -626,7 +660,7 @@ drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
 
 		speed = (!seg->backward ? speed : -speed);
 		drive_on_line(pos, veh, seg->start_pos, hdg, speed,
-		    veh->wheelbase / 2, 1.5, last_mis_hdg, d_t, out_steer,
+		    veh->wheelbase / 2, 3, last_mis_hdg, d_t, out_steer,
 		    out_speed);
 	} else {
 		double rhdg = fabs(rel_hdg(pos->hdg, seg->end_hdg));
@@ -640,9 +674,11 @@ drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
 		/*
 		 * Segment complete when we are past the end_pos point
 		 * (delta between end_hdg and a vector from end_pos to
-		 * cur_pos is <= 90 degrees)
+		 * cur_pos is <= 90 degrees) and we are pointing at least
+		 * roughly in the correct direction (otherwise we might
+		 * complete >180 degree turns too early).
 		 */
-		if (end_brg <= 90) {
+		if (end_brg < 90 && rhdg < 90) {
 			list_remove(segs, seg);
 			free(seg);
 			return (B_FALSE);

@@ -36,7 +36,7 @@
 #include "tug.h"
 #include "xplane.h"
 
-#define	TUG_STEER_RATE		25	/* deg/s */
+#define	TUG_STEER_RATE		60	/* deg/s */
 #define	TUG_FAST_STEER_RATE	60	/* deg/s */
 
 #define	TUG_MAX_ANG_VEL		20	/* deg/s */

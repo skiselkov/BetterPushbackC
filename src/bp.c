@@ -85,7 +85,7 @@
 /* beyond this our push algos go nuts */
 #define	MAX_STEER_ANGLE		(bp_xp_ver < 11000 ? 50 : 65)
 #define	MIN_STEER_ANGLE		40	/* minimum sensible tire steer angle */
-#define	MAX_FWD_ANG_VEL		6	/* degrees per second */
+#define	MAX_FWD_ANG_VEL		5	/* degrees per second */
 #define	MAX_REV_ANG_VEL		2.5	/* degrees per second */
 #define	PB_CRADLE_DELAY		10	/* seconds */
 #define	PB_WINCH_DELAY		10	/* seconds */
@@ -136,17 +136,19 @@ typedef enum {
 } pushback_step_t;
 
 typedef struct {
-	int		nw_i;
-	double		nw_z;
-	double		main_z;
-	double		nw_len;
-	unsigned	nw_type;
-	double		tirrad;
+	int		nw_i;		/* nose gear index the gear tables */
+	double		nw_z;		/* nose gear long offset (meters) */
+	double		main_z;		/* main gear long offset (meters) */
+	double		nw_len;		/* nose gear leg length (meters) */
+	unsigned	nw_type;	/* nosewheel gear arrangement type */
+	double		tirrad;		/* nosewheel tire radius (meters) */
+	int		n_gear;		/* number of gear */
+	int		gear_is[10];	/* gear index in the gear tables */
 } acf_t;
 
 typedef struct {
-	vehicle_t	veh;
-	acf_t		acf;		/* our aircraft */
+	vehicle_t	veh;		/* our driving params */
+	acf_t		acf;		/* aux params of aircraft gear */
 
 	struct {
 		vect2_t	start_acf_pos;
@@ -205,7 +207,7 @@ static struct {
 	dr_t	sim_time;
 	dr_t	acf_mass;
 	dr_t	mtow;
-	dr_t	tire_z, leg_len, tirrad;
+	dr_t	tire_z, tire_x, leg_len, tirrad;
 	dr_t	nw_steerdeg1, nw_steerdeg2;
 	dr_t	tire_steer_cmd;
 	dr_t	override_steer;
@@ -291,6 +293,9 @@ pbrake_is_set(void)
 	return (dr_getf(&drs.pbrake) != 0 || dr_getf(&drs.pbrake_rat) != 0);
 }
 
+/*
+ * Checks if ANY engine of the aircraft is running.
+ */
 static bool_t
 eng_is_running(void)
 {
@@ -304,6 +309,71 @@ eng_is_running(void)
 	}
 
 	return (B_FALSE);
+}
+
+/*
+ * Returns true if the engines may be started during pushback. Engines may
+ * be started IF:
+ *	1) there are two or more engines (i.e. they are on the wings and
+ *	   won't risk hitting the tug.
+ *	2) if there is one engine only, it may be started it if is a jet
+ *	   engine. Civillian jet engines generally do not have their intake
+ *	   on the nose of the aircraft.
+ */
+static bool_t
+eng_ok2start(void)
+{
+	dr_t eng_type_dr;
+	int eng_type;
+
+	if (dr_geti(&drs.num_engns) > 1)
+		return (B_TRUE);
+	fdr_find(&eng_type_dr, "sim/aircraft/prop/acf_en_type");
+	eng_type = dr_geti(&eng_type_dr);
+	/*
+	 * From X-Plane's DataRefs.txt, the engine types are:
+	 *	0=recip carb		(prop, not OK to start)
+	 *	1=recip injected	(prop, not OK to start)
+	 *	2=free turbine		(prop, not OK to start)
+	 *	3=electric		(prop, not OK to start)
+	 *	4=lo bypass jet		(jet, OK to start)
+	 *	5=hi bypass jet		(jet, OK to start)
+	 *	6=rocket		(don't care, doesn't exist)
+	 *	7=tip rockets		(don't care, doesn't exist)
+	 *	8=fixed turbine		(prop, not OK to start)
+	 */
+	return (eng_type >= 4 && eng_type <= 5);
+}
+
+/*
+ * On single-engine prop aircraft we must rotate the propeller prior to
+ * attaching so that the blades are as far away from the ground as possible,
+ * so they don't catch on our tug. Any other aircraft type, we leave alone.
+ */
+static void
+prop_single_adjust(void)
+{
+	dr_t eng_type_dr, prop_angle_dr, num_blades_dr;
+	int eng_type, num_blades;
+
+	if (dr_geti(&drs.num_engns) > 1)
+		return;
+	fdr_find(&eng_type_dr, "sim/aircraft/prop/acf_en_type");
+	eng_type = dr_geti(&eng_type_dr);
+	/* See eng_ok2start for engine type designators */
+	if (eng_type > 3 && eng_type < 8)
+		return;
+	fdr_find(&prop_angle_dr,
+	    "sim/flightmodel2/engines/prop_rotation_angle_deg");
+	fdr_find(&num_blades_dr, "sim/aircraft/prop/acf_num_blades");
+	num_blades = dr_geti(&num_blades_dr);
+	if (num_blades % 2 == 1) {
+		/* odd numbers of blades mean we always go to 0 degrees */
+		dr_setf(&prop_angle_dr, 0);
+	} else {
+		/* even numbers we rotate to put a gap at the bottom */
+		dr_setf(&prop_angle_dr, 180 / num_blades);
+	}
 }
 
 static void
@@ -516,9 +586,8 @@ static bool_t
 read_gear_info(void)
 {
 	double tire_z[10];
-	int gear_steers[10], gear_types[10], gear_on_ground[10], gear_is[10],
+	int gear_steers[10], gear_types[10], gear_on_ground[10],
 	    gear_deploy[10];
-	int n_gear = 0;
 
 	dr_getvi(&drs.gear_deploy, gear_deploy, 0, 10);
 	if (bp_xp_ver >= 11000)
@@ -543,21 +612,22 @@ read_gear_info(void)
 		 */
 		if (gear_types[i] >= 2 && gear_on_ground[i] != 0 &&
 		    gear_deploy[i] != 0)
-			gear_is[n_gear++] = i;
+			bp.acf.gear_is[bp.acf.n_gear++] = i;
 	}
 
 	/* Read nosegear long axis deflections */
-	VERIFY3S(dr_getvf(&drs.tire_z, tire_z, 0, 10), >=, n_gear);
+	VERIFY3S(dr_getvf(&drs.tire_z, tire_z, 0, 10), >=, bp.acf.n_gear);
 	bp.acf.nw_i = -1;
 	bp.acf.nw_z = 1e10;
 
 	/* Next determine which gear steers. Pick the one most forward. */
-	VERIFY3S(dr_getvi(&drs.gear_steers, gear_steers, 0, 10), >=, n_gear);
-	for (int i = 0; i < n_gear; i++) {
-		if (gear_steers[gear_is[i]] == 1 &&
-		    tire_z[gear_is[i]] < bp.acf.nw_z) {
-			bp.acf.nw_i = gear_is[i];
-			bp.acf.nw_z = tire_z[gear_is[i]];
+	VERIFY3S(dr_getvi(&drs.gear_steers, gear_steers, 0, 10), >=,
+	    bp.acf.n_gear);
+	for (int i = 0; i < bp.acf.n_gear; i++) {
+		if (gear_steers[bp.acf.gear_is[i]] == 1 &&
+		    tire_z[bp.acf.gear_is[i]] < bp.acf.nw_z) {
+			bp.acf.nw_i = bp.acf.gear_is[i];
+			bp.acf.nw_z = tire_z[bp.acf.gear_is[i]];
 		}
 	}
 	/*
@@ -566,8 +636,8 @@ read_gear_info(void)
 	 * to refuse to work in that case, so just hard-set the nw_i to 0.
 	 */
 	if (acf_is_felis_tu154m()) {
-		bp.acf.nw_i = gear_is[0];
-		bp.acf.nw_z = tire_z[gear_is[0]];
+		bp.acf.nw_i = bp.acf.gear_is[0];
+		bp.acf.nw_z = tire_z[bp.acf.gear_is[0]];
 	}
 	if (bp.acf.nw_i == -1) {
 		XPLMSpeakString(_("Pushback failure: aircraft appears to not "
@@ -583,11 +653,11 @@ read_gear_info(void)
 	bp.acf.nw_type = gear_types[bp.acf.nw_i];
 
 	/* Compute main gear Z deflection as mean of all main gears */
-	for (int i = 0; i < n_gear; i++) {
-		if (gear_is[i] != bp.acf.nw_i)
-			bp.acf.main_z += tire_z[gear_is[i]];
+	for (int i = 0; i < bp.acf.n_gear; i++) {
+		if (bp.acf.gear_is[i] != bp.acf.nw_i)
+			bp.acf.main_z += tire_z[bp.acf.gear_is[i]];
 	}
-	bp.acf.main_z /= n_gear - 1;
+	bp.acf.main_z /= bp.acf.n_gear - 1;
 
 	return (B_TRUE);
 }
@@ -755,6 +825,7 @@ bp_init(void)
 	fdr_find(&drs.sim_time, "sim/time/total_running_time_sec");
 	fdr_find(&drs.acf_mass, "sim/flightmodel/weight/m_total");
 	fdr_find(&drs.tire_z, "sim/flightmodel/parts/tire_z_no_deflection");
+	fdr_find(&drs.tire_x, "sim/flightmodel/parts/tire_x_no_deflection");
 	fdr_find(&drs.mtow, "sim/aircraft/weight/acf_m_max");
 	fdr_find(&drs.leg_len, "sim/aircraft/parts/acf_gear_leglen");
 	fdr_find(&drs.tirrad, "sim/aircraft/parts/acf_gear_tirrad");
@@ -1521,16 +1592,13 @@ pb_step_connected(void)
 			seg_t *seg = list_head(&bp.segs);
 
 			ASSERT(seg != NULL);
-			if (seg->backward) {
-				if (eng_is_running())
-					msg_play(MSG_START_PB_NOSTART);
-				else
-					msg_play(MSG_START_PB);
+			if (dr_geti(&drs.num_engns) == 0 ||
+			    eng_is_running() || !eng_ok2start()) {
+				msg_play(seg->backward ? MSG_START_PB_NOSTART :
+				    MSG_START_TOW_NOSTART);
 			} else {
-				if (eng_is_running())
-					msg_play(MSG_START_TOW_NOSTART);
-				else
-					msg_play(MSG_START_TOW);
+				msg_play(seg->backward ? MSG_START_PB :
+				    MSG_START_TOW);
 			}
 		} else {
 			/*
@@ -1786,6 +1854,7 @@ disco_win_draw(XPLMWindowID inWindowID, void *inRefcon)
 	XPLMGetScreenSize(&w, &h);
 	XPLMGetMouseLocation(&mx, &my);
 
+	XPLMSetGraphicsState(0, 1, 0, 0, 1, 0, 0);
 	if (inWindowID == bp.disco_win) {
 		bool_t is_lit = (mx >= w / 2 - 1.5 * disco_buttons[0].w &&
 		    mx <= w / 2 - 0.5 * disco_buttons[0].w &&
@@ -2167,11 +2236,9 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			 */
 			tug_set_pos(bp.tug, ZERO_VECT2, 0, 0);
 		} else if (bp.step == PB_STEP_UNGRABBING) {
-#if 0
 			dr_setvf(&drs.leg_len, &bp.acf.nw_len, bp.acf.nw_i, 1);
 			bp_complete();
 			return (0);
-#endif
 		}
 	}
 
@@ -2208,6 +2275,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		if (d_t >= PB_CRADLE_DELAY) {
 			tug_set_lift_in_transit(B_FALSE);
 			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
+			prop_single_adjust();
 		}
 		if (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY) {
 			if (!bp.reconnect) {
@@ -2329,7 +2397,6 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 	return (-1);
 }
 
-#define	ABV_TERR_HEIGHT		1.5	/* meters */
 #define	MAX_PRED_DISTANCE	10000	/* meters */
 #define	ANGLE_DRAW_STEP		5
 #define	ORIENTATION_LINE_LEN	200
@@ -2685,12 +2752,10 @@ draw_segment(const seg_t *seg)
 		glBegin(GL_LINES);
 		VERIFY3U(XPLMProbeTerrainXYZ(probe, seg->start_pos.x, 0,
 		    -seg->start_pos.y, &info), ==, xplm_ProbeHitTerrain);
-		glVertex3f(seg->start_pos.x, info.locationY + ABV_TERR_HEIGHT,
-		    -seg->start_pos.y);
+		glVertex3f(seg->start_pos.x, info.locationY, -seg->start_pos.y);
 		VERIFY3U(XPLMProbeTerrainXYZ(probe, seg->end_pos.x, 0,
 		    -seg->end_pos.y, &info), ==, xplm_ProbeHitTerrain);
-		glVertex3f(seg->end_pos.x, info.locationY + ABV_TERR_HEIGHT,
-		    -seg->end_pos.y);
+		glVertex3f(seg->end_pos.x, info.locationY, -seg->end_pos.y);
 		glEnd();
 		break;
 	case SEG_TYPE_TURN: {
@@ -2711,9 +2776,9 @@ draw_segment(const seg_t *seg)
 			p = vect2_add(c, vect2_rot(c2s, a));
 			VERIFY3U(XPLMProbeTerrainXYZ(probe, p.x, 0, -p.y,
 			    &info), ==, xplm_ProbeHitTerrain);
-			glVertex3f(p.x, info.locationY + ABV_TERR_HEIGHT, -p.y);
+			glVertex3f(p.x, info.locationY, -p.y);
 			p = vect2_add(c, vect2_rot(c2s, a + s));
-			glVertex3f(p.x, info.locationY + ABV_TERR_HEIGHT, -p.y);
+			glVertex3f(p.x, info.locationY, -p.y);
 		}
 		glEnd();
 		break;
@@ -2728,6 +2793,7 @@ draw_acf_symbol(vect3_t pos, double hdg, double wheelbase, vect3_t color)
 {
 	vect2_t v;
 	vect3_t p;
+	double tire_x[10], tire_z[10], tirrad[10];
 
 	/*
 	 * The wheelbase of most airlines is very roughly 1/3 of their
@@ -2758,6 +2824,33 @@ draw_acf_symbol(vect3_t pos, double hdg, double wheelbase, vect3_t color)
 	v = vect2_rot(VECT2(wheelbase / 2, -wheelbase), hdg);
 	p = vect3_add(pos, VECT3(v.x, 0, v.y));
 	glVertex3f(p.x, p.y, -p.z);
+	glEnd();
+
+	dr_getvf(&drs.tire_x, tire_x, 0, 10);
+	dr_getvf(&drs.tire_z, tire_z, 0, 10);
+	dr_getvf(&drs.tirrad, tirrad, 0, 10);
+
+	glBegin(GL_QUADS);
+	for (int i = 0; i < bp.acf.n_gear; i++) {
+		double tr = tirrad[bp.acf.gear_is[i]];
+		vect2_t c;
+
+		v = VECT2(tire_x[bp.acf.gear_is[i]],
+		    -tire_z[bp.acf.gear_is[i]]);
+
+		c = vect2_rot(vect2_add(v, VECT2(-tr, -tr)), hdg);
+		p = vect3_add(pos, VECT3(c.x, 0, c.y));
+		glVertex3f(p.x, p.y, -p.z);
+		c = vect2_rot(vect2_add(v, VECT2(-tr, tr)), hdg);
+		p = vect3_add(pos, VECT3(c.x, 0, c.y));
+		glVertex3f(p.x, p.y, -p.z);
+		c = vect2_rot(vect2_add(v, VECT2(tr, tr)), hdg);
+		p = vect3_add(pos, VECT3(c.x, 0, c.y));
+		glVertex3f(p.x, p.y, -p.z);
+		c = vect2_rot(vect2_add(v, VECT2(tr, -tr)), hdg);
+		p = vect3_add(pos, VECT3(c.x, 0, c.y));
+		glVertex3f(p.x, p.y, -p.z);
+	}
 	glEnd();
 }
 
@@ -2795,40 +2888,40 @@ draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 		if (seg->type == SEG_TYPE_TURN || !seg->backward) {
 			glBegin(GL_LINES);
 			glColor3f(0, 1, 0);
-			glVertex3f(seg->end_pos.x, info.locationY +
-			    ABV_TERR_HEIGHT, -seg->end_pos.y);
+			glVertex3f(seg->end_pos.x, info.locationY,
+			    -seg->end_pos.y);
 			x = vect2_add(seg->end_pos, vect2_scmul(dir_v,
 			    ORIENTATION_LINE_LEN));
-			glVertex3f(x.x, info.locationY + ABV_TERR_HEIGHT, -x.y);
+			glVertex3f(x.x, info.locationY, -x.y);
 			glEnd();
 		}
 		if (seg->type == SEG_TYPE_TURN || seg->backward) {
 			glBegin(GL_LINES);
 			glColor3f(1, 0, 0);
-			glVertex3f(seg->end_pos.x, info.locationY +
-			    ABV_TERR_HEIGHT, -seg->end_pos.y);
+			glVertex3f(seg->end_pos.x, info.locationY,
+			    -seg->end_pos.y);
 			x = vect2_add(seg->end_pos, vect2_neg(vect2_scmul(
 			    dir_v, ORIENTATION_LINE_LEN)));
-			glVertex3f(x.x, info.locationY + ABV_TERR_HEIGHT, -x.y);
+			glVertex3f(x.x, info.locationY, -x.y);
 			glEnd();
 		}
-		draw_acf_symbol(VECT3(seg->end_pos.x, info.locationY +
-		    ABV_TERR_HEIGHT, seg->end_pos.y), seg->end_hdg,
-		    bp.veh.wheelbase, AMBER_TUPLE);
+		draw_acf_symbol(VECT3(seg->end_pos.x, info.locationY,
+		    seg->end_pos.y), seg->end_hdg, bp.veh.wheelbase,
+		    AMBER_TUPLE);
 	} else {
 		VERIFY3U(XPLMProbeTerrainXYZ(probe, cursor_world_pos.x, 0,
 		    -cursor_world_pos.y, &info), ==, xplm_ProbeHitTerrain);
-		draw_acf_symbol(VECT3(cursor_world_pos.x, info.locationY +
-		    ABV_TERR_HEIGHT, cursor_world_pos.y), cursor_hdg,
-		    bp.veh.wheelbase, RED_TUPLE);
+		draw_acf_symbol(VECT3(cursor_world_pos.x, info.locationY,
+		    cursor_world_pos.y), cursor_hdg, bp.veh.wheelbase,
+		    RED_TUPLE);
 	}
 
 	if ((seg = list_tail(&bp.segs)) != NULL) {
 		VERIFY3U(XPLMProbeTerrainXYZ(probe, seg->end_pos.x, 0,
 		    -seg->end_pos.y, &info), ==, xplm_ProbeHitTerrain);
-		draw_acf_symbol(VECT3(seg->end_pos.x, info.locationY +
-		    ABV_TERR_HEIGHT, seg->end_pos.y), seg->end_hdg,
-		    bp.veh.wheelbase, GREEN_TUPLE);
+		draw_acf_symbol(VECT3(seg->end_pos.x, info.locationY,
+		    seg->end_pos.y), seg->end_hdg, bp.veh.wheelbase,
+		    GREEN_TUPLE);
 	}
 
 	/* Draw the night-lighting lamp so the user can see under the cursor */
