@@ -107,3 +107,51 @@ msgstr  "開始設計推車計劃"
 msgid "Close pushback planner"
 #msgstr "关闭推车计划"
 msgstr  "關閉推車計劃"
+
+msgid "Preferences..."
+msgstr "設置..."
+
+msgid "BetterPushback Preferences"
+msgstr "BetterPushback設置"
+
+msgid "User interface"
+msgstr "界面設置"
+
+msgid "X-Plane's language"
+msgstr "X-Plane系統語言"
+
+msgid "Ground crew audio"
+msgstr "地勤人員聲音"
+
+msgid "My language only at domestic airports"
+msgstr "只在國內機場說中文"
+
+msgid "My language at all airports"
+msgstr "所有機場說中文"
+
+msgid "English at all airports"
+msgstr "所有機場說英文"
+
+msgid "Save preferences"
+msgstr "保存設置"
+
+msgid "Ground crew speaks my language only if the country the airport is\n"
+"in speaks my language. Otherwise the ground crew speaks English\n"
+"with a local accent."
+msgstr "地面人員只有在說中文的機場時，才會說中文，否則地勤人員會說當地口音英語"
+
+msgid "Ground crew speaks my language irrespective of what country the "
+"airport is in."
+msgstr "無論機場在哪個國家，地勤人員都會說中文"
+
+msgid "Ground crew always speaks English with a local accent."
+msgstr "無論機場在哪個國家，地勤人員都會說中文"
+
+msgid "Save current preferences to disk."
+msgstr "保存當前設置"
+
+msgid "Disconnect tow + headset and switch to hand signals."
+msgstr "斷開拖桿和耳機然後註意手勢"
+
+msgid "Reconnect tow and await further instructions."
+msgstr "重新連接拖桿，等待指令"
