@@ -215,7 +215,7 @@ static struct {
 	dr_t	gear_types;
 	dr_t	gear_steers;
 	dr_t	gear_on_ground;
-	dr_t	onground_all;
+	dr_t	onground_any;
 	dr_t	gear_deploy;
 	dr_t	num_engns;
 	dr_t	engn_running;
@@ -730,7 +730,7 @@ audio_sys_init(void)
 static bool_t
 acf_on_gnd_stopped(const char **reason)
 {
-	if (dr_geti(&drs.onground_all) != 1) {
+	if (dr_geti(&drs.onground_any) != 1) {
 		if (reason != NULL)
 			*reason = _("Pushback failure: aircraft not on ground.");
 		return (B_FALSE);
@@ -841,7 +841,7 @@ bp_init(void)
 		fdr_find(&drs.gear_on_ground,
 		    "sim/flightmodel2/gear/on_ground");
 	}
-	fdr_find(&drs.onground_all, "sim/flightmodel/failures/onground_all");
+	fdr_find(&drs.onground_any, "sim/flightmodel/failures/onground_any");
 	fdr_find(&drs.gear_steers, "sim/aircraft/overflow/acf_gear_steers");
 	fdr_find(&drs.gear_deploy, "sim/aircraft/parts/acf_gear_deploy");
 	fdr_find(&drs.num_engns, "sim/aircraft/engine/acf_num_engines");
