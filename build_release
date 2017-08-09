@@ -84,6 +84,8 @@ function install_icon_files() {
 		'cancel_plan.png'
 		'move_view.png'
 		'rotate_seg.png'
+		'disconnect.png'
+		'reconnect.png'
 	)
 	for DIR in data/icons/[a-z][a-z]; do
 		for FILE in ${FILES[@]}; do
