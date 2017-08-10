@@ -39,7 +39,6 @@
 #include "xplane.h"
 
 #define	SEG_TURN_MULT		0.9	/* leave 10% for oversteer */
-#define	SPEED_COMPLETE_THRESH	0.05	/* m/s */
 #define	MIN_TURN_RADIUS		1.5	/* in case the aircraft is tiny */
 #define	MIN_STEERING_ARM_LEN	4	/* meters */
 #define	MAX_OFF_PATH_ANGLE	20	/* degrees */
@@ -47,7 +46,7 @@
 #define	STEERING_SENSITIVE	90	/* degrees */
 #define	MIN_SPEED_XP10		0.6	/* m/s */
 #define	CRAWL_SPEED(xpversion, veh)	/* m/s */ \
-	(((xpversion) >= 11000 || !veh->xp10_bug_ign) ? 0.05 : MIN_SPEED_XP10)
+	(((xpversion) >= 11000 || !veh->xp10_bug_ign) ? 0.1 : MIN_SPEED_XP10)
 
 #define	MIN_SEG_LEN		0.1	/* meters */
 
@@ -94,9 +93,10 @@ static int compute_segs_impl(const vehicle_t *veh, vect2_t start_pos,
     bool_t recurse);
 static double turn_run_speed(const int xpversion, const vehicle_t *veh,
     list_t *segs, double rhdg, double radius, bool_t backward,
-    const seg_t *next);
+    const seg_t *next, bool_t *out_decelerating);
 static double straight_run_speed(const int xpversion, const vehicle_t *veh,
-    list_t *segs, double rmng_d, bool_t backward, const seg_t *next);
+    list_t *segs, double rmng_d, bool_t backward, const seg_t *next,
+    bool_t *out_decelerating);
 
 static int
 construct_segs_oblique(const vehicle_t *veh, vect2_t start_pos,
@@ -460,12 +460,13 @@ next_seg_speed(const int xpversion, const vehicle_t *veh, list_t *segs,
 	if (next != NULL && next->backward == cur_backward) {
 		if (next->type == SEG_TYPE_STRAIGHT) {
 			return (straight_run_speed(xpversion, veh, segs,
-			    next->len, next->backward,list_next(segs, next)));
+			    next->len, next->backward,list_next(segs, next),
+			    NULL));
 		} else {
 			return (turn_run_speed(xpversion, veh, segs,
 			    rel_hdg(next->start_hdg, next->end_hdg),
 			    next->turn.r, next->backward,
-			    list_next(segs, next)));
+			    list_next(segs, next), NULL));
 		}
 	} else {
 		/*
@@ -485,11 +486,12 @@ next_seg_speed(const int xpversion, const vehicle_t *veh, list_t *segs,
  */
 static double
 turn_run_speed(const int xpversion, const vehicle_t *veh, list_t *segs,
-    double rhdg, double radius, bool_t backward, const seg_t *next)
+    double rhdg, double radius, bool_t backward, const seg_t *next,
+    bool_t *out_decelerating)
 {
 	double rmng_d = (2 * M_PI * radius) * (rhdg / 360.0);
 	double spd = straight_run_speed(xpversion, veh, segs, rmng_d,
-	    backward, next);
+	    backward, next, out_decelerating);
 	double rmng_t = rmng_d / spd;
 	double ang_vel = rhdg / rmng_t;
 
@@ -511,9 +513,15 @@ turn_run_speed(const int xpversion, const vehicle_t *veh, list_t *segs,
 	return (spd);
 }
 
+/*
+ * Estimates the speed we should be going to not overspeed on a straight line
+ * and also decelerate in time for the next segment. If out_decelerating is not
+ * NULL, we set it to B_TRUE when decelerating from our cruise_spd to the next
+ * segment or a full stop.
+ */
 static double
 straight_run_speed(const int xpversion, const vehicle_t *veh, list_t *segs,
-    double rmng_d, bool_t backward, const seg_t *next)
+    double rmng_d, bool_t backward, const seg_t *next, bool_t *out_decelerating)
 {
 	double next_spd, cruise_spd, spd, crawl_spd;
 	double ts[2];
@@ -586,6 +594,8 @@ straight_run_speed(const int xpversion, const vehicle_t *veh, list_t *segs,
 		spd = next_spd;
 		break;
 	}
+	if (out_decelerating != NULL)
+		*out_decelerating = (spd < cruise_spd);
 
 	return (spd);
 }
@@ -634,7 +644,8 @@ turn_run(const vehicle_pos_t *pos, const vehicle_t *veh, const seg_t *seg,
 
 bool_t
 drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
-    double *last_mis_hdg, double d_t, double *out_steer, double *out_speed)
+    double *last_mis_hdg, double d_t, double *out_steer, double *out_speed,
+    bool_t *out_decelerating)
 {
 	seg_t *seg = list_head(segs);
 	int xpversion;
@@ -648,7 +659,8 @@ drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
 		double len = vect2_dotprod(vect2_sub(pos->pos, seg->start_pos),
 		    dir);
 		double speed = straight_run_speed(xpversion, veh, segs,
-		    seg->len - len, seg->backward, list_next(segs, seg));
+		    seg->len - len, seg->backward, list_next(segs, seg),
+		    out_decelerating);
 		double hdg = (!seg->backward ? seg->start_hdg :
 		    normalize_hdg(seg->start_hdg + 180));
 
@@ -669,7 +681,8 @@ drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
 		double end_brg = fabs(rel_hdg(end_hdg, dir2hdg(
 		    vect2_sub(pos->pos, seg->end_pos))));
 		double speed = turn_run_speed(xpversion, veh, segs, ABS(rhdg),
-		    seg->turn.r, seg->backward, list_next(segs, seg));
+		    seg->turn.r, seg->backward, list_next(segs, seg),
+		    out_decelerating);
 
 		/*
 		 * Segment complete when we are past the end_pos point

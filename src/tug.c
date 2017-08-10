@@ -96,6 +96,7 @@ typedef struct {
  */
 typedef struct {
 	char		*livname;
+	bool_t		airline_matched;
 	uint64_t	sort_rand;
 	avl_node_t	node;
 } liv_t;
@@ -188,19 +189,32 @@ int
 liv_compar(const void *a, const void *b)
 {
 	const liv_t *la = a, *lb = b;
-	if (la->sort_rand < lb->sort_rand) {
+	int n;
+
+	/* Airline matching takes precedence */
+	if (la->airline_matched && !lb->airline_matched)
 		return (-1);
-	} else if (la->sort_rand > lb->sort_rand) {
+	if (!la->airline_matched && lb->airline_matched)
 		return (1);
-	} else {
-		int n = strcmp(la->livname, lb->livname);
-		if (n < 0)
-			return (-1);
-		else if (n > 0)
-			return (1);
-		ASSERT0(memcmp(la, lb, sizeof (*la)));
-		return (0);
-	}
+
+	/* Otherwise, we sort by our random value */
+	if (la->sort_rand < lb->sort_rand)
+		return (-1);
+	if (la->sort_rand > lb->sort_rand)
+		return (1);
+
+	/*
+	 * Could be random coincidence the sort values are equal, sort
+	 * by livery name - MUST be unique.
+	 */
+	n = strcmp(la->livname, lb->livname);
+	if (n < 0)
+		return (-1);
+	if (n > 0)
+		return (1);
+
+	ASSERT0(memcmp(la, lb, sizeof (*la)));
+	return (0);
 }
 
 /*
@@ -244,12 +258,35 @@ tug_info_free(tug_info_t *ti)
 }
 
 static bool_t
+regex_setup(const char *regex_str, const char *filename, pcre2_code **re,
+    pcre2_match_data **match_data, uint32_t compile_options)
+{
+	int err;
+	PCRE2_SIZE erroff;
+
+	*re = pcre2_compile((PCRE2_SPTR)regex_str, PCRE2_ZERO_TERMINATED,
+	    compile_options, &err, &erroff, NULL);
+	if (*re == NULL) {
+		PCRE2_UCHAR buf[256];
+
+		pcre2_get_error_message(err, buf, sizeof (buf));
+		logMsg("Malformed tug livery config %s: regex compile "
+		    "failed \"%s\": char %d: %s", filename, regex_str,
+		    (int)erroff, buf);
+		return (B_FALSE);
+	}
+	*match_data = pcre2_match_data_create_from_pattern(*re, NULL);
+
+	return (B_TRUE);
+}
+
+static bool_t
 tug_info_liv_cfg_match(const char *info_pathname, const char *icao,
-    bool_t *force_pick_this)
+    const char *airline, bool_t *force_pick_this, bool_t *is_airline,
+    bool_t *airline_matched, bool_t *airline_optional)
 {
 	FILE *fp = fopen(info_pathname, "r");
-	bool_t matched = B_FALSE;
-	bool_t match_debug = B_FALSE;
+	bool_t icao_matched = B_FALSE, match_debug = B_FALSE;
 
 	*force_pick_this = B_FALSE;
 
@@ -274,32 +311,26 @@ tug_info_liv_cfg_match(const char *info_pathname, const char *icao,
 
 		if (strcmp(cmd, "icao") == 0) {
 			char *regex_str;
-			int err, rc;
+			int rc;
 			pcre2_code *re;
-			PCRE2_SIZE erroff;
 			pcre2_match_data *match_data;
 
 			regex_str = parser_get_next_quoted_str(fp);
-			if (regex_str == NULL || *regex_str == 0) {
+			if (icao_matched) {
+				/* one match is enough */
+				free(regex_str);
+				continue;
+			}
+
+			if (regex_str == NULL || *regex_str == 0 ||
+			    !regex_setup(regex_str, info_pathname, &re,
+			    &match_data, 0)) {
 				logMsg("Malformed tug livery config %s: bad "
 				    "regex following \"icao\".", info_pathname);
 				free(regex_str);
 				break;
 			}
-			re = pcre2_compile((PCRE2_SPTR)regex_str,
-			    PCRE2_ZERO_TERMINATED, 0, &err, &erroff, NULL);
-			if (re == NULL) {
-				PCRE2_UCHAR buf[256];
 
-				pcre2_get_error_message(err, buf, sizeof (buf));
-				logMsg("Malformed tug livery config %s: regex "
-				    "compile failed \"%s\": char %d: %s",
-				    info_pathname, regex_str, (int)erroff, buf);
-				free(regex_str);
-				break;
-			}
-			match_data = pcre2_match_data_create_from_pattern(re,
-			    NULL);
 			rc = pcre2_match(re, (PCRE2_SPTR)icao, strlen(icao),
 			    0, 0, match_data, NULL);
 			pcre2_match_data_free(match_data);
@@ -311,19 +342,63 @@ tug_info_liv_cfg_match(const char *info_pathname, const char *icao,
 					    "matches airport \"%s\"",
 					    regex_str, icao);
 				}
-				free(regex_str);
-				matched = B_TRUE;
-				break;
+				icao_matched = B_TRUE;
 			} else if (match_debug) {
 				logMsg("match_debug: regex \"%s\" DOESN'T "
 				    "match airport \"%s\"", regex_str, icao);
 			}
-
 			free(regex_str);
+		} else if (strcmp(cmd, "airline") == 0 ||
+		    strcmp(cmd, "airlinei") == 0) {
+			bool_t caseign = (strcmp(cmd, "airlinei") == 0);
+			char *regex_str;
+			int rc;
+			pcre2_code *re;
+			pcre2_match_data *match_data;
+			uint32_t flags = PCRE2_UTF;
+			*is_airline = B_TRUE;
+
+			if (caseign)
+				flags |= PCRE2_CASELESS;
+			regex_str = parser_get_next_quoted_str(fp);
+			if (*airline_matched) {
+				/* one match is enough */
+				free(regex_str);
+				continue;
+			}
+
+			if (regex_str == NULL || *regex_str == 0 ||
+			    !regex_setup(regex_str, info_pathname, &re,
+			    &match_data, flags)) {
+				logMsg("Malformed tug livery config %s: bad "
+				    "regex following \"airline%s\".",
+				    info_pathname, caseign ? "i" : "");
+				free(regex_str);
+				break;
+			}
+			rc = pcre2_match(re, (PCRE2_SPTR)airline,
+			    strlen(airline), 0, 0, match_data, NULL);
+			pcre2_match_data_free(match_data);
+			pcre2_code_free(re);
+			if (rc >= 0) {
+				if (match_debug) {
+					logMsg("match_debug: regex \"%s\" "
+					    "matches airline \"%s\"",
+					    regex_str, airline);
+				}
+				*airline_matched = B_TRUE;
+			} else if (match_debug) {
+				logMsg("match_debug: regex \"%s\" DOESN'T "
+				    "match airline \"%s\"", regex_str, airline);
+				*airline_matched = B_FALSE;
+			}
+			free(regex_str);
+		} else if (strcmp(cmd, "airline_opt") == 0) {
+			*airline_optional = B_TRUE;
 		} else if (strcmp(cmd, "match_debug") == 0) {
 			match_debug = B_TRUE;
 		} else if (strcmp(cmd, "paint_debug") == 0) {
-			matched = B_TRUE;
+			icao_matched = B_TRUE;
 			*force_pick_this = B_TRUE;
 			logMsg("%s: \"paint_debug\" present forcibly picking",
 			    info_pathname);
@@ -336,11 +411,11 @@ tug_info_liv_cfg_match(const char *info_pathname, const char *icao,
 
 	fclose(fp);
 
-	return (matched);
+	return (icao_matched);
 }
 
 static bool_t
-tug_info_liv_select(tug_info_t *ti, const char *icao)
+tug_info_liv_select(tug_info_t *ti, const char *icao, const char *airline)
 {
 	bool_t isdir;
 	char *livdir_path;
@@ -368,6 +443,8 @@ tug_info_liv_select(tug_info_t *ti, const char *icao)
 			const char *dot = strrchr(de->d_name, '.');
 			char *info_pathname;
 			bool_t matched, force_pick_this;
+			bool_t is_airline = B_FALSE, airline_matched = B_FALSE;
+			bool_t airline_optional = B_FALSE;
 
 			/* only select subdirs ending in ".livery" */
 			if (dot == NULL || strcmp(&dot[1], "livery") != 0 ||
@@ -376,11 +453,14 @@ tug_info_liv_select(tug_info_t *ti, const char *icao)
 			info_pathname = mkpathname(ti->tugdir, "liveries",
 			    de->d_name, "info.cfg", NULL);
 			matched = tug_info_liv_cfg_match(info_pathname, icao,
-			    &force_pick_this);
-			if (matched) {
+			    airline, &force_pick_this, &is_airline,
+			    &airline_matched, &airline_optional);
+			if (matched && (!is_airline || !airline_optional ||
+			    !airline_matched || force_pick_this)) {
 				liv_t *liv = calloc(1, sizeof (*liv));
 				liv->livname = strdup(de->d_name);
 				liv->sort_rand = crc64_rand();
+				liv->airline_matched = airline_matched;
 
 				if (force_pick_this) {
 					/*
@@ -438,7 +518,8 @@ tug_info_liv_select(tug_info_t *ti, const char *icao)
 }
 
 static tug_info_t *
-tug_info_read(const char *tugdir, const char *tug_name, const char *icao)
+tug_info_read(const char *tugdir, const char *tug_name, const char *icao,
+    const char *airline)
 {
 	tug_info_t *ti = NULL;
 	char *cfgfilename = mkpathname(tugdir, "info.cfg", NULL);
@@ -703,7 +784,7 @@ tug_info_read(const char *tugdir, const char *tug_name, const char *icao)
 #undef	VALIDATE_TUG_REAL_NAN
 #undef	VALIDATE_TUG
 
-	if (!tug_info_liv_select(ti, icao))
+	if (!tug_info_liv_select(ti, icao, airline))
 		goto errout;
 
 	fclose(fp);
@@ -720,7 +801,7 @@ errout:
 
 static tug_info_t *
 tug_info_select(double mtow, double ng_len, double tirrad, unsigned gear_type,
-    const char *arpt, char **reason)
+    const char *arpt, const char *airline, char **reason)
 {
 	char *tugdir;
 	DIR *dirp;
@@ -760,7 +841,7 @@ tug_info_select(double mtow, double ng_len, double tirrad, unsigned gear_type,
 			continue;
 
 		tugpath = mkpathname(tugdir, de->d_name, NULL);
-		ti = tug_info_read(tugpath, de->d_name, arpt);
+		ti = tug_info_read(tugpath, de->d_name, arpt, airline);
 		/* A debug flag means we always pick this tug. */
 		if (ti != NULL && (ti->anim_debug || ti->drive_debug ||
 		    ti->quick_debug)) {
@@ -987,11 +1068,11 @@ tug_liv_destroy(char *objpath)
  */
 bool_t
 tug_available(double mtow, double ng_len, double tirrad, unsigned gear_type,
-    const char *arpt)
+    const char *arpt, const char *airline)
 {
 	char *reason = NULL;
 	tug_info_t *ti = tug_info_select(mtow, ng_len, tirrad, gear_type,
-	    arpt, &reason);
+	    arpt, airline, &reason);
 
 	if (ti == NULL)
 		logMsg("Failed to find a tug for you, reason:\n%s", reason);
@@ -1132,11 +1213,12 @@ errout:
 }
 
 tug_t *
-tug_alloc_man(const char *tug_name, double tirrad, const char *arpt)
+tug_alloc_man(const char *tug_name, double tirrad, const char *arpt,
+    const char *airline)
 {
 	char *tug_path = mkpathname(bp_xpdir, bp_plugindir, "objects", "tugs",
 	    tug_name, NULL);
-	tug_info_t *ti = tug_info_read(tug_path, tug_name, arpt);
+	tug_info_t *ti = tug_info_read(tug_path, tug_name, arpt, airline);
 
 	free(tug_path);
 	if (ti == NULL)
@@ -1147,12 +1229,12 @@ tug_alloc_man(const char *tug_name, double tirrad, const char *arpt)
 
 tug_t *
 tug_alloc_auto(double mtow, double ng_len, double tirrad, unsigned gear_type,
-    const char *arpt)
+    const char *arpt, const char *airline)
 {
 	/* Auto-select a matching tug from our repertoire */
 	char *reason = NULL;
 	tug_info_t *ti = tug_info_select(mtow, ng_len, tirrad, gear_type, arpt,
-	    &reason);
+	    airline, &reason);
 	if (ti == NULL) {
 		logMsg("Failed to find a tug for you, reason:\n%s", reason);
 		free(reason);
@@ -1240,7 +1322,7 @@ tug_run(tug_t *tug, double d_t, bool_t drive_slow)
 
 	if (list_head(&tug->segs) != NULL) {
 		drive_segs(&tug->pos, drive_slow ? &tug->veh_slow : &tug->veh,
-		    &tug->segs, &tug->last_mis_hdg, d_t, &steer, &speed);
+		    &tug->segs, &tug->last_mis_hdg, d_t, &steer, &speed, NULL);
 	}
 
 	/* modulate our speed based on required steering angle */

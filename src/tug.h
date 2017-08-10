@@ -180,10 +180,11 @@ void tug_glob_init(void);
 void tug_glob_fini(void);
 
 bool_t tug_available(double mtow, double ng_len, double tirrad,
-    unsigned gear_type, const char *arpt);
-tug_t *tug_alloc_man(const char *tug_name, double tirrad, const char *arpt);
+    unsigned gear_type, const char *arpt, const char *airline);
+tug_t *tug_alloc_man(const char *tug_name, double tirrad, const char *arpt,
+    const char *airline);
 tug_t *tug_alloc_auto(double mtow, double ng_len, double tirrad,
-    unsigned gear_type, const char *arpt);
+    unsigned gear_type, const char *arpt, const char *airline);
 void tug_free(tug_t *tug);
 
 void tug_set_pos(tug_t *tug, vect2_t pos, double hdg, double spd);

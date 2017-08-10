@@ -79,9 +79,9 @@
  * X-Plane 10's tire model is a bit less forgiving of slow creeping,
  * so bump the minimum breakaway speed on that version.
  */
-#define	BREAKAWAY_THRESH	(bp_xp_ver >= 11000 ? 0.1 : 0.35)
+#define	BREAKAWAY_THRESH	(bp_xp_ver >= 11000 ? 0.09 : 0.35)
 #define	SEG_TURN_MULT		0.9	/* leave 10% for oversteer */
-#define	SPEED_COMPLETE_THRESH	0.05	/* m/s */
+#define	SPEED_COMPLETE_THRESH	0.08	/* m/s */
 /* beyond this our push algos go nuts */
 #define	MAX_STEER_ANGLE		(bp_xp_ver < 11000 ? 50 : 65)
 #define	MIN_STEER_ANGLE		40	/* minimum sensible tire steer angle */
@@ -144,6 +144,24 @@ typedef struct {
 	double		tirrad;		/* nosewheel tire radius (meters) */
 	int		n_gear;		/* number of gear */
 	int		gear_is[10];	/* gear index in the gear tables */
+
+	/*
+	 * The following flags are extracted from the aircraft's .acf file
+	 * at boot.
+	 */
+	struct {
+		bool_t	is_airliner;		/* acf/_is_airliner */
+		bool_t	is_experimental;	/* acf/_is_experimental */
+		bool_t	is_general_aviation;	/* acf/_is_general_aviation */
+		bool_t	is_glider;		/* acf/_is_glider */
+		bool_t	is_helicopter;		/* acf/_is_helicopter */
+		bool_t	is_military;		/* acf/_is_military */
+		bool_t	is_sci_fi;		/* acf/_is_sci_fi */
+		bool_t	is_seaplane;		/* acf/_is_seaplane */
+		bool_t	is_ultralight;		/* acf/_is_ultralight */
+		bool_t	is_vtol;		/* acf/_is_vtol*/
+		bool_t	fly_like_a_helo;	/* acf/_fly_like_a_helo */
+	} model_flags;
 } acf_t;
 
 typedef struct {
@@ -219,6 +237,7 @@ static struct {
 	dr_t	gear_deploy;
 	dr_t	num_engns;
 	dr_t	engn_running;
+	dr_t	acf_livery_path;
 
 	dr_t	camera_fov_h, camera_fov_v;
 	dr_t	view_is_ext;
@@ -247,6 +266,7 @@ static bool_t inited = B_FALSE, cam_inited = B_FALSE;
 static bool_t floop_registered = B_FALSE;
 static bp_state_t bp;
 
+static bool_t read_acf_file_info(void);
 static float bp_run(float elapsed, float elapsed2, int counter, void *refcon);
 static void bp_complete(void);
 static bool_t load_buttons(void);
@@ -343,6 +363,56 @@ eng_ok2start(void)
 	 *	8=fixed turbine		(prop, not OK to start)
 	 */
 	return (eng_type >= 4 && eng_type <= 5);
+}
+
+/*
+ * Determines if an aircraft is likely to be an airliner.
+ */
+static bool_t
+acf_is_airliner(void)
+{
+	/* For our purposes, airliners don't exist in the light category. */
+	enum { AIRLINE_MIN_MTOW = 7000 };
+	return (dr_getf(&drs.mtow) >= AIRLINE_MIN_MTOW &&
+	    !bp.acf.model_flags.is_experimental &&
+	    !bp.acf.model_flags.is_general_aviation &&
+	    !bp.acf.model_flags.is_glider &&
+	    !bp.acf.model_flags.is_helicopter &&
+	    !bp.acf.model_flags.is_military &&
+	    !bp.acf.model_flags.is_sci_fi &&
+	    !bp.acf.model_flags.is_ultralight &&
+	    !bp.acf.model_flags.is_vtol &&
+	    !bp.acf.model_flags.fly_like_a_helo);
+}
+
+static void
+read_acf_airline(char airline[1024])
+{
+	int n;
+	char *p;
+
+	(void) dr_gets(&drs.acf_livery_path, airline, 1024);
+	n = strlen(airline);
+	/* strip the final directory separator */
+	if (n > 0) {
+		airline[n - 1] = '\0';
+		n--;
+	}
+	/* strip away any leading path components, leave only the last one */
+	if ((p = strrchr(airline, '/')) != NULL) {
+		int l;
+		p++;
+		l = n - (p - airline);
+		memmove(airline, p, l + 1);
+		n -= l;
+	}
+	if ((p = strrchr(airline, '\\')) != NULL) {
+		int l;
+		p++;
+		l = n - (p - airline);
+		memmove(airline, p, l + 1);
+		n -= l;
+	}
 }
 
 /*
@@ -498,7 +568,8 @@ turn_nosewheel(double req_angle, double rate)
 }
 
 static void
-push_at_speed(double targ_speed, double max_accel, bool_t allow_snd_ctl)
+push_at_speed(double targ_speed, double max_accel, bool_t allow_snd_ctl,
+    bool_t decelerating)
 {
 	double force_lim, force_incr, force, angle_rad, accel_now, d_v, Fx, Fz;
 
@@ -518,7 +589,7 @@ push_at_speed(double targ_speed, double max_accel, bool_t allow_snd_ctl)
 	force_incr = (force_lim / 10) * bp.d_t;
 
 	force = bp.last_force;
-	accel_now = (bp.cur_pos.spd - bp.last_pos.spd) / bp.d_t;
+	accel_now = bp.d_pos.spd / bp.d_t;
 	d_v = targ_speed - bp.cur_pos.spd;
 
 	/*
@@ -544,7 +615,13 @@ push_at_speed(double targ_speed, double max_accel, bool_t allow_snd_ctl)
 		max_accel *= 100;
 
 	if (d_v > 0) {
-		if (d_v < max_accel && ABS(bp.cur_pos.spd) >= BREAKAWAY_THRESH)
+		/*
+		 * Modulate the acceleration to reach our target speed smoothly,
+		 * unless we're trying to decelerate or we've not yet broken
+		 * away (to prevent jumpiness on XP10's sticky tires).
+		 */
+		if (d_v < max_accel && !decelerating &&
+		    ABS(bp.cur_pos.spd) >= BREAKAWAY_THRESH)
 			max_accel = d_v;
 		if (accel_now > max_accel)
 			force += force_incr;
@@ -552,7 +629,8 @@ push_at_speed(double targ_speed, double max_accel, bool_t allow_snd_ctl)
 			force -= force_incr;
 	} else if (d_v < 0) {
 		max_accel *= -1;
-		if (d_v > max_accel && ABS(bp.cur_pos.spd) >= BREAKAWAY_THRESH)
+		if (d_v > max_accel && !decelerating &&
+		    ABS(bp.cur_pos.spd) >= BREAKAWAY_THRESH)
 			max_accel = d_v;
 		if (accel_now < max_accel)
 			force -= force_incr;
@@ -586,8 +664,8 @@ static bool_t
 read_gear_info(void)
 {
 	double tire_z[10];
-	int gear_steers[10], gear_types[10], gear_on_ground[10],
-	    gear_deploy[10];
+	int gear_steers[10], gear_types[10], gear_on_ground[10];
+	int gear_deploy[10];
 
 	dr_getvi(&drs.gear_deploy, gear_deploy, 0, 10);
 	if (bp_xp_ver >= 11000)
@@ -674,6 +752,18 @@ bp_state_init(void)
 		    "version too old. This plugin requires at least X-Plane "
 		    "%s to operate."), MIN_XPLANE_VERSION_STR);
 		XPLMSpeakString(msg);
+		return (B_FALSE);
+	}
+
+	if (!read_acf_file_info()) {
+		XPLMSpeakString(_("Pushback failure: error reading aircraft "
+		    "files from disk."));
+		return (B_FALSE);
+	}
+	if (bp.acf.model_flags.is_helicopter ||
+	    bp.acf.model_flags.fly_like_a_helo) {
+		XPLMSpeakString(_("Pushback failure: Are you seriously "
+		    "trying to call pushback for a helicopter?"));
 		return (B_FALSE);
 	}
 
@@ -772,6 +862,77 @@ bp_shut_fini(void)
 {
 }
 
+/*
+ * Reads the aircraft's .acf file and grabs the info we want from it.
+ */
+static bool_t
+read_acf_file_info(void)
+{
+	char my_acf[512], my_path[512];
+	FILE *fp;
+	char *line = NULL;
+	size_t cap = 0;
+	bool_t parsing_props = B_FALSE;
+
+	XPLMGetNthAircraftModel(0, my_acf, my_path);
+	fp = fopen(my_path, "rb");
+	if (fp == NULL) {
+		logMsg("Error reading %s: %s", my_acf, strerror(errno));
+		return (B_FALSE);
+	}
+
+#define	PARSE_FLAG_PARAM(flag) \
+	do { \
+		size_t n; \
+		char **comps = strsplit(line, " ", B_TRUE, &n); \
+		if (n != 3) { \
+			free_strlist(comps, n); \
+			continue; \
+		} \
+		sscanf(comps[2], "%d", &bp.acf.model_flags.flag); \
+		free_strlist(comps, n); \
+	} while (0)
+
+	while (getline(&line, &cap, fp) > 0) {
+		strip_space(line);
+		if (!parsing_props) {
+			if (strcmp(line, "PROPERTIES_BEGIN") == 0)
+				parsing_props = B_TRUE;
+			continue;
+		}
+		if (strcmp(line, "PROPERTIES_END") == 0)
+			break;
+		if (strstr(line, "acf/_is_airliner") != NULL)
+			PARSE_FLAG_PARAM(is_airliner);
+		else if (strstr(line, "acf/_is_experimental") != NULL)
+			PARSE_FLAG_PARAM(is_experimental);
+		else if (strstr(line, "acf/_is_general_aviation") != NULL)
+			PARSE_FLAG_PARAM(is_general_aviation);
+		else if (strstr(line, "acf/_is_glider") != NULL)
+			PARSE_FLAG_PARAM(is_glider);
+		else if (strstr(line, "acf/_is_helicopter") != NULL)
+			PARSE_FLAG_PARAM(is_helicopter);
+		else if (strstr(line, "acf/_is_military") != NULL)
+			PARSE_FLAG_PARAM(is_military);
+		else if (strstr(line, "acf/_is_sci_fi") != NULL)
+			PARSE_FLAG_PARAM(is_sci_fi);
+		else if (strstr(line, "acf/_is_seaplane") != NULL)
+			PARSE_FLAG_PARAM(is_seaplane);
+		else if (strstr(line, "acf/_is_ultralight") != NULL)
+			PARSE_FLAG_PARAM(is_ultralight);
+		else if (strstr(line, "acf/_is_vtol") != NULL)
+			PARSE_FLAG_PARAM(is_vtol);
+		else if (strstr(line, "acf/_fly_like_a_helo") != NULL)
+			PARSE_FLAG_PARAM(fly_like_a_helo);
+	}
+
+#undef	PARSE_FLAG_PARAM
+
+	fclose(fp);
+
+	return (B_TRUE);
+}
+
 bool_t
 bp_init(void)
 {
@@ -846,6 +1007,7 @@ bp_init(void)
 	fdr_find(&drs.gear_deploy, "sim/aircraft/parts/acf_gear_deploy");
 	fdr_find(&drs.num_engns, "sim/aircraft/engine/acf_num_engines");
 	fdr_find(&drs.engn_running, "sim/flightmodel/engine/ENGN_running");
+	fdr_find(&drs.acf_livery_path, "sim/aircraft/view/acf_livery_path");
 
 	fdr_find(&drs.camera_fov_h,
 	    "sim/graphics/view/field_of_view_deg");
@@ -873,9 +1035,10 @@ bp_init(void)
 		return (B_FALSE);
 	}
 
-	if (!audio_sys_init() || !bp_state_init() ||
-	    !load_icon(&disco_buttons[0]) || !load_icon(&disco_buttons[1]) ||
-	    !load_buttons())
+	if (!bp_state_init())
+		goto errout;
+	if (!audio_sys_init() || !load_buttons() ||
+	    !load_icon(&disco_buttons[0]) || !load_icon(&disco_buttons[1]))
 		goto errout;
 
 	inited = B_TRUE;
@@ -1148,6 +1311,7 @@ bp_run_push(void)
 
 	while (seg != NULL) {
 		double steer, speed;
+		bool_t decel;
 
 		/* Pilot pressed brake pedals or set parking brake, stop */
 		if (dr_getf(&drs.lbrake) >= BRAKE_PEDAL_THRESH ||
@@ -1164,17 +1328,18 @@ bp_run_push(void)
 		 */
 		if (bp.reverse_t != 0.0) {
 			if (bp.cur_t - bp.reverse_t < 2 * STATE_TRANS_DELAY) {
-				push_at_speed(0, bp.veh.max_accel, B_TRUE);
+				push_at_speed(0, bp.veh.max_accel, B_TRUE,
+				    B_FALSE);
 				break;
 			}
 			bp.reverse_t = 0.0;
 		}
 		if (drive_segs(&bp.cur_pos, &bp.veh, &bp.segs,
-		    &bp.last_mis_hdg, bp.d_t, &steer, &speed)) {
+		    &bp.last_mis_hdg, bp.d_t, &steer, &speed, &decel)) {
 			double steer_rate = (seg->type == SEG_TYPE_STRAIGHT ?
 			    STRAIGHT_STEER_RATE : TURN_STEER_RATE);
 			(void) turn_nosewheel(steer, steer_rate);
-			push_at_speed(speed, bp.veh.max_accel, B_TRUE);
+			push_at_speed(speed, bp.veh.max_accel, B_TRUE, decel);
 			acf2tug_steer();
 			break;
 		}
@@ -1246,11 +1411,15 @@ pb_step_tug_load(void)
 {
 	if (!slave_mode) {
 		char icao[8] = { 0 };
+		char airline[1024] = { 0 };
 
 		(void) find_nearest_airport(icao);
+		if (acf_is_airliner())
+			read_acf_airline(airline);
 		bp.tug = tug_alloc_auto(dr_getf(&drs.mtow),
 		    dr_getf(&drs.leg_len), bp.acf.tirrad,
-		    bp.acf.nw_type, strcmp(icao, "") != 0 ? icao : NULL);
+		    bp.acf.nw_type, strcmp(icao, "") != 0 ? icao : NULL,
+		    airline);
 		if (bp.tug == NULL) {
 			XPLMSpeakString(_("Pushback failure: no suitable "
 			    "tug for your aircraft."));
@@ -1263,6 +1432,7 @@ pb_step_tug_load(void)
 		char tug_name[sizeof (bp_tug_name)];
 		char *ext;
 		char icao[8] = { 0 };
+		char airline[1024] = { 0 };
 
 		/* make sure the tug name is properly terminated */
 		memcpy(tug_name, bp_tug_name, sizeof (tug_name));
@@ -1284,13 +1454,16 @@ pb_step_tug_load(void)
 
 		(void) find_nearest_airport(icao);
 
-		bp.tug = tug_alloc_man(tug_name, bp.acf.tirrad, icao);
+		if (acf_is_airliner())
+			read_acf_airline(airline);
+		bp.tug = tug_alloc_man(tug_name, bp.acf.tirrad, icao, airline);
 		if (bp.tug == NULL) {
 			char msg[256];
 			snprintf(msg, sizeof (msg), _("Pushback failure: "
 			    "master requested tug \"%s\", which we don't have "
 			    "in our in our library. Please sync your tug "
 			    "libraries before trying again."), tug_name);
+			logMsg("%s", msg);
 			XPLMSpeakString(msg);
 			bp_complete();
 			return (B_FALSE);
@@ -1481,7 +1654,7 @@ pb_step_connect_winch(void)
 		double x = winched_dist / (ti->lift_wall_z - ti->plat_z);
 		if (!slave_mode) {
 			double lift = ti->plat_h * x + bp.acf.nw_len;
-			push_at_speed(0.05, 0.05, B_FALSE);
+			push_at_speed(0.05, 0.05, B_FALSE, B_FALSE);
 			dr_setvf(&drs.leg_len, &lift, bp.acf.nw_i, 1);
 		}
 		tug_set_lift_arm_pos(bp.tug, 1 - x, B_TRUE);
@@ -1645,7 +1818,7 @@ pb_step_stopping(void)
 	tug_set_TE_override(bp.tug, B_FALSE);
 	if (!slave_mode) {
 		(void) turn_nosewheel(0, STRAIGHT_STEER_RATE);
-		push_at_speed(0, bp.veh.max_accel, B_FALSE);
+		push_at_speed(0, bp.veh.max_accel, B_FALSE, B_TRUE);
 	}
 	acf2tug_steer();
 	if (ABS(bp.cur_pos.spd) >= SPEED_COMPLETE_THRESH) {
@@ -1671,7 +1844,7 @@ pb_step_stopped(void)
 {
 	if (!slave_mode) {
 		turn_nosewheel(0, STRAIGHT_STEER_RATE);
-		push_at_speed(0, bp.veh.max_accel, B_FALSE);
+		push_at_speed(0, bp.veh.max_accel, B_FALSE, B_FALSE);
 		brakes_set(B_TRUE);
 	}
 	acf2tug_steer();
@@ -2315,7 +2488,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			bp.step_start_t = bp.cur_t;
 		} else {
 			turn_nosewheel(0, STRAIGHT_STEER_RATE);
-			push_at_speed(0, bp.veh.max_accel, B_FALSE);
+			push_at_speed(0, bp.veh.max_accel, B_FALSE, B_FALSE);
 		}
 		break;
 	case PB_STEP_PUSHING:
@@ -3256,6 +3429,7 @@ bp_cam_start(void)
 	};
 	char icao[8] = { 0 };
 	char *cam_obj_path;
+	char airline[1024] = { 0 };
 
 	if (cam_inited || !bp_init())
 		return (B_FALSE);
@@ -3278,8 +3452,10 @@ bp_cam_start(void)
 	}
 
 	(void) find_nearest_airport(icao);
+	if (acf_is_airliner())
+		read_acf_airline(airline);
 	if (!tug_available(dr_getf(&drs.mtow), bp.acf.nw_len, bp.acf.tirrad,
-	    bp.acf.nw_type, strcmp(icao, "") != 0 ? icao : NULL)) {
+	    bp.acf.nw_type, strcmp(icao, "") != 0 ? icao : NULL, airline)) {
 		XPLMSpeakString(_("Pushback failure: no suitable tug for your "
 		    "aircraft."));
 		return (B_FALSE);

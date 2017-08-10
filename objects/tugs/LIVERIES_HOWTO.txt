@@ -82,6 +82,11 @@ The "info.cfg" file is a simple text file that looks something like this:
 	icao "EDDM"
 	icao "EDDL"
 
+	# You can construct matches based on the aircraft's livery name.
+	# See below for more information airline livery matching.
+	airline  "\\bDLH\\b"
+	airlinei "Lufthansa"	# same as "airline", but case-insensitive
+
 You can get as creative with the regular expression as you like. Please
 note that when BP asks X-Plane what the nearest airport is, it can't
 filter out tiny airports or heliports that might be closer to the
@@ -93,8 +98,33 @@ reveal to you if this could happen to you.
 
 If multiple liveries match the airport, BP randomly picks one. This can
 be annoying while painting the livery if there are multiple 3rd-party
-ones which match. See below for how to force BP to pick your livery over
-any other.
+ones which match. Section "HOW TO TEST LIVERIES" on how to force BP to
+pick your livery over any other.
+
+### AIRLINE LIVERIES ###
+
+If you provide an "airline" or "airlinei" specifier in the info.cfg, BP
+considers the livery to be airline-specific. This has a number of effects
+on its selection criteria:
+
+1) If the aircraft is NOT an airliner (see "What's an airliner?" for
+   details on how airliners are detected), the tug livery is ignored.
+2) If the aircraft is an airliner, but its livery name doesn't match any
+   of the "airline" or "airlinei" match commands in the info.cfg file, the
+   tug livery is ignored.
+3) Rules #1 and #2 may be overridden by specifying an "airline_opt" command
+   in the info.cfg file. In that case, if either rule #1 or #2 applies AND
+   an "airline_opt" command is present, the livery is NOT ignored by BP,
+   but it is moved to the tail of the list of candidate liveries. This
+   means if ther are any non-airline tug liveries, they are preferred over
+   any airline liveries.
+
+The regular expression match for the "airline" or "airlinei" commands are
+applied in the same fashion as "icao" - if any part of the livery name
+(as stored under the "liveries" folder of the aircraft model) matches,
+the match is considered a success. Please be sure to use a sufficiently
+specific match rule to avoid embarrassing situations such as pushing back
+a competitor airline's aircraft!
 
 ### HOW TO TEST LIVERIES ###
 
@@ -103,7 +133,9 @@ texture file in PNG format and write an "info.cfg" text file using the
 rules outlined above. Please note that you DON'T have to restart X-Plane
 when you make alterations to your livery. Simply restart the pushback
 operation. BP reloads all the livery configuration and texture files when
-starting a new pushback.
+starting a new pushback. Binding a key to the "connect first" and "stop
+pushback" commands is particularly useful for this case, as it allows you
+to quickly force BP to reload the tug over and over.
 
 If you don't want to write an "icao" list just yet, or if multiple
 existing liveries match your airport and you don't want to randomly cycle
@@ -116,15 +148,14 @@ at the start of your info.cfg. This forces BP to always pick your livery,
 irrespective of the presence of any other livery that might match, or
 even irrespective if a match "icao" specifier is present.
 
-When you are ready to write your "icao" lines and wish to use a more
-complex regular expression selector, it can be helpful to know whether
-your selector matches correctly. You can put this line:
+When you are ready to write your "icao" and "airline" lines and wish to
+use a more complex regular expression selector, it can be helpful to know
+whether your selector matches correctly. You can put this line:
 
 	match_debug
 
 at the start of your info.cfg. This makes BP print a short diagnostic
-message in X-Plane's Log.txt for each "icao" line that follows, telling
-you if it did or didn't match.
+message in X-Plane's Log.txt for each match attempt that follows.
 
 Obviously when shipping your livery, be sure to remove any "paint_debug"
 or "match_debug" lines.
