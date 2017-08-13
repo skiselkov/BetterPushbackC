@@ -138,7 +138,7 @@ void route_load(geo_pos2_t start_pos, double start_hdg, list_t *segs);
 
 #define	MIN_SPEED_XP10	0.6
 #define	CRAWL_SPEED(xpversion, veh)	/* m/s */ \
-	(((xpversion) >= 11000 || !(veh)->xp10_bug_ign) ? 0.1 : MIN_SPEED_XP10)
+	(((xpversion) >= 11000 || (veh)->xp10_bug_ign) ? 0.1 : MIN_SPEED_XP10)
 
 #ifdef	__cplusplus
 }

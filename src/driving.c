@@ -711,7 +711,7 @@ ang_vel_speed_limit(const vehicle_t *veh, double steer, double speed)
 		speed *= MIN(veh->max_fwd_ang_vel / ang_vel, 1);
 	else
 		speed *= MIN(veh->max_rev_ang_vel / ang_vel, 1);
-	if (bp_xp_ver < 11000) {
+	if (bp_xp_ver < 11000 && !veh->xp10_bug_ign) {
 		if (speed >= 0)
 			speed = MAX(speed, MIN_SPEED_XP10);
 		else

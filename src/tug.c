@@ -1109,6 +1109,10 @@ tug_alloc_common(tug_info_t *ti, double tirrad)
 	tug->veh.max_rev_ang_vel = TUG_MAX_ANG_VEL;
 	tug->veh.max_accel = tug->info->max_accel;
 	tug->veh.max_decel = tug->info->max_decel;
+	/*
+	 * Since do our own path computations for the tug, don't drive as if
+	 * we were subject to the XP10 ground stickiness bug.
+	 */
 	tug->veh.xp10_bug_ign = B_TRUE;
 
 	/* veh_slow is identical to 'veh', but with a much slower speed */
