@@ -944,7 +944,7 @@ bp_state_init(void)
 	 * and use our MAX_STEER_ANGLE.
 	 */
 	if (bp.veh.max_steer < MIN_STEER_ANGLE)
-		bp.veh.max_steer = (MAX_STEER_ANGLE - MIN_STEER_ANGLE) / 2;
+		bp.veh.max_steer = (MAX_STEER_ANGLE + MIN_STEER_ANGLE) / 2;
 	bp.veh.max_fwd_spd = MAX_FWD_SPEED;
 	bp.veh.max_rev_spd = MAX_REV_SPEED;
 	bp.veh.max_fwd_ang_vel = MAX_FWD_ANG_VEL;
