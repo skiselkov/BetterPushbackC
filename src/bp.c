@@ -67,8 +67,6 @@
 #define	MIN_XPLANE_VERSION	10500	/* X-Plane 10.50 */
 #define	MIN_XPLANE_VERSION_STR	"10.50"	/* X-Plane 10.50 */
 
-#define	STRAIGHT_STEER_RATE	20	/* degrees per second */
-#define	TURN_STEER_RATE		20	/* degrees per second */
 #define	MAX_FWD_SPEED		4	/* m/s [~8 knots] */
 #define	MAX_REV_SPEED		1.11	/* m/s [4 km/h, "walking speed"] */
 #define	NORMAL_ACCEL		0.25	/* m/s^2 */
@@ -83,9 +81,9 @@
 #define	SEG_TURN_MULT		0.9	/* leave 10% for oversteer */
 #define	SPEED_COMPLETE_THRESH	0.08	/* m/s */
 /* beyond this our push algos go nuts */
-#define	MAX_STEER_ANGLE		(bp_xp_ver < 11000 ? 50 : 65)
+#define	MAX_STEER_ANGLE		(bp_xp_ver < 11000 ? 50 : 75)
 #define	MIN_STEER_ANGLE		40	/* minimum sensible tire steer angle */
-#define	MAX_FWD_ANG_VEL		5	/* degrees per second */
+#define	MAX_FWD_ANG_VEL		4.5	/* degrees per second */
 #define	MAX_REV_ANG_VEL		2.5	/* degrees per second */
 #define	PB_CRADLE_DELAY		10	/* seconds */
 #define	PB_WINCH_DELAY		10	/* seconds */
@@ -108,6 +106,22 @@
 #define	TUG_APPCH_LONG_DIST	(6 * bp.tug->veh.wheelbase)
 
 #define	MIN_RADIO_VOLUME_THRESH	0.1
+
+/*
+ * When stopping the operation, tug and aircraft steering deflections must
+ * be below these thresholds before we let the aircraft come to a complete
+ * stop. Otherwise we continue pushing/towing at MIN_SPEED_XP10 to let the
+ * steering straighten out.
+ */
+#define	TOW_COMPLETE_TUG_STEER_THRESH	5	/* degrees */
+#define	TOW_COMPLETE_ACF_STEER_THRESH	2.5	/* degrees */
+
+/*
+ * When we get within this distance of the end of a straight segment that
+ * terminates our pushback path, we neutralize steering to be able to stop
+ * exactly on the dot.
+ */
+#define	NEARING_END_THRESHOLD		1	/* meters */
 
 typedef enum {
 	PB_STEP_OFF,
@@ -164,6 +178,12 @@ typedef struct {
 	} model_flags;
 } acf_t;
 
+/*
+ * This is the pushback state structure.
+ * CAUTION: do not store anything in here that requires teardown in bp_fini
+ * because bp_state_init() wipes this struct to all 0x00 each time without
+ * checking any pre-existing state.
+ */
 typedef struct {
 	vehicle_t	veh;		/* our driving params */
 	acf_t		acf;		/* aux params of aircraft gear */
@@ -204,7 +224,8 @@ typedef struct {
 	vect2_t		start_pos;	/* where the pushback originated */
 	double		start_hdg;	/* which way we were facing at start */
 
-	list_t		segs;
+	list_t			segs;
+	bool_t			last_seg_is_back;
 } bp_state_t;
 
 typedef struct {
@@ -217,10 +238,11 @@ static struct {
 	dr_t	pbrake, pbrake_rat;
 	dr_t	rot_force_N;
 	dr_t	axial_force;
+	dr_t	override_planepath;
 	dr_t	local_x, local_y, local_z;
 	dr_t	local_vx, local_vy, local_vz;
 	dr_t	lat, lon;
-	dr_t	hdg;
+	dr_t	pitch, roll, hdg, quaternion;
 	dr_t	vx, vy, vz;
 	dr_t	sim_time;
 	dr_t	acf_mass;
@@ -246,6 +268,7 @@ static struct {
 	dr_t	use_real_wx;
 
 	dr_t	author;
+	dr_t	sim_paused;
 } drs;
 
 typedef struct {
@@ -263,8 +286,8 @@ typedef struct {
 } button_t;
 
 static bool_t inited = B_FALSE, cam_inited = B_FALSE;
-static bool_t floop_registered = B_FALSE;
 static bp_state_t bp;
+static XPLMFlightLoopID	bp_floop = NULL;
 
 static bool_t read_acf_file_info(void);
 static float bp_run(float elapsed, float elapsed2, int counter, void *refcon);
@@ -540,38 +563,159 @@ bp_gather(void)
 	bp.cur_t = dr_getf(&drs.sim_time);
 }
 
-static double
-turn_nosewheel(double req_angle, double rate)
+static void
+reorient_aircraft(double d_roll, double d_pitch, double d_hdg)
 {
-	double rate_of_turn, steer_incr, cur_nw_angle, rate_of_turn_fract;
+	double phi = dr_getf(&drs.roll) + d_roll;
+	double phi_mod = DEG2RAD(phi) / 2;
+	double sin_phi_mod = sin(phi_mod), cos_phi_mod = cos(phi_mod);
+	double theta = dr_getf(&drs.pitch) + d_pitch;
+	double theta_mod = DEG2RAD(theta) / 2;
+	double sin_theta_mod = sin(theta_mod), cos_theta_mod = cos(theta_mod);
+	double psi = dr_getf(&drs.hdg) + d_hdg;
+	double psi_mod = DEG2RAD(psi) / 2;
+	double sin_psi_mod = sin(psi_mod), cos_psi_mod = cos(psi_mod);
+	double q[4];
+
+	q[0] = cos_psi_mod * cos_theta_mod * cos_phi_mod +
+	    sin_psi_mod * sin_theta_mod * sin_phi_mod;
+	q[1] = cos_psi_mod * cos_theta_mod * sin_phi_mod -
+	    sin_psi_mod * sin_theta_mod * cos_phi_mod;
+	q[2] = cos_psi_mod * sin_theta_mod * cos_phi_mod +
+	    sin_psi_mod * cos_theta_mod * sin_phi_mod;
+	q[3] = -cos_psi_mod * sin_theta_mod * sin_phi_mod +
+	    sin_psi_mod * cos_theta_mod * cos_phi_mod;
+
+	dr_setvf(&drs.quaternion, q, 0, 4);
+}
+
+static void
+turn_nosewheel(double req_steer)
+{
+	int dir_mult = (bp.tug->pos.spd >= 0 ? 1 : -1);
+	double cur_nw_steer, tug_turn_r, tug_turn_rate, rel_tug_turn_rate;
+	double d_steer, nlg_tug_z_off, nlg_tug_rear_off, d_hdg, turn_inc;
+	vect2_t off_v;
+
+	cur_nw_steer = rel_hdg(bp.cur_pos.hdg, bp.tug->pos.hdg);
 
 	/* limit the steering request to what we can actually do */
-	req_angle = MIN(req_angle, bp.veh.max_steer);
-	req_angle = MAX(req_angle, -bp.veh.max_steer);
+	req_steer = MIN(req_steer, bp.veh.max_steer);
+	req_steer = MAX(req_steer, -bp.veh.max_steer);
 
-	dr_getvf(&drs.tire_steer_cmd, &cur_nw_angle, bp.acf.nw_i, 1);
-	if (cur_nw_angle == req_angle)
-		return (0);
+	if (ABS(bp.tug->cur_steer) > 0.01) {
+		tug_turn_r = (1 / tan(DEG2RAD(bp.tug->cur_steer))) *
+		    bp.tug->veh.wheelbase;
+	} else {
+		tug_turn_r = 1e10;
+	}
+	tug_turn_rate = (bp.tug->pos.spd / (2 * M_PI * tug_turn_r)) * 360;
+	rel_tug_turn_rate = tug_turn_rate - bp.d_pos.hdg / bp.d_t;
+
+	cur_nw_steer += rel_tug_turn_rate * bp.d_t;
+	cur_nw_steer = MIN(cur_nw_steer, 85);
+	cur_nw_steer = MAX(cur_nw_steer, -85);
+	d_steer = req_steer - cur_nw_steer;
+
+	if (ABS(bp.tug->pos.spd) > 0.01) {
+		/*
+		 * Limit steering of the tug at high speeds to prevent the
+		 * tug swinging like crazy around.
+		 */
+		double tug_steer = dir_mult * 3 * d_steer;
+		double speed;
+
+		tug_steer = MIN(MAX(tug_steer, -bp.tug->veh.max_steer),
+		    bp.tug->veh.max_steer);
+		speed = ang_vel_speed_limit(&bp.tug->veh, tug_steer,
+		    bp.tug->pos.spd);
+		if (speed < bp.tug->pos.spd)
+			tug_steer *= speed / bp.tug->pos.spd;
+		tug_set_steering(bp.tug, tug_steer, bp.d_t);
+	}
+
+	dr_setvf(&drs.tire_steer_cmd, &cur_nw_steer, bp.acf.nw_i, 1);
 
 	/*
-	 * Modulate the steering increment to always be
-	 * correctly within our rate of turn limits.
+	 * Since the nosewheel always isn't exactly over the tug's fixed
+	 * steering axle, we need to manually shift the aircraft's heading,
+	 * so as appear as if it steering around the tug's fixed steering
+	 * axle. We do so by calculating an incremental lateral displacement
+	 * from the aircraft's point of view.
+	 * nlg_tug_z_off: is the long offset along the tug's axis of the
+	 *	centerpoint of the aircraft's nose landing gear.
+	 * nlg_tug_rear_off: is the long offset along the tug's axis of
+	 *	the center of the aircraft's nose landing gear relative to
+	 *	where the fixed steering axle is located. This forms a
+	 *	similar triangle to the triangle being formed when the tug's
+	 *	steering turns.
+	 * We compute the lateral steering displacement of the tug, apply
+	 * a sin() function to reduce it based on how far the nosewheel is
+	 * deflected (obviously we don't want any deflection at near 90
+	 * degrees) and scale the similar triangles. The result is an
+	 * absolute lateral displacement that the nosewheel should
+	 * experience from the aircraft's point of view. We then translate
+	 * that into a heading change and write that to the orientation
+	 * quaternion, overriding the aircraft's heading.
 	 */
-	rate_of_turn = rate * bp.d_t;
-	steer_incr = MIN(ABS(req_angle - cur_nw_angle), rate_of_turn);
-	rate_of_turn_fract = (cur_nw_angle < req_angle ?
-	    steer_incr : -steer_incr) / rate_of_turn;
-	cur_nw_angle += (cur_nw_angle < req_angle ? steer_incr : -steer_incr);
-	dr_setvf(&drs.tire_steer_cmd, &cur_nw_angle, bp.acf.nw_i, 1);
+	switch (bp.tug->info->lift_wall_loc) {
+	case LIFT_WALL_FRONT:
+		nlg_tug_z_off = bp.tug->info->lift_wall_z - bp.acf.tirrad;
+		break;
+	case LIFT_WALL_CENTER:
+		nlg_tug_z_off = bp.tug->info->lift_wall_z;
+		break;
+	default:
+		ASSERT3U(bp.tug->info->lift_wall_loc, ==, LIFT_WALL_BACK);
+		nlg_tug_z_off = bp.tug->info->lift_wall_z + bp.acf.tirrad;
+		break;
+	}
+	nlg_tug_rear_off = nlg_tug_z_off - bp.tug->veh.fixed_z_off;
 
-	return (rate_of_turn_fract);
+	turn_inc = rel_tug_turn_rate * bp.d_t;
+
+	/*
+	 * We compute the lateral & longitudinal displacement in the
+	 * tug's coordinates. We then rotate this vector to the aircraft's
+	 * vector and apply the x component to the aircraft's heading.
+	 */
+	off_v.x = sin(DEG2RAD(turn_inc)) * (nlg_tug_rear_off /
+	    bp.tug->veh.wheelbase);
+	off_v.y = (cos(DEG2RAD(turn_inc)) - 1) * (nlg_tug_rear_off /
+	    bp.tug->veh.wheelbase);
+	off_v = vect2_rot(off_v, cur_nw_steer);
+	d_hdg = RAD2DEG(asin(off_v.x / bp.veh.wheelbase));
+	if (!slave_mode) {
+		/*
+		 * For some inexplicable reason, we have to amplify the
+		 * heading change by around 10x to get it to show properly
+		 * in the sim. Probably something to do with ground
+		 * stickiness or heading change granularity/float rounding
+		 * errors. Definitely file under "WTF".
+		 */
+		reorient_aircraft(0, 0, 10 * d_hdg);
+	}
 }
 
 static void
 push_at_speed(double targ_speed, double max_accel, bool_t allow_snd_ctl,
     bool_t decelerating)
 {
-	double force_lim, force_incr, force, angle_rad, accel_now, d_v, Fx, Fz;
+	double force_lim, force_incr, force, accel_now, d_v, Fx, Fz, steer;
+	double cur_spd;
+
+	VERIFY3S(dr_getvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1), ==, 1);
+
+	/*
+	 * Primary speed control is in drive_on_line in driving.c, but that
+	 * doesn't take into account the steering delay, only the idealized
+	 * steering state it WANTS us to be at. So here we further limit
+	 * speed to the actual steering angle that we are at right now.
+	 */
+	targ_speed = ang_vel_speed_limit(&bp.veh, steer, targ_speed);
+	/* Also try to take the tug's angular velocity limits into account. */
+	targ_speed = ang_vel_speed_limit(&bp.tug->veh, bp.tug->cur_steer,
+	    targ_speed);
 
 	/*
 	 * Multiply force limit by weight in tons - that's at most how
@@ -582,39 +726,41 @@ push_at_speed(double targ_speed, double max_accel, bool_t allow_snd_ctl,
 	force_lim = FORCE_PER_TON * (dr_getf(&drs.acf_mass) / 1000);
 
 	/*
-	 * The maximum single-second force increment is 1/10 of the maximum
-	 * pushback force limit. This means it'll take up to 10s for us to
-	 * apply full pushback force.
+	 * Scale the maximum force increment by frame time. This means it'll
+	 * take up to 1s for us to apply full pushback force.
 	 */
-	force_incr = (force_lim / 10) * bp.d_t;
-
-	force = bp.last_force;
-	accel_now = bp.d_pos.spd / bp.d_t;
-	d_v = targ_speed - bp.cur_pos.spd;
+	force_incr = force_lim * bp.d_t;
 
 	/*
-	 * Calculate the vector components of our force on the aircraft
-	 * to correctly apply angular momentum forces below.
-	 * N.B. we only push in the horizontal plane, hence no Fy component.
+	 * We actually control ground speed to be the speed of the tug rather
+	 * than the longitudinal speed of the aircraft. So scale the
+	 * longitudinal speed based on nosewheel steering angle.
 	 */
-	dr_getvf(&drs.tire_steer_cmd, &angle_rad, bp.acf.nw_i, 1);
-	angle_rad = DEG2RAD(angle_rad);
-	Fx = -force * sin(angle_rad);
-	Fz = force * cos(angle_rad);
+	if (bp_xp_ver >= 11000) {
+		cur_spd = bp.cur_pos.spd / cos(DEG2RAD(fabs(steer)) / 2);
+		accel_now = (bp.d_pos.spd / cos(DEG2RAD(fabs(steer)))) / bp.d_t;
+	} else {
+		/*
+		 * XP10's buggy sticky tire model prevents us from reducing
+		 * longitudinal speed below MIN_SPEED_XP10, so make sure we
+		 * keep the speed up above that value.
+		 */
+		cur_spd = bp.cur_pos.spd;
+		accel_now = bp.d_pos.spd / bp.d_t;
+	}
 
-	dr_setf(&drs.axial_force, dr_getf(&drs.axial_force) + Fz);
-	dr_setf(&drs.rot_force_N, dr_getf(&drs.rot_force_N) -
-	    Fx * bp.acf.nw_z);
+	force = bp.last_force;
+	d_v = targ_speed - cur_spd;
 
 	/*
 	 * This is some fudge needed to get some high-thrust aircraft
 	 * going, otherwise we'll just jitter in-place due to thinking
 	 * we're overdoing acceleration.
 	 */
-	if (ABS(bp.cur_pos.spd) < BREAKAWAY_THRESH)
+	if (ABS(cur_spd) < BREAKAWAY_THRESH)
 		max_accel *= 100;
 
-	if (d_v > 0) {
+	if (d_v > 0) {		/* speed up */
 		/*
 		 * Modulate the acceleration to reach our target speed smoothly,
 		 * unless we're trying to decelerate or we've not yet broken
@@ -624,19 +770,31 @@ push_at_speed(double targ_speed, double max_accel, bool_t allow_snd_ctl,
 		    ABS(bp.cur_pos.spd) >= BREAKAWAY_THRESH)
 			max_accel = d_v;
 		if (accel_now > max_accel)
-			force += force_incr;
-		else if (accel_now < max_accel)
 			force -= force_incr;
-	} else if (d_v < 0) {
+		else if (accel_now < max_accel)
+			force += force_incr;
+	} else if (d_v < 0) {	/* slow down */
 		max_accel *= -1;
 		if (d_v > max_accel && !decelerating &&
 		    ABS(bp.cur_pos.spd) >= BREAKAWAY_THRESH)
 			max_accel = d_v;
 		if (accel_now < max_accel)
-			force -= force_incr;
-		else if (accel_now > max_accel)
 			force += force_incr;
+		else if (accel_now > max_accel)
+			force -= force_incr;
 	}
+
+	/*
+	 * Calculate the vector components of our force on the aircraft
+	 * to correctly apply angular momentum forces below.
+	 * N.B. we only push in the horizontal plane, hence no Fy component.
+	 */
+	Fx = force * sin(DEG2RAD(steer));
+	Fz = force * cos(DEG2RAD(steer));
+
+	dr_setf(&drs.axial_force, dr_getf(&drs.axial_force) - Fz);
+	dr_setf(&drs.rot_force_N, dr_getf(&drs.rot_force_N) +
+	    Fx * (-bp.acf.nw_z));
 
 	/* Don't overstep the force limits for this aircraft */
 	force = MIN(force_lim, force);
@@ -786,7 +944,7 @@ bp_state_init(void)
 	 * and use our MAX_STEER_ANGLE.
 	 */
 	if (bp.veh.max_steer < MIN_STEER_ANGLE)
-		bp.veh.max_steer = MAX_STEER_ANGLE;
+		bp.veh.max_steer = (MAX_STEER_ANGLE - MIN_STEER_ANGLE) / 2;
 	bp.veh.max_fwd_spd = MAX_FWD_SPEED;
 	bp.veh.max_rev_spd = MAX_REV_SPEED;
 	bp.veh.max_fwd_ang_vel = MAX_FWD_ANG_VEL;
@@ -971,6 +1129,8 @@ bp_init(void)
 	fdr_find(&drs.pbrake_rat, "sim/cockpit2/controls/parking_brake_ratio");
 	fdr_find(&drs.rot_force_N, "sim/flightmodel/forces/N_plug_acf");
 	fdr_find(&drs.axial_force, "sim/flightmodel/forces/faxil_plug_acf");
+	fdr_find(&drs.override_planepath,
+	    "sim/operation/override/override_planepath");
 	fdr_find(&drs.local_x, "sim/flightmodel/position/local_x");
 	fdr_find(&drs.local_y, "sim/flightmodel/position/local_y");
 	fdr_find(&drs.local_z, "sim/flightmodel/position/local_z");
@@ -979,7 +1139,10 @@ bp_init(void)
 	fdr_find(&drs.local_vz, "sim/flightmodel/position/local_vz");
 	fdr_find(&drs.lat, "sim/flightmodel/position/latitude");
 	fdr_find(&drs.lon, "sim/flightmodel/position/longitude");
+	fdr_find(&drs.roll, "sim/flightmodel/position/phi");
+	fdr_find(&drs.pitch, "sim/flightmodel/position/theta");
 	fdr_find(&drs.hdg, "sim/flightmodel/position/psi");
+	fdr_find(&drs.quaternion, "sim/flightmodel/position/q");
 	fdr_find(&drs.vx, "sim/flightmodel/position/local_vx");
 	fdr_find(&drs.vy, "sim/flightmodel/position/local_vy");
 	fdr_find(&drs.vz, "sim/flightmodel/position/local_vz");
@@ -1021,6 +1184,7 @@ bp_init(void)
 	fdr_find(&drs.use_real_wx, "sim/weather/use_real_weather_bool");
 
 	fdr_find(&drs.author, "sim/aircraft/view/acf_author");
+	fdr_find(&drs.sim_paused, "sim/time/paused");
 
 	XPLMRegisterCommandHandler(disco_cmd, disco_handler, 1, NULL);
 	XPLMRegisterCommandHandler(recon_cmd, recon_handler, 1, NULL);
@@ -1072,15 +1236,10 @@ draw_tugs(XPLMDrawingPhase phase, int before, void *refcon)
 	}
 
 	if (list_head(&bp.tug->segs) == NULL &&
-	    bp.step >= PB_STEP_GRABBING && bp.step <= PB_STEP_UNGRABBING) {
-		double hdg, tug_hdg, tug_spd, steer;
-		vect2_t pos, dir, off_v, tug_pos;
-
-		pos = VECT2(dr_getf(&drs.local_x), -dr_getf(&drs.local_z));
-		hdg = dr_getf(&drs.hdg);
-		dr_getvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1);
-		tug_hdg = normalize_hdg(hdg + steer);
-		dir = hdg2dir(hdg);
+	    bp.step >= PB_STEP_GRABBING &&
+	    bp.step <= PB_STEP_UNGRABBING) {
+		double hdg = bp.cur_pos.hdg;
+		vect2_t dir = hdg2dir(hdg);
 		if (bp.step == PB_STEP_GRABBING &&
 		    bp.tug->info->lift_type == LIFT_WINCH) {
 			/*
@@ -1090,14 +1249,17 @@ draw_tugs(XPLMDrawingPhase phase, int before, void *refcon)
 			 */
 			tug_set_pos(bp.tug, vect2_add(bp.winching.start_acf_pos,
 			    vect2_scmul(hdg2dir(hdg), (-bp.acf.nw_z) +
-			    (-bp.tug->info->plat_z))), hdg, 0);
+			    (-bp.tug->info->plat_z))), bp.tug->pos.hdg, 0);
 		} else {
-			off_v = vect2_scmul(hdg2dir(tug_hdg),
+			double tug_hdg = bp.tug->pos.hdg;
+			double tug_spd = bp.tug->pos.spd;
+			vect2_t pos = bp.cur_pos.pos;
+			vect2_t off_v = vect2_scmul(hdg2dir(tug_hdg),
 			    (-bp.tug->info->lift_wall_z) +
 			    tug_lift_wall_off(bp.tug));
-			tug_pos = vect2_add(vect2_add(pos, vect2_scmul(dir,
-			    -bp.acf.nw_z)), off_v);
-			tug_spd = bp.cur_pos.spd / cos(DEG2RAD(fabs(steer)));
+
+			vect2_t tug_pos = vect2_add(vect2_add(pos,
+			    vect2_scmul(dir, -bp.acf.nw_z)), off_v);
 			tug_set_pos(bp.tug, tug_pos, tug_hdg, tug_spd);
 		}
 	}
@@ -1146,6 +1308,12 @@ bool_t
 bp_start(void)
 {
 	const char *reason;
+	XPLMCreateFlightLoop_t floop = {
+	    .structSize = sizeof (XPLMCreateFlightLoop_t),
+	    .phase = xplm_FlightLoop_Phase_BeforeFlightModel,
+	    .callbackFunc = bp_run,
+	    .refcon = NULL
+	};
 
 	if (bp_started)
 		return (B_TRUE);
@@ -1169,8 +1337,10 @@ bp_start(void)
 	bp.start_pos = bp.cur_pos.pos;
 	bp.start_hdg = bp.cur_pos.hdg;
 
-	XPLMRegisterFlightLoopCallback(bp_run, -1, NULL);
-	floop_registered = B_TRUE;
+	if (bp_floop == NULL)
+		bp_floop = XPLMCreateFlightLoop(&floop);
+	XPLMScheduleFlightLoop(bp_floop, -1, 1);
+
 	XPLMRegisterDrawCallback(draw_tugs, TUG_DRAWING_PHASE,
 	    TUG_DRAWING_PHASE_BEFORE, NULL);
 
@@ -1201,18 +1371,18 @@ bp_fini(void)
 	if (!inited)
 		return;
 
+	if (bp_floop != NULL) {
+		XPLMDestroyFlightLoop(bp_floop);
+		bp_floop = NULL;
+	}
+
 	XPLMUnregisterCommandHandler(disco_cmd, disco_handler, 1, NULL);
 	XPLMUnregisterCommandHandler(recon_cmd, recon_handler, 1, NULL);
 
 	msg_fini();
-
 	bp_complete();
-	if (floop_registered) {
-		XPLMUnregisterFlightLoopCallback(bp_run, NULL);
-		floop_registered = B_FALSE;
-	}
 
-	bp_delete_all_segs();
+	/* segs have been released in bp_complete */
 	list_destroy(&bp.segs);
 
 	unload_icon(&disco_buttons[0]);
@@ -1224,79 +1394,20 @@ bp_fini(void)
 	inited = B_FALSE;
 }
 
-static void
-acf2tug_steer(void)
+static bool_t
+nearing_end(void)
 {
-	double cur_steer, d_hdg, tug_spd, tug_steer_cmd;
-	vect2_t v, c, s, isects[2];
+	double long_displ;
+	seg_t *seg = list_head(&bp.segs);
+	vect2_t end_dir, end2acf;
 
-	dr_getvf(&drs.tire_steer_cmd, &cur_steer, bp.acf.nw_i, 1);
-	tug_spd = bp.cur_pos.spd / cos(DEG2RAD(fabs(cur_steer)));
+	if (seg->type != SEG_TYPE_STRAIGHT || seg != list_tail(&bp.segs))
+		return (B_FALSE);
 
-	/*
-	 * When we're nearly stopped, the steering algorithm can command
-	 * weird deflections. Neutralize steering when we're nearly stopped.
-	 */
-	if (fabs(tug_spd) <= 0.01) {
-		tug_set_steering(bp.tug, 0, bp.d_t);
-		return;
-	}
-	/*
-	 * d_hdg is the total change in tug heading, which is a component of
-	 * the amount of heading change the aircraft is experiencing + the
-	 * amount of nosewheel deflection change being applied (since the
-	 * nosewheel *is* our tug).
-	 */
-	d_hdg = (bp.d_pos.hdg + (cur_steer - bp.last_steer)) / bp.d_t;
-	if (tug_spd < 0)
-		d_hdg = -d_hdg;	/* reverse steering when going backwards */
-
-	/*
-	 * We model tug steering as follows:
-	 *
-	 *        ....
-	 *            --.
-	 *              _-x (s)
-	 *        (c)_-  /.
-	 * (front) +    / .
-	 *         |   / .
-	 *  wheel  |  /.
-	 *   base  | /(v)
-	 *         |/
-	 *  (rear) + (0,0)
-	 *
-	 * Set the rear axle as our coordinate origin (0,0). Paint an infinite
-	 * vector (v) from the rear axle at an angle of d_hdg. Place a circle
-	 * around the front axle at (c) with radius tug_spd. Where the circle
-	 * intersects vector (v) is our steering target (s). If the circle
-	 * intersects at two points, pick the one furthest from (0,0). The
-	 * resulting steering command is described as an angle vector from
-	 * (c) to (s). Convert that vector into a degree value and feed that
-	 * to the tug.
-	 */
-	v = vect2_set_abs(hdg2dir(d_hdg), 1e10);
-	c = VECT2(0, bp.tug->veh.wheelbase);
-
-	switch (vect2circ_isect(v, ZERO_VECT2, c, tug_spd, B_TRUE, isects)) {
-	case 0:
-		tug_set_steering(bp.tug,
-		    bp.tug->info->max_steer * (d_hdg > 0 ? 1 : -1), bp.d_t);
-		return;
-	case 1:
-		s = isects[0];
-		break;
-	case 2:
-		s = vect2_abs(isects[0]) > vect2_abs(isects[1]) ? isects[0] :
-		    isects[1];
-		break;
-	}
-
-	tug_steer_cmd = dir2hdg(vect2_sub(s, c));
-
-	if (tug_steer_cmd >= 180)
-		tug_steer_cmd -= 360;
-
-	tug_set_steering(bp.tug, tug_steer_cmd, bp.d_t);
+	end_dir = hdg2dir(seg->end_hdg);
+	end2acf = vect2_sub(bp.cur_pos.pos, seg->end_pos);
+	long_displ = vect2_dotprod(end_dir, end2acf);
+	return (long_displ > -NEARING_END_THRESHOLD);
 }
 
 static bool_t
@@ -1320,6 +1431,7 @@ bp_run_push(void)
 			tug_set_TE_snd(bp.tug, 0, bp.d_t);
 			dr_setf(&drs.axial_force, 0);
 			dr_setf(&drs.rot_force_N, 0);
+			bp.last_force = 0;
 			break;
 		}
 		/*
@@ -1336,11 +1448,17 @@ bp_run_push(void)
 		}
 		if (drive_segs(&bp.cur_pos, &bp.veh, &bp.segs,
 		    &bp.last_mis_hdg, bp.d_t, &steer, &speed, &decel)) {
-			double steer_rate = (seg->type == SEG_TYPE_STRAIGHT ?
-			    STRAIGHT_STEER_RATE : TURN_STEER_RATE);
-			(void) turn_nosewheel(steer, steer_rate);
+			if (!nearing_end()) {
+				turn_nosewheel(steer);
+			} else {
+				/*
+				 * When nearing the end of the route, we want
+				 * to start neutralizing steering early to not
+				 * overshoot too far.
+				 */
+				turn_nosewheel(0);
+			}
 			push_at_speed(speed, bp.veh.max_accel, B_TRUE, decel);
-			acf2tug_steer();
 			break;
 		}
 		seg = list_head(&bp.segs);
@@ -1373,6 +1491,7 @@ bp_complete(void)
 		bp.tug = NULL;
 	}
 
+	bp_delete_all_segs();
 	disco_intf_hide();
 
 	XPLMUnregisterDrawCallback(draw_tugs, TUG_DRAWING_PHASE,
@@ -1542,6 +1661,7 @@ static void
 pb_step_waiting_for_pbrake(void)
 {
 	vect2_t p_end, dir;
+	dr_t zibo_chocks;
 
 	if (!pbrake_is_set() ||
 	    /* wait until the rdy2conn message has stopped playing */
@@ -1556,6 +1676,10 @@ pb_step_waiting_for_pbrake(void)
 	 */
 	if (bp.cur_t - bp.step_start_t < STATE_TRANS_DELAY)
 		return;
+
+	/* Workaround for Zibo 737 chocks being set - remove them. */
+	if (dr_find(&zibo_chocks, "laminar/B738/fms/chock_status"))
+		dr_seti(&zibo_chocks, 0);
 
 	dir = hdg2dir(bp.tug->pos.hdg);
 	if (bp.tug->info->lift_type == LIFT_GRAB) {
@@ -1805,23 +1929,32 @@ pb_step_pushing(void)
 		 * the aircraft's speed of motion.
 		 */
 		tug_set_TE_override(bp.tug, B_FALSE);
-		/*
-		 * In slave mode we don't do anything, just following.
-		 */
-		acf2tug_steer();
 	}
 }
 
 static void
 pb_step_stopping(void)
 {
+	bool_t done = B_TRUE;
+
 	tug_set_TE_override(bp.tug, B_FALSE);
 	if (!slave_mode) {
-		(void) turn_nosewheel(0, STRAIGHT_STEER_RATE);
-		push_at_speed(0, bp.veh.max_accel, B_FALSE, B_TRUE);
+		double steer;
+
+		turn_nosewheel(0);
+		VERIFY3S(dr_getvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i,
+		    1), ==, 1);
+		if (ABS(bp.tug->cur_steer) > TOW_COMPLETE_TUG_STEER_THRESH ||
+		    ABS(steer) > TOW_COMPLETE_ACF_STEER_THRESH) {
+			/* Keep pushing until steering is neutralized */
+			push_at_speed(bp.last_seg_is_back ? -MIN_SPEED_XP10 :
+			    MIN_SPEED_XP10, bp.veh.max_accel, B_FALSE, B_FALSE);
+			done = B_FALSE;
+		} else {
+			push_at_speed(0, bp.veh.max_accel, B_FALSE, B_TRUE);
+		}
 	}
-	acf2tug_steer();
-	if (ABS(bp.cur_pos.spd) >= SPEED_COMPLETE_THRESH) {
+	if (ABS(bp.cur_pos.spd) >= SPEED_COMPLETE_THRESH || !done) {
 		/*
 		 * Keep resetting the start time to enforce a delay
 		 * once stopped.
@@ -1843,11 +1976,10 @@ static void
 pb_step_stopped(void)
 {
 	if (!slave_mode) {
-		turn_nosewheel(0, STRAIGHT_STEER_RATE);
+		turn_nosewheel(0);
 		push_at_speed(0, bp.veh.max_accel, B_FALSE, B_FALSE);
 		brakes_set(B_TRUE);
 	}
-	acf2tug_steer();
 	if (!pbrake_is_set()) {
 		/*
 		 * Keep resetting the start time to enforce a delay
@@ -1873,10 +2005,9 @@ pb_step_lowering(void)
 	double lift;
 
 	if (!slave_mode) {
-		turn_nosewheel(0, STRAIGHT_STEER_RATE);
+		turn_nosewheel(0);
 		brakes_set(B_TRUE);
 	}
-	acf2tug_steer();
 
 	if (bp.cur_t - bp.last_voice_t < msg_dur(MSG_OP_COMPLETE)) {
 		/*
@@ -1995,7 +2126,6 @@ pb_step_closing_cradle(void)
 	double d_t = bp.cur_t - bp.step_start_t;
 
 	tug_set_lift_in_transit(B_TRUE);
-	tug_set_lift_arm_pos(bp.tug, 1 - d_t / PB_CRADLE_DELAY, B_FALSE);
 	tug_set_tire_sense_pos(bp.tug, 1 - d_t / PB_CRADLE_DELAY);
 	tug_set_lift_pos(d_t / PB_CRADLE_DELAY);
 
@@ -2329,6 +2459,57 @@ pb_step_clear_signal(void)
 	bp.step_start_t = bp.cur_t;
 }
 
+static void
+tug_pos_update(void)
+{
+	double hdg, tug_hdg, tug_spd, steer, radius;
+	vect2_t pos, dir, tug_pos;
+
+	pos = VECT2(dr_getf(&drs.local_x), -dr_getf(&drs.local_z));
+	hdg = dr_getf(&drs.hdg);
+	dr_getvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1);
+
+	tug_spd = bp.cur_pos.spd / cos(DEG2RAD(fabs(steer)));
+
+	radius = tan(DEG2RAD(90 - bp.tug->cur_steer)) * bp.tug->veh.wheelbase;
+	if (fabs(radius) < 1e3) {
+		double d_hdg = RAD2DEG(tug_spd / radius) * bp.d_t;
+		double r_hdg;
+
+		tug_hdg = normalize_hdg(bp.tug->pos.hdg + d_hdg);
+		r_hdg = rel_hdg(bp.cur_pos.hdg, tug_hdg);
+		/* check if we hit the hard steering stop */
+		if (r_hdg > bp.veh.max_steer) {
+			tug_hdg = normalize_hdg(bp.cur_pos.hdg +
+			    bp.veh.max_steer);
+		} else if (r_hdg < -bp.veh.max_steer) {
+			tug_hdg = normalize_hdg(bp.cur_pos.hdg -
+			    bp.veh.max_steer);
+		}
+	} else {
+		tug_hdg = bp.tug->pos.hdg;
+	}
+
+	dir = hdg2dir(hdg);
+	if (bp.step == PB_STEP_GRABBING &&
+	    bp.tug->info->lift_type == LIFT_WINCH) {
+		/*
+		 * When winching the aircraft forward, we keep the tug in a
+		 * fixed position relative to where the aircraft was when the
+		 * winching operation started.
+		 */
+		tug_set_pos(bp.tug, vect2_add(bp.winching.start_acf_pos,
+		    vect2_scmul(hdg2dir(hdg), (-bp.acf.nw_z) +
+		    (-bp.tug->info->plat_z))), hdg, 0);
+	} else {
+		vect2_t off_v = vect2_scmul(hdg2dir(tug_hdg),
+		    (-bp.tug->info->lift_wall_z) + tug_lift_wall_off(bp.tug));
+		tug_pos = vect2_add(vect2_add(pos, vect2_scmul(dir,
+		    -bp.acf.nw_z)), off_v);
+		tug_set_pos(bp.tug, tug_pos, tug_hdg, tug_spd);
+	}
+}
+
 static float
 bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 {
@@ -2354,6 +2535,11 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		    bp.step == PB_STEP_DRIVING_UP_CONNECT ||
 		    bp.step == PB_STEP_MOVING_AWAY);
 		tug_anim(bp.tug, bp.d_t, bp.cur_t);
+
+		if (list_head(&bp.tug->segs) == NULL &&
+		    bp.step >= PB_STEP_GRABBING &&
+		    bp.step <= PB_STEP_UNGRABBING)
+			tug_pos_update();
 	}
 
 	if (!slave_mode) {
@@ -2407,7 +2593,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			 * segs. The actual tug position will be updated in
 			 * draw_tugs.
 			 */
-			tug_set_pos(bp.tug, ZERO_VECT2, 0, 0);
+			tug_set_pos(bp.tug, ZERO_VECT2, bp.cur_pos.hdg, 0);
 		} else if (bp.step == PB_STEP_UNGRABBING) {
 			dr_setvf(&drs.leg_len, &bp.acf.nw_len, bp.acf.nw_i, 1);
 			bp_complete();
@@ -2443,7 +2629,6 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 
 		tug_set_lift_in_transit(B_TRUE);
 		tug_set_lift_pos(1 - d_t / PB_CRADLE_DELAY);
-		tug_set_lift_arm_pos(bp.tug, d_t / PB_CRADLE_DELAY, B_FALSE);
 		tug_set_tire_sense_pos(bp.tug, d_t / PB_CRADLE_DELAY);
 		if (d_t >= PB_CRADLE_DELAY) {
 			tug_set_lift_in_transit(B_FALSE);
@@ -2487,7 +2672,12 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
 		} else {
-			turn_nosewheel(0, STRAIGHT_STEER_RATE);
+			if (!slave_mode) {
+				seg_t *seg = list_tail(&bp.segs);
+				ASSERT(seg != NULL);
+				bp.last_seg_is_back = seg->backward;
+			}
+			turn_nosewheel(0);
 			push_at_speed(0, bp.veh.max_accel, B_FALSE, B_FALSE);
 		}
 		break;
@@ -2556,7 +2746,8 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			bp_complete();
 			/*
 			 * Can't unregister floop from within, so just tell
-			 * X-Plane to not call us anymore.
+			 * X-Plane to not call us anymore. bp_fini will take
+			 * care of the rest.
 			 */
 			return (0);
 		}

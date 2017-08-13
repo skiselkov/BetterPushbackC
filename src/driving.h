@@ -128,12 +128,17 @@ int compute_segs(const vehicle_t *veh, vect2_t start_pos, double start_hdg,
 bool_t drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
     double *last_mis_hdg, double d_t, double *out_steer, double *out_speed,
     bool_t *out_decelerating);
+double ang_vel_speed_limit(const vehicle_t *veh, double steer, double speed);
 
 void seg_world2local(seg_t *seg);
 void seg_local2world(seg_t *seg);
 
 void route_save(const list_t *segs);
 void route_load(geo_pos2_t start_pos, double start_hdg, list_t *segs);
+
+#define	MIN_SPEED_XP10	0.6
+#define	CRAWL_SPEED(xpversion, veh)	/* m/s */ \
+	(((xpversion) >= 11000 || !(veh)->xp10_bug_ign) ? 0.1 : MIN_SPEED_XP10)
 
 #ifdef	__cplusplus
 }

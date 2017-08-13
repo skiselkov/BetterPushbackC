@@ -44,9 +44,6 @@
 #define	MAX_OFF_PATH_ANGLE	20	/* degrees */
 #define	OFF_PATH_CORR_ANGLE	35	/* degrees */
 #define	STEERING_SENSITIVE	90	/* degrees */
-#define	MIN_SPEED_XP10		0.6	/* m/s */
-#define	CRAWL_SPEED(xpversion, veh)	/* m/s */ \
-	(((xpversion) >= 11000 || !veh->xp10_bug_ign) ? 0.1 : MIN_SPEED_XP10)
 
 #define	MIN_SEG_LEN		0.1	/* meters */
 
@@ -342,11 +339,11 @@ veh_pos2fixed_axle(const vehicle_pos_t *pos, const vehicle_t *veh)
 static void
 drive_on_line(const vehicle_pos_t *pos, const vehicle_t *veh,
     vect2_t line_start, double line_hdg, double speed, double arm_len,
-    double steer_corr_amp, double *last_mis_hdg, double d_t,
-    double *steer_out, double *speed_out)
+    double steer_corr_amp, bool_t keep_aligned, double *last_mis_hdg,
+    double d_t, double *steer_out, double *speed_out)
 {
 	vect2_t c, s2c, align_s, dir_v, fixed_pos;
-	double s2c_hdg, mis_hdg, steering_arm, turn_radius, ang_vel, rhdg;
+	double s2c_hdg, mis_hdg, steering_arm, rhdg;
 	double cur_hdg, steer, d_mis_hdg;
 	bool_t overcorrecting = B_FALSE;
 
@@ -386,11 +383,22 @@ drive_on_line(const vehicle_pos_t *pos, const vehicle_t *veh,
 	UNUSED(d_mis_hdg);
 
 	/*
+	 * At very short wheelbases, the steering correction amplification is
+	 * causing more trouble than good. So gradually reduce it out as the
+	 * wheelbase goes from MIN_STEERING_ARM_LEN to 0.1m.
+	 */
+	if (veh->wheelbase < MIN_STEERING_ARM_LEN) {
+		steer_corr_amp = fx_lin(veh->wheelbase, 0.5, 1,
+		    MIN_STEERING_ARM_LEN, steer_corr_amp);
+	}
+
+	/*
 	 * Calculate the required steering change. mis_hdg is the angle by
 	 * which point `c' is deflected from the ideal straight line. So
 	 * simply steer in the opposite direction to try and nullify it.
 	 */
-	steer = STEER_GATE(mis_hdg + rhdg, veh->max_steer);
+	steer = STEER_GATE(mis_hdg * steer_corr_amp + (keep_aligned ? rhdg : 0),
+	    veh->max_steer);
 
 	/*
 	 * Watch out for overcorrecting. If our heading is too far in the
@@ -410,21 +418,16 @@ drive_on_line(const vehicle_pos_t *pos, const vehicle_t *veh,
 	 * If we've come off the path even with overcorrection, slow down
 	 * until we're re-established again.
 	 */
-	if (overcorrecting) {
+	if (overcorrecting)
 		speed = MAX(MIN(speed, veh->max_rev_spd), -veh->max_rev_spd);
-	}
 
 	/*
 	 * Limit our speed to not overstep maximum angular velocity for
 	 * a correction maneuver. This helps in case we get kicked off
 	 * from a straight line very far and need to correct a lot.
 	 */
-	turn_radius = tan(DEG2RAD(90 - ABS(steer))) * veh->wheelbase;
-	ang_vel = RAD2DEG(ABS(speed) / turn_radius);
-	if (speed >= 0)
-		speed *= MIN(veh->max_fwd_ang_vel / ang_vel, 1);
-	else
-		speed *= MIN(veh->max_rev_ang_vel / ang_vel, 1);
+
+	speed = ang_vel_speed_limit(veh, steer, speed);
 
 	/* Steering works in reverse when pushing back. */
 	if (speed < 0)
@@ -436,18 +439,7 @@ drive_on_line(const vehicle_pos_t *pos, const vehicle_t *veh,
 	    overcorrecting, steer);
 #endif	/* DRIVING_DEBUG_LOGGING */
 
-	/*
-	 * At very short wheelbases, the steering correction amplification is
-	 * causing more trouble than good. So gradually reduce it out as the
-	 * wheelbase goes from MIN_STEERING_ARM_LEN to 0.1m.
-	 */
-
-	if (veh->wheelbase < MIN_STEERING_ARM_LEN) {
-		steer_corr_amp = fx_lin(veh->wheelbase, 0.5, 1,
-		    MIN_STEERING_ARM_LEN, steer_corr_amp);
-	}
-
-	*steer_out = steer * steer_corr_amp;
+	*steer_out = steer;
 	*speed_out = speed;
 
 	*last_mis_hdg = mis_hdg;
@@ -639,7 +631,7 @@ turn_run(const vehicle_pos_t *pos, const vehicle_t *veh, const seg_t *seg,
 
 	speed = (!seg->backward ? speed : -speed);
 	drive_on_line(pos, veh, r, hdg, speed, veh->wheelbase / 5,
-	    3, last_mis_hdg, d_t, out_steer, out_speed);
+	    3, B_TRUE, last_mis_hdg, d_t, out_steer, out_speed);
 }
 
 bool_t
@@ -672,8 +664,8 @@ drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
 
 		speed = (!seg->backward ? speed : -speed);
 		drive_on_line(pos, veh, seg->start_pos, hdg, speed,
-		    veh->wheelbase / 2, 3, last_mis_hdg, d_t, out_steer,
-		    out_speed);
+		    veh->wheelbase / 2, 2, B_TRUE, last_mis_hdg, d_t,
+		    out_steer, out_speed);
 	} else {
 		double rhdg = fabs(rel_hdg(pos->hdg, seg->end_hdg));
 		double end_hdg = (!seg->backward ? seg->end_hdg :
@@ -704,6 +696,29 @@ drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
 	*out_steer = STEER_GATE(*out_steer, veh->max_steer);
 
 	return (B_TRUE);
+}
+
+double
+ang_vel_speed_limit(const vehicle_t *veh, double steer, double speed)
+{
+	double turn_radius, ang_vel;
+
+	if (speed == 0)
+		return (0);
+	turn_radius = tan(DEG2RAD(90 - ABS(steer))) * veh->wheelbase;
+	ang_vel = RAD2DEG(ABS(speed) / turn_radius);
+	if (speed >= 0)
+		speed *= MIN(veh->max_fwd_ang_vel / ang_vel, 1);
+	else
+		speed *= MIN(veh->max_rev_ang_vel / ang_vel, 1);
+	if (bp_xp_ver < 11000) {
+		if (speed >= 0)
+			speed = MAX(speed, MIN_SPEED_XP10);
+		else
+			speed = MIN(speed, -MIN_SPEED_XP10);
+	}
+
+	return (speed);
 }
 
 /* Converts a seg_t from using geographic to local coordinates */

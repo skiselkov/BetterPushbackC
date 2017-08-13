@@ -36,8 +36,8 @@
 #include "tug.h"
 #include "xplane.h"
 
-#define	TUG_STEER_RATE		60	/* deg/s */
-#define	TUG_FAST_STEER_RATE	60	/* deg/s */
+#define	TUG_STEER_RATE		40	/* deg/s */
+#define	TUG_FAST_STEER_RATE	50	/* deg/s */
 
 #define	TUG_MAX_ANG_VEL		20	/* deg/s */
 
@@ -1198,10 +1198,12 @@ tug_alloc_common(tug_info_t *ti, double tirrad)
 	 * Initial state is:
 	 * 1) everything at 0, except:
 	 * 2) lift fully raised
+	 * 3) lift arms fully open on grab-type lift tugs
 	 */
 	for (anim_t a = 0; a < TUG_NUM_ANIMS; a++)
 		anim[a].value = 0;
 	anim[ANIM_LIFT].value = 1;
+	anim[ANIM_LIFT_ARM].value = 1;
 	cradle_lights_req = B_FALSE;
 
 	glob_tug = tug;
@@ -1671,7 +1673,7 @@ tug_set_cradle_beeper_on(tug_t *tug, bool_t flag)
 void
 tug_set_steering(tug_t *tug, double req_steer, double d_t)
 {
-	double d_steer = (req_steer - tug->cur_steer) * d_t;
+	double d_steer = req_steer - tug->cur_steer;
 	double max_d_steer = TUG_FAST_STEER_RATE * d_t;
 	d_steer = MIN(d_steer, max_d_steer);
 	d_steer = MAX(d_steer, -max_d_steer);
@@ -1725,9 +1727,10 @@ tug_set_lift_arm_pos(const tug_t *tug, float x, bool_t grabbing_tire)
 	double min_val = 0;
 	if (grabbing_tire) {
 		const tug_info_t *ti = tug->info;
-		min_val = wavg(0, ti->max_tirrad_f,
-		    (tug->tirrad - ti->min_tirrad) / (ti->max_tirrad -
-		    ti->min_tirrad));
+		double x = (tug->tirrad - ti->min_tirrad) / (ti->max_tirrad -
+		    ti->min_tirrad);
+		x = MIN(MAX(x, 0), 1);
+		min_val = wavg(0, ti->max_tirrad_f, x);
 	}
 
 	anim[ANIM_LIFT_ARM].value = MAX(MIN(x, 1.0), min_val);
