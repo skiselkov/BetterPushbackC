@@ -1301,6 +1301,15 @@ bp_can_start(const char **reason)
 	if (!acf_on_gnd_stopped(reason))
 		return (B_FALSE);
 
+	if (!eng_ok2start() && eng_is_running()) {
+		if (reason != NULL) {
+			*reason = _("Pushback failure: cannot push this "
+			    "aircraft with engines running. Shutdown "
+			    "engines first.");
+		}
+		return (B_FALSE);
+	}
+
 	seg = list_head(&bp.segs);
 	if (seg == NULL && !late_plan_requested && !slave_mode) {
 		if (reason != NULL) {
