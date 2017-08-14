@@ -99,12 +99,7 @@ function install_tug_files() {
 	    '(' -iname '*.obj' -or -iname '*.cfg' -or -iname '*.wav' -or \
 	    -iname '*.opus' -or -iname '*.png' ')' ) )
 	for FILE in ${FILES[@]}; do
-		if [[ "$FILE" = *.png ]]; then
-			TGTFILE='//PNG2DDS//'
-		else
-			TGTFILE=''
-		fi
-		install_xtra_file "$FILE" "$TGTFILE"
+		install_xtra_file "$FILE" ""
 	done
 }
 
