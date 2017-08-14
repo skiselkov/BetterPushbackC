@@ -40,6 +40,9 @@
 #include "tug.h"
 #include "xplane.h"
 
+/* Enables leaving bp_tug_name set to facilitate local master/slave debug */
+/*#define	SLAVE_DEBUG*/
+
 #define BP_PLUGIN_NAME		"BetterPushback-" BP_PLUGIN_VERSION
 #define BP_PLUGIN_SIG		"skiselkov.BetterPushback"
 #define BP_PLUGIN_DESCRIPTION	"Generic automated pushback plugin"
@@ -239,11 +242,20 @@ conn_first_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 {
 	UNUSED(cmd);
 	UNUSED(refcon);
-	if (phase != xplm_CommandEnd || !bp_init() || bp_started)
+	if (phase != xplm_CommandEnd || !bp_init() || bp_started || slave_mode)
+		return (0);
+	late_plan_requested = B_TRUE;
+	(void) bp_cam_stop();
+	if (!bp_start())
 		return (1);
-	/* Reconnection and connect-first are the same */
-	bp_reconnect_notify();
-	return (B_TRUE);
+	if (!slave_mode) {
+		XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_FALSE);
+		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
+		XPLMEnableMenuItem(root_menu, start_pb_menu_item,
+		    bp_num_segs() == 0);
+		XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_TRUE);
+	}
+	return (1);
 }
 
 static void
@@ -268,23 +280,29 @@ bp_done_notify(void)
 		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
 	}
 
+#ifndef	SLAVE_DEBUG
 	bp_tug_name[0] = '\0';
+#endif
 }
 
+/*
+ * Notification from BP engine that a reconnect has been requested at the
+ * appropriate time. Behave as if the user had hit "connect first" and on
+ * the master's machine invoke the planner.
+ */
 void
 bp_reconnect_notify(void)
 {
-	late_plan_requested = B_TRUE;
-	(void) bp_cam_stop();
-	if (!bp_start())
+	if (slave_mode)
 		return;
-	if (!slave_mode) {
-		XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_FALSE);
-		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
-		XPLMEnableMenuItem(root_menu, start_pb_menu_item,
-		    bp_num_segs() == 0);
-		XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_TRUE);
-	}
+
+	late_plan_requested = B_TRUE;
+	VERIFY(bp_cam_start());
+	msg_play(MSG_PLAN_START);
+	XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_FALSE);
+	XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_TRUE);
+	XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_FALSE);
+	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_TRUE);
 }
 
 const char *
@@ -511,7 +529,9 @@ XPluginReceiveMessage(XPLMPluginID from, int msg, void *param)
 		smartcopilot_present = dr_find(&smartcopilot_state,
 		    "scp/api/ismaster");
 		bp_fini();
+#ifndef	SLAVE_DEBUG
 		bp_tug_name[0] = '\0';
+#endif
 		break;
 	}
 }

@@ -297,6 +297,7 @@ static bool_t load_buttons(void);
 static void unload_buttons(void);
 static int key_sniffer(char inChar, XPLMKeyFlags inFlags, char inVirtualKey,
     void *refcon);
+static void tug_pos_update(vect2_t my_pos, double my_hdg, bool_t pos_only);
 
 static bool_t load_icon(button_t *btn);
 static void unload_icon(button_t *btn);
@@ -696,16 +697,13 @@ turn_nosewheel(double req_steer)
 	    bp.tug->veh.wheelbase);
 	off_v = vect2_rot(off_v, cur_nw_steer);
 	d_hdg = RAD2DEG(asin(off_v.x / bp.veh.wheelbase));
-	if (!slave_mode) {
-		/*
-		 * For some inexplicable reason, we have to amplify the
-		 * heading change by around 10x to get it to show properly
-		 * in the sim. Probably something to do with ground
-		 * stickiness or heading change granularity/float rounding
-		 * errors. Definitely file under "WTF".
-		 */
-		reorient_aircraft(0, 0, 10 * d_hdg);
-	}
+	/*
+	 * For some inexplicable reason, we have to amplify the heading change
+	 * by around 10x to get it to show properly in the sim. Probably
+	 * something to do with ground stickiness or heading change
+	 * granularity/float rounding errors. Definitely file under "WTF".
+	 */
+	reorient_aircraft(0, 0, 10 * d_hdg);
 }
 
 static void
@@ -1255,30 +1253,10 @@ draw_tugs(XPLMDrawingPhase phase, int before, void *refcon)
 	if (list_head(&bp.tug->segs) == NULL &&
 	    bp.step >= PB_STEP_GRABBING &&
 	    bp.step <= PB_STEP_UNGRABBING) {
-		double hdg = bp.cur_pos.hdg;
-		vect2_t dir = hdg2dir(hdg);
-		if (bp.step == PB_STEP_GRABBING &&
-		    bp.tug->info->lift_type == LIFT_WINCH) {
-			/*
-			 * When winching the aircraft forward, we keep the tug
-			 * in a fixed position relative to where the aircraft
-			 * was when the winching operation started.
-			 */
-			tug_set_pos(bp.tug, vect2_add(bp.winching.start_acf_pos,
-			    vect2_scmul(hdg2dir(hdg), (-bp.acf.nw_z) +
-			    (-bp.tug->info->plat_z))), bp.tug->pos.hdg, 0);
-		} else {
-			double tug_hdg = bp.tug->pos.hdg;
-			double tug_spd = bp.tug->pos.spd;
-			vect2_t pos = bp.cur_pos.pos;
-			vect2_t off_v = vect2_scmul(hdg2dir(tug_hdg),
-			    (-bp.tug->info->lift_wall_z) +
-			    tug_lift_wall_off(bp.tug));
-
-			vect2_t tug_pos = vect2_add(vect2_add(pos,
-			    vect2_scmul(dir, -bp.acf.nw_z)), off_v);
-			tug_set_pos(bp.tug, tug_pos, tug_hdg, tug_spd);
-		}
+		vect2_t my_pos = VECT2(dr_getf(&drs.local_x),
+		    -dr_getf(&drs.local_z));
+		double my_hdg = dr_getf(&drs.hdg);
+		tug_pos_update(my_pos, my_hdg, B_TRUE);
 	}
 
 	tug_draw(bp.tug, bp.cur_t);
@@ -2280,12 +2258,17 @@ recon_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	if (bp.step != PB_STEP_WAITING4OK2DISCO)
 		return (0);
 
+	/*
+	 * Reconnection works as follows:
+	 * 1) We shift state back to the grabbing step, so the tug starts
+	 *    the reattachment and lift process.
+	 * 2) We notify the GUI portion that a reconnection has taken place.
+	 */
+	op_complete = B_FALSE;
 	bp.reconnect = B_TRUE;
 	bp.step = PB_STEP_GRABBING;
 	bp.step_start_t = bp.cur_t;
-	/* Notify the UI to reenable the menu items. */
 	bp_reconnect_notify();
-	XPLMCommandOnce(XPLMFindCommand("BetterPushback/start"));
 	return (1);
 }
 
@@ -2381,7 +2364,7 @@ static void
 pb_step_waiting4ok2disco(void)
 {
 	if (!bp.ok2disco) {
-		if (bp.disco_win == NULL)
+		if (bp.disco_win == NULL && !slave_mode)
 			disco_intf_show();
 
 		/* Keep resetting the start time to enforce the delay */
@@ -2537,38 +2520,50 @@ pb_step_clear_signal(void)
 	bp.step_start_t = bp.cur_t;
 }
 
+/*
+ * Updates the tug's position with respect to where we are and its orientation
+ * based on the tug's current steering input. When `pos_only' is true, only
+ * the tug's position is update to match our nose gear position, but we leave
+ * its heading untouched. This is because this can be called from the draw
+ * function as well, which might update more frequently than the flight loop,
+ * so we want to keep the tug firmly attached to our nosewheel, but not
+ * actually change any params that might affect our steering.
+ */
 static void
-tug_pos_update(void)
+tug_pos_update(vect2_t my_pos, double my_hdg, bool_t pos_only)
 {
-	double hdg, tug_hdg, tug_spd, steer, radius;
-	vect2_t pos, dir, tug_pos;
+	double tug_hdg, tug_spd, steer, radius;
+	vect2_t dir, tug_pos;
 
-	pos = VECT2(dr_getf(&drs.local_x), -dr_getf(&drs.local_z));
-	hdg = dr_getf(&drs.hdg);
 	dr_getvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1);
 
 	tug_spd = bp.cur_pos.spd / cos(DEG2RAD(fabs(steer)));
 
 	radius = tan(DEG2RAD(90 - bp.tug->cur_steer)) * bp.tug->veh.wheelbase;
-	if (fabs(radius) < 1e3) {
+	if (pos_only) {
+		tug_hdg = bp.tug->pos.hdg;
+	} else if (slave_mode) {
+		/*
+		 * In slave mode, the tug tracks our nosewheel and doesn't
+		 * actually do any steering of its own.
+		 */
+		tug_hdg = normalize_hdg(my_hdg + steer);
+	} else if (fabs(radius) < 1e3) {
 		double d_hdg = RAD2DEG(tug_spd / radius) * bp.d_t;
 		double r_hdg;
 
 		tug_hdg = normalize_hdg(bp.tug->pos.hdg + d_hdg);
-		r_hdg = rel_hdg(bp.cur_pos.hdg, tug_hdg);
+		r_hdg = rel_hdg(my_hdg, tug_hdg);
 		/* check if we hit the hard steering stop */
-		if (r_hdg > bp.veh.max_steer) {
-			tug_hdg = normalize_hdg(bp.cur_pos.hdg +
-			    bp.veh.max_steer);
-		} else if (r_hdg < -bp.veh.max_steer) {
-			tug_hdg = normalize_hdg(bp.cur_pos.hdg -
-			    bp.veh.max_steer);
-		}
+		if (r_hdg > bp.veh.max_steer)
+			tug_hdg = normalize_hdg(my_hdg + bp.veh.max_steer);
+		else if (r_hdg < -bp.veh.max_steer)
+			tug_hdg = normalize_hdg(my_hdg - bp.veh.max_steer);
 	} else {
 		tug_hdg = bp.tug->pos.hdg;
 	}
 
-	dir = hdg2dir(hdg);
+	dir = hdg2dir(my_hdg);
 	if (bp.step == PB_STEP_GRABBING &&
 	    bp.tug->info->lift_type == LIFT_WINCH) {
 		/*
@@ -2577,12 +2572,12 @@ tug_pos_update(void)
 		 * winching operation started.
 		 */
 		tug_set_pos(bp.tug, vect2_add(bp.winching.start_acf_pos,
-		    vect2_scmul(hdg2dir(hdg), (-bp.acf.nw_z) +
-		    (-bp.tug->info->plat_z))), hdg, 0);
+		    vect2_scmul(dir, (-bp.acf.nw_z) + (-bp.tug->info->plat_z))),
+		    my_hdg, 0);
 	} else {
 		vect2_t off_v = vect2_scmul(hdg2dir(tug_hdg),
 		    (-bp.tug->info->lift_wall_z) + tug_lift_wall_off(bp.tug));
-		tug_pos = vect2_add(vect2_add(pos, vect2_scmul(dir,
+		tug_pos = vect2_add(vect2_add(my_pos, vect2_scmul(dir,
 		    -bp.acf.nw_z)), off_v);
 		tug_set_pos(bp.tug, tug_pos, tug_hdg, tug_spd);
 	}
@@ -2617,7 +2612,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		if (list_head(&bp.tug->segs) == NULL &&
 		    bp.step >= PB_STEP_GRABBING &&
 		    bp.step <= PB_STEP_UNGRABBING)
-			tug_pos_update();
+			tug_pos_update(bp.cur_pos.pos, bp.cur_pos.hdg, B_FALSE);
 	}
 
 	if (!slave_mode) {
@@ -2749,20 +2744,18 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		if (bp.cur_t - bp.step_start_t >= PB_START_DELAY) {
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
-		} else {
-			if (!slave_mode) {
-				seg_t *seg = list_tail(&bp.segs);
-				ASSERT(seg != NULL);
-				bp.last_seg_is_back = seg->backward;
-				/*
-				 * Try to straighten out if we don't end
-				 * in a straight segment.
-				 */
-				if (seg->type == SEG_TYPE_TURN)
-					bp.last_hdg = seg->end_hdg;
-				else
-					bp.last_hdg = NAN;
-			}
+		} else if (!slave_mode) {
+			seg_t *seg = list_tail(&bp.segs);
+			ASSERT(seg != NULL);
+			bp.last_seg_is_back = seg->backward;
+			/*
+			 * Try to straighten out if we don't end
+			 * in a straight segment.
+			 */
+			if (seg->type == SEG_TYPE_TURN)
+				bp.last_hdg = seg->end_hdg;
+			else
+				bp.last_hdg = NAN;
 			turn_nosewheel(0);
 			push_at_speed(0, bp.veh.max_accel, B_FALSE, B_FALSE);
 		}
