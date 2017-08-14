@@ -330,7 +330,7 @@ compute_segs(const vehicle_t *veh, vect2_t start_pos, double start_hdg,
  * crosses its longitudinal axis. This is the starting point for all steering.
  */
 static vect2_t
-veh_pos2fixed_axle(const vehicle_pos_t *pos, const vehicle_t *veh)
+veh_pos2fixed_pos(const vehicle_pos_t *pos, const vehicle_t *veh)
 {
 	return (vect2_add(pos->pos, vect2_scmul(hdg2dir(pos->hdg),
 	    veh->fixed_z_off)));
@@ -348,7 +348,7 @@ drive_on_line(const vehicle_pos_t *pos, const vehicle_t *veh,
 	bool_t overcorrecting = B_FALSE;
 
 	cur_hdg = (speed >= 0 ? pos->hdg : normalize_hdg(pos->hdg + 180));
-	fixed_pos = veh_pos2fixed_axle(pos, veh);
+	fixed_pos = veh_pos2fixed_pos(pos, veh);
 
 	/* Neutralize steering until we're traveling in our direction */
 	if ((speed < 0 && pos->spd > 0) || (speed > 0 && pos->spd < 0)) {
@@ -603,7 +603,7 @@ turn_run(const vehicle_pos_t *pos, const vehicle_t *veh, const seg_t *seg,
 	double hdg, cur_radial, start_radial, end_radial;
 	bool_t cw = ((seg->turn.right && !seg->backward) ||
 	    (!seg->turn.right && seg->backward));
-	vect2_t fixed_pos = veh_pos2fixed_axle(pos, veh);
+	vect2_t fixed_pos = veh_pos2fixed_pos(pos, veh);
 
 	/*
 	 * `c' is the center of the turn. Displace it at right angle to
@@ -641,6 +641,7 @@ drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
 {
 	seg_t *seg = list_head(segs);
 	int xpversion;
+	vect2_t fixed_pos = veh_pos2fixed_pos(pos, veh);
 
 	XPLMGetVersions(&xpversion, NULL, NULL);
 
@@ -648,7 +649,7 @@ drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
 	if (seg->type == SEG_TYPE_STRAIGHT) {
 		vect2_t dir = !seg->backward ? hdg2dir(seg->start_hdg) :
 		    vect2_neg(hdg2dir(seg->start_hdg));
-		double len = vect2_dotprod(vect2_sub(pos->pos, seg->start_pos),
+		double len = vect2_dotprod(vect2_sub(fixed_pos, seg->start_pos),
 		    dir);
 		double speed = straight_run_speed(xpversion, veh, segs,
 		    seg->len - len, seg->backward, list_next(segs, seg),
@@ -664,14 +665,14 @@ drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
 
 		speed = (!seg->backward ? speed : -speed);
 		drive_on_line(pos, veh, seg->start_pos, hdg, speed,
-		    veh->wheelbase / 2, 2, B_TRUE, last_mis_hdg, d_t,
+		    veh->wheelbase / 4, 2, B_TRUE, last_mis_hdg, d_t,
 		    out_steer, out_speed);
 	} else {
 		double rhdg = fabs(rel_hdg(pos->hdg, seg->end_hdg));
 		double end_hdg = (!seg->backward ? seg->end_hdg :
 		    normalize_hdg(seg->end_hdg + 180));
 		double end_brg = fabs(rel_hdg(end_hdg, dir2hdg(
-		    vect2_sub(pos->pos, seg->end_pos))));
+		    vect2_sub(fixed_pos, seg->end_pos))));
 		double speed = turn_run_speed(xpversion, veh, segs, ABS(rhdg),
 		    seg->turn.r, seg->backward, list_next(segs, seg),
 		    out_decelerating);

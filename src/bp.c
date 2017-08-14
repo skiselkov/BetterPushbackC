@@ -224,8 +224,9 @@ typedef struct {
 	vect2_t		start_pos;	/* where the pushback originated */
 	double		start_hdg;	/* which way we were facing at start */
 
-	list_t			segs;
-	bool_t			last_seg_is_back;
+	list_t		segs;
+	bool_t		last_seg_is_back;
+	double		last_hdg;
 } bp_state_t;
 
 typedef struct {
@@ -589,12 +590,35 @@ reorient_aircraft(double d_roll, double d_pitch, double d_hdg)
 	dr_setvf(&drs.quaternion, q, 0, 4);
 }
 
+/*
+ * Computes the distance from the tug's fixed steering (rear) axle
+ * to the aircraft's nosewheel.
+ */
+static double
+tug_rear2acf_nw(void)
+{
+	double nlg_tug_z_off;
+	switch (bp.tug->info->lift_wall_loc) {
+	case LIFT_WALL_FRONT:
+		nlg_tug_z_off = bp.tug->info->lift_wall_z - bp.acf.tirrad;
+		break;
+	case LIFT_WALL_CENTER:
+		nlg_tug_z_off = bp.tug->info->lift_wall_z;
+		break;
+	default:
+		ASSERT3U(bp.tug->info->lift_wall_loc, ==, LIFT_WALL_BACK);
+		nlg_tug_z_off = bp.tug->info->lift_wall_z + bp.acf.tirrad;
+		break;
+	}
+	return (nlg_tug_z_off - bp.tug->veh.fixed_z_off);
+}
+
 static void
 turn_nosewheel(double req_steer)
 {
 	int dir_mult = (bp.tug->pos.spd >= 0 ? 1 : -1);
 	double cur_nw_steer, tug_turn_r, tug_turn_rate, rel_tug_turn_rate;
-	double d_steer, nlg_tug_z_off, nlg_tug_rear_off, d_hdg, turn_inc;
+	double d_steer, nlg_tug_rear_off, d_hdg, turn_inc;
 	vect2_t off_v;
 
 	cur_nw_steer = rel_hdg(bp.cur_pos.hdg, bp.tug->pos.hdg);
@@ -658,20 +682,7 @@ turn_nosewheel(double req_steer)
 	 * that into a heading change and write that to the orientation
 	 * quaternion, overriding the aircraft's heading.
 	 */
-	switch (bp.tug->info->lift_wall_loc) {
-	case LIFT_WALL_FRONT:
-		nlg_tug_z_off = bp.tug->info->lift_wall_z - bp.acf.tirrad;
-		break;
-	case LIFT_WALL_CENTER:
-		nlg_tug_z_off = bp.tug->info->lift_wall_z;
-		break;
-	default:
-		ASSERT3U(bp.tug->info->lift_wall_loc, ==, LIFT_WALL_BACK);
-		nlg_tug_z_off = bp.tug->info->lift_wall_z + bp.acf.tirrad;
-		break;
-	}
-	nlg_tug_rear_off = nlg_tug_z_off - bp.tug->veh.fixed_z_off;
-
+	nlg_tug_rear_off = tug_rear2acf_nw();
 	turn_inc = rel_tug_turn_rate * bp.d_t;
 
 	/*
@@ -804,8 +815,8 @@ push_at_speed(double targ_speed, double max_accel, bool_t allow_snd_ctl,
 
 	if (allow_snd_ctl) {
 		tug_set_TE_override(bp.tug, B_TRUE);
-		if ((bp.cur_pos.spd > 0 && force < 0) ||
-		    (bp.cur_pos.spd < 0 && force > 0)) {
+		if ((bp.cur_pos.spd > 0 && force > 0) ||
+		    (bp.cur_pos.spd < 0 && force < 0)) {
 			double spd_fract = (ABS(bp.cur_pos.spd) /
 			    bp.tug->info->max_fwd_speed);
 			double force_fract = fabs(force /
@@ -1356,9 +1367,15 @@ bp_start(void)
 bool_t
 bp_stop(void)
 {
+	seg_t *seg;
+
 	if (!bp_started)
 		return (B_FALSE);
 
+	/* prevent trying to reach segment end hdg and apply correct back */
+	bp.last_hdg = NAN;
+	if ((seg = list_tail(&bp.segs)) != NULL)
+		bp.last_seg_is_back = seg->backward;
 	bp_delete_all_segs();
 	late_plan_requested = B_FALSE;
 
@@ -1405,9 +1422,41 @@ nearing_end(void)
 		return (B_FALSE);
 
 	end_dir = hdg2dir(seg->end_hdg);
+	if (seg->backward)
+		end_dir = vect2_neg(end_dir);
 	end2acf = vect2_sub(bp.cur_pos.pos, seg->end_pos);
 	long_displ = vect2_dotprod(end_dir, end2acf);
 	return (long_displ > -NEARING_END_THRESHOLD);
+}
+
+/*
+ * We need to compute a fake position for drive_segs. This is because when
+ * steering, we don't actually perform simple steering around our nosewheel.
+ * Instead, the nosewheel swings by being articulated with the tug service
+ * as the platform. So instead of simply passing our true position to
+ * drive_segs, we pretend that our centerline actually passes through the
+ * tug's fixed steering axle.
+ */
+static vehicle_pos_t
+corr_acf_pos(void)
+{
+	vect2_t dir = hdg2dir(bp.cur_pos.hdg);
+	vect2_t main_pos = vect2_add(bp.cur_pos.pos,
+	    vect2_scmul(dir, -bp.acf.main_z));
+	vect2_t nw_pos = vect2_add(bp.cur_pos.pos,
+	    vect2_scmul(dir, -bp.acf.nw_z));
+	double tug_rear2acf_nw_l = tug_rear2acf_nw();
+	double steer, corr_hdg;
+	vect2_t tug_rear_pos, corr_dir, corr_pos;
+
+	VERIFY3S(dr_getvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1), ==, 1);
+	tug_rear_pos = vect2_add(nw_pos, vect2_scmul(hdg2dir(normalize_hdg(
+	    bp.cur_pos.hdg + steer + 180)), tug_rear2acf_nw_l));
+	corr_dir = vect2_sub(tug_rear_pos, main_pos);
+	corr_pos = vect2_add(main_pos, vect2_set_abs(corr_dir, bp.acf.main_z));
+	corr_hdg = dir2hdg(corr_dir);
+
+	return ((vehicle_pos_t){corr_pos, corr_hdg, bp.cur_pos.spd});
 }
 
 static bool_t
@@ -1423,6 +1472,7 @@ bp_run_push(void)
 	while (seg != NULL) {
 		double steer, speed;
 		bool_t decel;
+		vehicle_pos_t corr_pos;
 
 		/* Pilot pressed brake pedals or set parking brake, stop */
 		if (dr_getf(&drs.lbrake) >= BRAKE_PEDAL_THRESH ||
@@ -1446,7 +1496,8 @@ bp_run_push(void)
 			}
 			bp.reverse_t = 0.0;
 		}
-		if (drive_segs(&bp.cur_pos, &bp.veh, &bp.segs,
+		corr_pos = corr_acf_pos();
+		if (drive_segs(&corr_pos, &bp.veh, &bp.segs,
 		    &bp.last_mis_hdg, bp.d_t, &steer, &speed, &decel)) {
 			if (!nearing_end()) {
 				turn_nosewheel(steer);
@@ -1939,18 +1990,30 @@ pb_step_stopping(void)
 
 	tug_set_TE_override(bp.tug, B_FALSE);
 	if (!slave_mode) {
-		double steer;
+		vehicle_pos_t corr_pos;
+		double steer, rhdg;
 
-		turn_nosewheel(0);
 		VERIFY3S(dr_getvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i,
 		    1), ==, 1);
-		if (ABS(bp.tug->cur_steer) > TOW_COMPLETE_TUG_STEER_THRESH ||
+		corr_pos = corr_acf_pos();
+		;
+		if (!isnan(bp.last_hdg) &&
+		    fabs(rhdg = rel_hdg(corr_pos.hdg, bp.last_hdg)) > 1) {
+			double nsteer = (bp.last_seg_is_back ? -10 : 10) * rhdg;
+			turn_nosewheel(nsteer);
+			push_at_speed(bp.last_seg_is_back ? -MIN_SPEED_XP10 :
+			    MIN_SPEED_XP10, bp.veh.max_accel, B_FALSE, B_FALSE);
+			done = B_FALSE;
+		} else if (ABS(bp.tug->cur_steer) >
+		    TOW_COMPLETE_TUG_STEER_THRESH ||
 		    ABS(steer) > TOW_COMPLETE_ACF_STEER_THRESH) {
 			/* Keep pushing until steering is neutralized */
+			turn_nosewheel(0);
 			push_at_speed(bp.last_seg_is_back ? -MIN_SPEED_XP10 :
 			    MIN_SPEED_XP10, bp.veh.max_accel, B_FALSE, B_FALSE);
 			done = B_FALSE;
 		} else {
+			turn_nosewheel(0);
 			push_at_speed(0, bp.veh.max_accel, B_FALSE, B_TRUE);
 		}
 	}
@@ -2676,6 +2739,14 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 				seg_t *seg = list_tail(&bp.segs);
 				ASSERT(seg != NULL);
 				bp.last_seg_is_back = seg->backward;
+				/*
+				 * Try to straighten out if we don't end
+				 * in a straight segment.
+				 */
+				if (seg->type == SEG_TYPE_TURN)
+					bp.last_hdg = seg->end_hdg;
+				else
+					bp.last_hdg = NAN;
 			}
 			turn_nosewheel(0);
 			push_at_speed(0, bp.veh.max_accel, B_FALSE, B_FALSE);
@@ -3621,6 +3692,7 @@ bp_cam_start(void)
 	char icao[8] = { 0 };
 	char *cam_obj_path;
 	char airline[1024] = { 0 };
+	seg_t *seg;
 
 	if (cam_inited || !bp_init())
 		return (B_FALSE);
@@ -3703,6 +3775,20 @@ bp_cam_start(void)
 		route_load(GEO_POS2(dr_getf(&drs.lat), dr_getf(&drs.lon)),
 		    dr_getf(&drs.hdg), &bp.segs);
 	}
+
+	/*
+	 * If the route ends in an auto-generated segment, pop it off, so
+	 * it doesn't show in the route prediction and confuse the user.
+	 */
+	UNUSED(seg);
+/*	seg = list_tail(&bp.segs);
+	if (seg != NULL && seg->auto_generated) {
+		list_remove_tail(&bp.segs);
+		free(seg);
+		seg = NULL;
+	}
+	ASSERT(list_tail(&bp.segs) == NULL ||
+	    !((seg_t *)list_tail(&bp.segs))->auto_generated);*/
 
 	/*
 	 * While the planner is active, we override the current visibility
