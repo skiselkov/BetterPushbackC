@@ -88,11 +88,11 @@ typedef struct {
 static int compute_segs_impl(const vehicle_t *veh, vect2_t start_pos,
     double start_hdg, vect2_t end_pos, double end_hdg, list_t *segs,
     bool_t recurse);
-static double turn_run_speed(const int xpversion, const vehicle_t *veh,
-    list_t *segs, double rhdg, double radius, bool_t backward,
-    const seg_t *next, bool_t *out_decelerating);
-static double straight_run_speed(const int xpversion, const vehicle_t *veh,
-    list_t *segs, double rmng_d, bool_t backward, const seg_t *next,
+static double turn_run_speed(const vehicle_t *veh, list_t *segs, double rhdg,
+    double radius, bool_t backward, const seg_t *next,
+    bool_t *out_decelerating);
+static double straight_run_speed(const vehicle_t *veh, list_t *segs,
+    double rmng_d, bool_t backward, const seg_t *next,
     bool_t *out_decelerating);
 
 static int
@@ -332,8 +332,11 @@ compute_segs(const vehicle_t *veh, vect2_t start_pos, double start_hdg,
 static vect2_t
 veh_pos2fixed_pos(const vehicle_pos_t *pos, const vehicle_t *veh)
 {
-	return (vect2_add(pos->pos, vect2_scmul(hdg2dir(pos->hdg),
-	    veh->fixed_z_off)));
+	if (veh->use_rear_pos) {
+		return (vect2_add(pos->pos, vect2_scmul(hdg2dir(pos->hdg),
+		    veh->fixed_z_off)));
+	}
+	return (pos->pos);
 }
 
 static void
@@ -446,16 +449,15 @@ drive_on_line(const vehicle_pos_t *pos, const vehicle_t *veh,
 }
 
 static double
-next_seg_speed(const int xpversion, const vehicle_t *veh, list_t *segs,
-    const seg_t *next, bool_t cur_backward)
+next_seg_speed(const vehicle_t *veh, list_t *segs, const seg_t *next,
+    bool_t cur_backward)
 {
 	if (next != NULL && next->backward == cur_backward) {
 		if (next->type == SEG_TYPE_STRAIGHT) {
-			return (straight_run_speed(xpversion, veh, segs,
-			    next->len, next->backward,list_next(segs, next),
-			    NULL));
+			return (straight_run_speed(veh, segs, next->len,
+			    next->backward,list_next(segs, next), NULL));
 		} else {
-			return (turn_run_speed(xpversion, veh, segs,
+			return (turn_run_speed(veh, segs,
 			    rel_hdg(next->start_hdg, next->end_hdg),
 			    next->turn.r, next->backward,
 			    list_next(segs, next), NULL));
@@ -465,7 +467,7 @@ next_seg_speed(const int xpversion, const vehicle_t *veh, list_t *segs,
 		 * At the end of the operation or when reversing direction,
 		 * target a nearly stopped speed.
 		 */
-		return (CRAWL_SPEED(xpversion, veh));
+		return (CRAWL_SPEED(bp_xp_ver, veh));
 	}
 }
 
@@ -477,12 +479,11 @@ next_seg_speed(const int xpversion, const vehicle_t *veh, list_t *segs,
  * side-loading. This means the tighter the turn, the slower our speed.
  */
 static double
-turn_run_speed(const int xpversion, const vehicle_t *veh, list_t *segs,
-    double rhdg, double radius, bool_t backward, const seg_t *next,
-    bool_t *out_decelerating)
+turn_run_speed(const vehicle_t *veh, list_t *segs, double rhdg, double radius,
+    bool_t backward, const seg_t *next, bool_t *out_decelerating)
 {
 	double rmng_d = (2 * M_PI * radius) * (rhdg / 360.0);
-	double spd = straight_run_speed(xpversion, veh, segs, rmng_d,
+	double spd = straight_run_speed(veh, segs, rmng_d,
 	    backward, next, out_decelerating);
 	double rmng_t = rmng_d / spd;
 	double ang_vel = rhdg / rmng_t;
@@ -491,7 +492,7 @@ turn_run_speed(const int xpversion, const vehicle_t *veh, list_t *segs,
 		spd *= MIN(veh->max_fwd_ang_vel / ang_vel, 1);
 	else
 		spd *= MIN(veh->max_rev_ang_vel / ang_vel, 1);
-	if (xpversion < 11000 && !veh->xp10_bug_ign) {
+	if (bp_xp_ver < 11000 && !veh->xp10_bug_ign) {
 		/*
 		 * X-Plane 10's tire model is much sticker, so don't slow down
 		 * too much or we are going to stick to the ground.
@@ -512,13 +513,13 @@ turn_run_speed(const int xpversion, const vehicle_t *veh, list_t *segs,
  * segment or a full stop.
  */
 static double
-straight_run_speed(const int xpversion, const vehicle_t *veh, list_t *segs,
-    double rmng_d, bool_t backward, const seg_t *next, bool_t *out_decelerating)
+straight_run_speed(const vehicle_t *veh, list_t *segs, double rmng_d,
+    bool_t backward, const seg_t *next, bool_t *out_decelerating)
 {
 	double next_spd, cruise_spd, spd, crawl_spd;
 	double ts[2];
 
-	next_spd = next_seg_speed(xpversion, veh, segs, next, backward);
+	next_spd = next_seg_speed(veh, segs, next, backward);
 	cruise_spd = (backward ? veh->max_rev_spd : veh->max_fwd_spd);
 	crawl_spd = CRAWL_SPEED(bp_xp_ver, veh);
 
@@ -640,10 +641,7 @@ drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
     bool_t *out_decelerating)
 {
 	seg_t *seg = list_head(segs);
-	int xpversion;
 	vect2_t fixed_pos = veh_pos2fixed_pos(pos, veh);
-
-	XPLMGetVersions(&xpversion, NULL, NULL);
 
 	ASSERT(seg != NULL);
 	if (seg->type == SEG_TYPE_STRAIGHT) {
@@ -651,9 +649,8 @@ drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
 		    vect2_neg(hdg2dir(seg->start_hdg));
 		double len = vect2_dotprod(vect2_sub(fixed_pos, seg->start_pos),
 		    dir);
-		double speed = straight_run_speed(xpversion, veh, segs,
-		    seg->len - len, seg->backward, list_next(segs, seg),
-		    out_decelerating);
+		double speed = straight_run_speed(veh, segs, seg->len - len,
+		    seg->backward, list_next(segs, seg), out_decelerating);
 		double hdg = (!seg->backward ? seg->start_hdg :
 		    normalize_hdg(seg->start_hdg + 180));
 
@@ -673,9 +670,8 @@ drive_segs(const vehicle_pos_t *pos, const vehicle_t *veh, list_t *segs,
 		    normalize_hdg(seg->end_hdg + 180));
 		double end_brg = fabs(rel_hdg(end_hdg, dir2hdg(
 		    vect2_sub(fixed_pos, seg->end_pos))));
-		double speed = turn_run_speed(xpversion, veh, segs, ABS(rhdg),
-		    seg->turn.r, seg->backward, list_next(segs, seg),
-		    out_decelerating);
+		double speed = turn_run_speed(veh, segs, ABS(rhdg), seg->turn.r,
+		    seg->backward, list_next(segs, seg), out_decelerating);
 
 		/*
 		 * Segment complete when we are past the end_pos point

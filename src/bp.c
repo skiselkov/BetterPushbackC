@@ -962,6 +962,12 @@ bp_state_init(void)
 	bp.veh.max_rev_ang_vel = MAX_REV_ANG_VEL;
 	bp.veh.max_accel = NORMAL_ACCEL;
 	bp.veh.max_decel = NORMAL_DECEL;
+	/*
+	 * To achieve more accurate pushback results, we use our rear axle
+	 * position to actually direct the pushback, not our aircraft's
+	 * origin point.
+	 */
+	bp.veh.use_rear_pos = B_TRUE;
 
 	bp.step = PB_STEP_OFF;
 	bp.step_start_t = 0;
@@ -3271,7 +3277,7 @@ draw_acf_symbol(vect3_t pos, double hdg, double wheelbase, vect3_t color)
 		vect2_t c;
 
 		v = VECT2(tire_x[bp.acf.gear_is[i]],
-		    -tire_z[bp.acf.gear_is[i]]);
+		    bp.acf.main_z - tire_z[bp.acf.gear_is[i]]);
 
 		c = vect2_rot(vect2_add(v, VECT2(-tr, -tr)), hdg);
 		p = vect3_add(pos, VECT3(c.x, 0, c.y));

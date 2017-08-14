@@ -121,6 +121,7 @@ typedef struct {
 	double	max_accel;	/* max acceleration, m/s^2 */
 	double	max_decel;	/* max deceleration, m/s^2 */
 	bool_t	xp10_bug_ign;	/* ignore X-Plane 10 stickiness bug */
+	bool_t	use_rear_pos;	/* drive as if our pos is on our rear axle */
 } vehicle_t;
 
 int compute_segs(const vehicle_t *veh, vect2_t start_pos, double start_hdg,
