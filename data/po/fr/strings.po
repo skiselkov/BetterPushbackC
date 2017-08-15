@@ -141,3 +141,8 @@ msgstr "Désattelez tracteur, retirez casque et passez en signal visuel."
 
 msgid "Reconnect tow and await further instructions."
 msgstr "Réattelez tracteur et attendez instructions."
+
+msgid "Pushback failure: cannot push this aircraft with engines running. "
+"Shutdown engines first."
+msgstr "Repoussage de cet avion impossible moteur(s) tournant(s). "
+"Arrêtez le(s) d'abord."

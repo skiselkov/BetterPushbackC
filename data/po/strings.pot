@@ -131,3 +131,7 @@ msgstr ""
 
 msgid "Reconnect tow and await further instructions."
 msgstr ""
+
+msgid "Pushback failure: cannot push this aircraft with engines running. "
+"Shutdown engines first."
+msgstr ""
