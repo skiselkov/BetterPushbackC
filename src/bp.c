@@ -237,6 +237,7 @@ typedef struct {
 static struct {
 	dr_t	lbrake, rbrake;
 	dr_t	pbrake, pbrake_rat;
+	bool_t	pbrake_is_custom;
 	dr_t	rot_force_N;
 	dr_t	axial_force;
 	dr_t	override_planepath;
@@ -335,6 +336,8 @@ bool_t late_plan_requested = B_FALSE;
 static bool_t
 pbrake_is_set(void)
 {
+	if (drs.pbrake_is_custom)
+		return (dr_getf(&drs.pbrake) != 0);
 	return (dr_getf(&drs.pbrake) != 0 || dr_getf(&drs.pbrake_rat) != 0);
 }
 
@@ -1140,6 +1143,9 @@ bp_init(void)
 	    /* Felis Tu-154M */
 	    !dr_find(&drs.pbrake, "sim/custom/controll/parking_brake")) {
 		fdr_find(&drs.pbrake, "sim/flightmodel/controls/parkbrake");
+		drs.pbrake_is_custom = B_FALSE;
+	} else {
+		drs.pbrake_is_custom = B_TRUE;
 	}
 	fdr_find(&drs.pbrake_rat, "sim/cockpit2/controls/parking_brake_ratio");
 	fdr_find(&drs.rot_force_N, "sim/flightmodel/forces/N_plug_acf");
@@ -3700,7 +3706,6 @@ bp_cam_start(void)
 	char icao[8] = { 0 };
 	char *cam_obj_path;
 	char airline[1024] = { 0 };
-	seg_t *seg;
 
 	if (cam_inited || !bp_init())
 		return (B_FALSE);
@@ -3783,20 +3788,6 @@ bp_cam_start(void)
 		route_load(GEO_POS2(dr_getf(&drs.lat), dr_getf(&drs.lon)),
 		    dr_getf(&drs.hdg), &bp.segs);
 	}
-
-	/*
-	 * If the route ends in an auto-generated segment, pop it off, so
-	 * it doesn't show in the route prediction and confuse the user.
-	 */
-	UNUSED(seg);
-/*	seg = list_tail(&bp.segs);
-	if (seg != NULL && seg->auto_generated) {
-		list_remove_tail(&bp.segs);
-		free(seg);
-		seg = NULL;
-	}
-	ASSERT(list_tail(&bp.segs) == NULL ||
-	    !((seg_t *)list_tail(&bp.segs))->auto_generated);*/
 
 	/*
 	 * While the planner is active, we override the current visibility
