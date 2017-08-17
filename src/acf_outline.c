@@ -117,7 +117,6 @@ acf_outline_read(const char *filename, int nw_i, double nw_z_dr)
 	READ_INT(s_dim_fus, "_part/56/_s_dim");
 	READ_FEET(nw_z, 0, "_gear/%d/_gear_z", nw_i);
 	z_ref = nw_z + (-nw_z_dr);
-	printf("nw_z: %f   nw_z_dr: %f   z_ref: %f\n", nw_z, nw_z_dr, z_ref);
 
 	outline->num_pts = s_dim_fus + N_WINGS * 6;
 	outline->pts = calloc(outline->num_pts, sizeof (*pts));
