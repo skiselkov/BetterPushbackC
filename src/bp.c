@@ -55,6 +55,7 @@
 #include <acfutils/time.h>
 #include <acfutils/wav.h>
 
+#include "acf_outline.h"
 #include "bp.h"
 #include "cfg.h"
 #include "driving.h"
@@ -187,6 +188,7 @@ typedef struct {
 typedef struct {
 	vehicle_t	veh;		/* our driving params */
 	acf_t		acf;		/* aux params of aircraft gear */
+	acf_outline_t	*outline;	/* size & outline of aircraft shape */
 
 	struct {
 		vect2_t	start_acf_pos;
@@ -1114,6 +1116,7 @@ bp_init(void)
 {
 	const char *reason;
 	dr_t radio_vol, sound_on;
+	char my_acf[512], my_path[512];
 
 	/*
 	 * Due to numerous spurious bug reports of missing ground crew audio,
@@ -1226,6 +1229,11 @@ bp_init(void)
 	    !load_icon(&disco_buttons[0]) || !load_icon(&disco_buttons[1]))
 		goto errout;
 
+	XPLMGetNthAircraftModel(0, my_acf, my_path);
+	bp.outline = acf_outline_read(my_path, bp.acf.nw_i, bp.acf.nw_z);
+	if (bp.outline == NULL)
+		goto errout;
+
 	inited = B_TRUE;
 
 	return (B_TRUE);
@@ -1236,6 +1244,10 @@ errout:
 	unload_buttons();
 	unload_icon(&disco_buttons[0]);
 	unload_icon(&disco_buttons[1]);
+	if (bp.outline != NULL) {
+		acf_outline_free(bp.outline);
+		bp.outline = NULL;
+	}
 	return (B_FALSE);
 }
 
@@ -1387,6 +1399,11 @@ bp_fini(void)
 	if (!inited)
 		return;
 
+	if (bp.outline != NULL) {
+		acf_outline_free(bp.outline);
+		bp.outline = NULL;
+	}
+
 	if (bp_floop != NULL) {
 		XPLMDestroyFlightLoop(bp_floop);
 		bp_floop = NULL;
@@ -1528,6 +1545,12 @@ bp_run_push(void)
 static void
 bp_complete(void)
 {
+	/*
+	 * Needs to go before the bp_started check in case the planner has
+	 * placed segments, but user has not yet started pushback.
+	 */
+	bp_delete_all_segs();
+
 	if (!bp_started)
 		return;
 
@@ -1541,7 +1564,6 @@ bp_complete(void)
 		bp.tug = NULL;
 	}
 
-	bp_delete_all_segs();
 	disco_intf_hide();
 
 	XPLMUnregisterDrawCallback(draw_tugs, TUG_DRAWING_PHASE,
@@ -3193,20 +3215,43 @@ draw_segment(const seg_t *seg)
 	XPLMProbeRef probe = XPLMCreateProbe(xplm_ProbeY);
 	XPLMProbeInfo_t info = { .structSize = sizeof (XPLMProbeInfo_t) };
 
-	glColor3f(0, 0, 1);
-	glLineWidth(3);
 
 	switch (seg->type) {
-	case SEG_TYPE_STRAIGHT:
-		glBegin(GL_LINES);
+	case SEG_TYPE_STRAIGHT: {
+		float h1, h2;
+		vect2_t wing, p;
+
 		VERIFY3U(XPLMProbeTerrainXYZ(probe, seg->start_pos.x, 0,
 		    -seg->start_pos.y, &info), ==, xplm_ProbeHitTerrain);
-		glVertex3f(seg->start_pos.x, info.locationY, -seg->start_pos.y);
+		h1 = info.locationY;
 		VERIFY3U(XPLMProbeTerrainXYZ(probe, seg->end_pos.x, 0,
 		    -seg->end_pos.y, &info), ==, xplm_ProbeHitTerrain);
-		glVertex3f(seg->end_pos.x, info.locationY, -seg->end_pos.y);
+		h2 = info.locationY;
+
+		glColor3f(0, 0, 1);
+		glLineWidth(3);
+		glBegin(GL_LINES);
+		glVertex3f(seg->start_pos.x, h1, -seg->start_pos.y);
+		glVertex3f(seg->end_pos.x, h2, -seg->end_pos.y);
+		glEnd();
+
+		wing = vect2_scmul(hdg2dir(seg->start_hdg),
+		    bp.outline->semispan);
+
+		glColor3f(1, 0.25, 1);
+		glLineWidth(2);
+		glBegin(GL_LINES);
+		p = vect2_add(seg->start_pos, vect2_norm(wing, B_TRUE));
+		glVertex3f(p.x, h1, -p.y);
+		p = vect2_add(seg->end_pos, vect2_norm(wing, B_TRUE));
+		glVertex3f(p.x, h1, -p.y);
+		p = vect2_add(seg->end_pos, vect2_norm(wing, B_FALSE));
+		glVertex3f(p.x, h1, -p.y);
+		p = vect2_add(seg->start_pos, vect2_norm(wing, B_FALSE));
+		glVertex3f(p.x, h1, -p.y);
 		glEnd();
 		break;
+	}
 	case SEG_TYPE_TURN: {
 		vect2_t c = vect2_add(seg->start_pos, vect2_scmul(
 		    vect2_norm(hdg2dir(seg->start_hdg), seg->turn.right),
@@ -3214,22 +3259,45 @@ draw_segment(const seg_t *seg)
 		vect2_t c2s = vect2_sub(seg->start_pos, c);
 		double s, e, rhdg;
 
-		glBegin(GL_LINES);
 		rhdg = rel_hdg(seg->start_hdg, seg->end_hdg);
 		s = MIN(0, rhdg);
 		e = MAX(0, rhdg);
 		ASSERT3F(s, <=, e);
 		for (double a = s; a < e; a += ANGLE_DRAW_STEP) {
-			vect2_t p;
-			double s = MIN(ANGLE_DRAW_STEP, e - a);
-			p = vect2_add(c, vect2_rot(c2s, a));
-			VERIFY3U(XPLMProbeTerrainXYZ(probe, p.x, 0, -p.y,
+			vect2_t p1, p2, p, wing1, wing2;
+			double step = MIN(ANGLE_DRAW_STEP, e - a);
+
+			wing1 = vect2_scmul(hdg2dir(normalize_hdg(
+			    seg->start_hdg + a)), bp.outline->semispan);
+			wing2 = vect2_scmul(hdg2dir(normalize_hdg(
+			    seg->start_hdg + a + step)), bp.outline->semispan);
+
+			p1 = vect2_add(c, vect2_rot(c2s, a));
+			p2 = vect2_add(c, vect2_rot(c2s, a + step));
+
+			VERIFY3U(XPLMProbeTerrainXYZ(probe, p1.x, 0, -p1.y,
 			    &info), ==, xplm_ProbeHitTerrain);
+
+			glColor3f(0, 0, 1);
+			glLineWidth(3);
+			glBegin(GL_LINES);
+			glVertex3f(p1.x, info.locationY, -p1.y);
+			glVertex3f(p2.x, info.locationY, -p2.y);
+			glEnd();
+
+			glColor3f(1, 0.25, 1);
+			glLineWidth(2);
+			glBegin(GL_LINES);
+			p = vect2_add(p1, vect2_norm(wing1, B_TRUE));
 			glVertex3f(p.x, info.locationY, -p.y);
-			p = vect2_add(c, vect2_rot(c2s, a + s));
+			p = vect2_add(p2, vect2_norm(wing2, B_TRUE));
 			glVertex3f(p.x, info.locationY, -p.y);
+			p = vect2_add(p2, vect2_norm(wing2, B_FALSE));
+			glVertex3f(p.x, info.locationY, -p.y);
+			p = vect2_add(p1, vect2_norm(wing1, B_FALSE));
+			glVertex3f(p.x, info.locationY, -p.y);
+			glEnd();
 		}
-		glEnd();
 		break;
 	}
 	}
@@ -3251,28 +3319,36 @@ draw_acf_symbol(vect3_t pos, double hdg, double wheelbase, vect3_t color)
 	 */
 	wheelbase *= 1.5;
 
-	glLineWidth(4);
+	glLineWidth(2);
 	glColor3f(color.x, color.y, color.z);
 
 	glBegin(GL_LINES);
-	v = vect2_rot(VECT2(-wheelbase, 0), hdg);
-	p = vect3_add(pos, VECT3(v.x, 0, v.y));
-	glVertex3f(p.x, p.y, -p.z);
-	v = vect2_rot(VECT2(wheelbase, 0), hdg);
-	p = vect3_add(pos, VECT3(v.x, 0, v.y));
-	glVertex3f(p.x, p.y, -p.z);
-	v = vect2_rot(VECT2(0, wheelbase / 2), hdg);
-	p = vect3_add(pos, VECT3(v.x, 0, v.y));
-	glVertex3f(p.x, p.y, -p.z);
-	v = vect2_rot(VECT2(0, -wheelbase), hdg);
-	p = vect3_add(pos, VECT3(v.x, 0, v.y));
-	glVertex3f(p.x, p.y, -p.z);
-	v = vect2_rot(VECT2(-wheelbase / 2, -wheelbase), hdg);
-	p = vect3_add(pos, VECT3(v.x, 0, v.y));
-	glVertex3f(p.x, p.y, -p.z);
-	v = vect2_rot(VECT2(wheelbase / 2, -wheelbase), hdg);
-	p = vect3_add(pos, VECT3(v.x, 0, v.y));
-	glVertex3f(p.x, p.y, -p.z);
+	for (size_t i = 0; i + 1 < bp.outline->num_pts; i++) {
+		/* skip gaps in outline */
+		if (IS_NULL_VECT(bp.outline->pts[i]) ||
+		    IS_NULL_VECT(bp.outline->pts[i + 1]))
+			continue;
+
+		v = bp.outline->pts[i];
+		v = vect2_rot(VECT2(v.x, bp.acf.main_z - v.y), hdg);
+		p = vect3_add(pos, VECT3(v.x, 0, v.y));
+		glVertex3f(p.x, p.y, -p.z);
+
+		v = bp.outline->pts[i + 1];
+		v = vect2_rot(VECT2(v.x, bp.acf.main_z - v.y), hdg);
+		p = vect3_add(pos, VECT3(v.x, 0, v.y));
+		glVertex3f(p.x, p.y, -p.z);
+
+		v = bp.outline->pts[i];
+		v = vect2_rot(VECT2(-v.x, bp.acf.main_z - v.y), hdg);
+		p = vect3_add(pos, VECT3(v.x, 0, v.y));
+		glVertex3f(p.x, p.y, -p.z);
+
+		v = bp.outline->pts[i + 1];
+		v = vect2_rot(VECT2(-v.x, bp.acf.main_z - v.y), hdg);
+		p = vect3_add(pos, VECT3(v.x, 0, v.y));
+		glVertex3f(p.x, p.y, -p.z);
+	}
 	glEnd();
 
 	dr_getvf(&drs.tire_x, tire_x, 0, 10);
