@@ -29,6 +29,7 @@ typedef struct {
 	double	semispan;	/* half wingspan (meters) */
 	double	length;		/* total aircraft length (meters) */
 	vect2_t	*pts;		/* outline point coordinates (meters) */
+	vect2_t	wingtip;	/* wingtip position of widest wing */
 	size_t	num_pts;	/* number of elements in `pts' */
 } acf_outline_t;
 

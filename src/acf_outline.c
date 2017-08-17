@@ -42,6 +42,19 @@
 		x = FEET2MET(x) - offset; \
 	} while (0)
 
+typedef enum {
+	WING_OUTLINE_LEADING_EDGE,
+	WING_OUTLINE_TRAILING_EDGE,
+	WING_OUTLINE_FULL
+} wing_outline_type_t;
+
+/*
+ * Reads the geometric shape of an aircraft part outline. This is used to
+ * extract the fuselage shape. part_nbr denotes the part number to read and
+ * s_dim is the number of longitudinal part rings. The resulting points are
+ * stored in `pts' (must have space for at least s_dim points). Returns
+ * B_TRUE if successful, B_FALSE otherwise.
+ */
 bool_t
 part_outline_read(const acf_file_t *acf, int part_nbr, vect2_t *pts, int s_dim,
     float z_ref)
@@ -69,30 +82,118 @@ errout:
 	return (B_FALSE);
 }
 
+/*
+ * Determines the outline of a wing segment. The part number of the wing
+ * segment is wing_nbr. The resulting points (relative to z_ref) are stored
+ * in pts. If tip_p is not NULL, it is filled with the location of the tip
+ * chord center point.
+ * This function can store 2 or 4 points depending on `type. If type is
+ * WING_OUTLINE_FULL, all 4 outline points are stored (ordered as: leading
+ * edge root, leading edge tip, trailing edge tip and trailing edge root).
+ * If type is WING_OUTLINE_LEADING_EDGE or WING_OUTLINE_TRAILING_EDGE, only
+ * the respective 2 edge points are stored (in the same order as above).
+ */
 bool_t
-wing_outline_read(const acf_file_t *acf, int wing_nbr, vect2_t pts[5],
-    double z_ref)
+wing_seg_outline_read(const acf_file_t *acf, int wing_nbr, vect2_t pts[4],
+    vect2_t *tip_p, double z_ref, wing_outline_type_t type)
 {
 	vect2_t root, tip;
-	double sweep, semilen, root_chord, tip_chord;
+	double sweep, semilen, dihed, root_chord, tip_chord;
+	int i = 0;
 
 	READ_FLOAT(sweep, "_wing/%d/_sweep_design", wing_nbr);
 	READ_FEET(semilen, 0, "_wing/%d/_semilen_SEG", wing_nbr);
+	READ_FLOAT(dihed, "_wing/%d/_dihed_design", wing_nbr);
 	READ_FEET(root_chord, 0, "_wing/%d/_Croot", wing_nbr);
 	READ_FEET(tip_chord, 0, "_wing/%d/_Ctip", wing_nbr);
 	READ_FEET(root.x, 0, "_wing/%d/_crib_x_arm/0", wing_nbr);
 	READ_FEET(root.y, z_ref, "_wing/%d/_crib_z_arm/0", wing_nbr);
 
-	pts[0] = vect2_add(root, VECT2(0, -root_chord * 0.25));
-	pts[1] = vect2_add(root, VECT2(0, root_chord * 0.75));
 	tip = vect2_add(root, vect2_rot(VECT2(semilen, 0), -sweep));
-	pts[2] = vect2_add(tip, VECT2(0, tip_chord * 0.75));
-	pts[3] = vect2_add(tip, VECT2(0, -tip_chord * 0.25));
-	pts[4] = pts[0];	/* close the loop */
+	tip.x = (tip.x - root.x) * cos(DEG2RAD(dihed)) + root.x;
+	if (tip_p != NULL)
+		*tip_p = tip;
+
+	if (type == WING_OUTLINE_LEADING_EDGE || type == WING_OUTLINE_FULL) {
+		pts[i++] = vect2_add(root, VECT2(0, -root_chord * 0.25));
+		pts[i++] = vect2_add(tip, VECT2(0, -tip_chord * 0.25));
+	}
+	if (type == WING_OUTLINE_TRAILING_EDGE || type == WING_OUTLINE_FULL) {
+		pts[i++] = vect2_add(tip, VECT2(0, tip_chord * 0.75));
+		pts[i++] = vect2_add(root, VECT2(0, root_chord * 0.75));
+	}
 
 	return (B_TRUE);
 errout:
 	return (B_FALSE);
+}
+
+/*
+ * Reads the outline of a wing, potentially consisting of multiple segments.
+ * The number of wing segments is n_wing_nbrs and wing_nbrs are the individual
+ * segment numbers. `pts' will be filled the individual outline points, from
+ * leading edge root to leading edge tip, trailing edge tip to trailing edge
+ * root. tip_p will be populated with the position of the wing tip. This is
+ * first checked to make sure that the wing tip position being stored is
+ * further away from the aircraft centerline (X coord) than what's already
+ * stored in there.
+ */
+int
+wing_outline_read(const acf_file_t *acf, int n_wing_nbrs,
+    const int *wing_nbrs, vect2_t *pts, vect2_t *tip_p, double z_ref)
+{
+	int p = 0;
+
+	for (int i = 0; i < n_wing_nbrs; i++) {
+		vect2_t tip;
+		bool_t last_wing = (i + 1 == n_wing_nbrs);
+		wing_seg_outline_read(acf, wing_nbrs[i], &pts[p], &tip, z_ref,
+		    last_wing ? WING_OUTLINE_FULL : WING_OUTLINE_LEADING_EDGE);
+		p += 2;
+		if (last_wing) {
+			p += 2;
+			if (tip_p->x < tip.x)
+				*tip_p = tip;
+		}
+	}
+	for (int i = n_wing_nbrs - 2; i >= 0; i--) {
+		wing_seg_outline_read(acf, wing_nbrs[i], &pts[p], NULL, z_ref,
+		    WING_OUTLINE_TRAILING_EDGE);
+		p += 2;
+	}
+
+	return (p);
+}
+
+/*
+ * Since not all aircraft use all wing segments, we need to cut down the
+ * actual segment list we build the outline from. This function takes an
+ * array of wing numbers from root to tip and determines which segments
+ * (if any) are in use in the aircraft model. Number of initial elements
+ * is n_wing_nbrs. The wing_nbrs array is modified so as to contain only
+ * the wing segments that are in use and the function returns the number
+ * of wing segments left in wing_nbrs (0 if none are used in the model).
+ */
+static int
+count_wings(const acf_file_t *acf, int *wing_nbrs, int n_wing_nbrs)
+{
+	int n = 0;
+	for (n = 0; n < n_wing_nbrs; n++) {
+		double root_chord;
+		char path[64];
+		const char *root_chord_str;
+		VERIFY3S(snprintf(path, sizeof (path), "_wing/%d/_Croot",
+		    wing_nbrs[n]), <, sizeof (path));
+		root_chord_str = acf_prop_find(acf, path);
+		if (root_chord_str == NULL ||
+		    (root_chord = atof(root_chord_str)) == 0.0) {
+			for (int i = n + 1; i < n_wing_nbrs; i++)
+				wing_nbrs[i - 1] = wing_nbrs[i];
+			n--;
+			n_wing_nbrs--;
+		}
+	}
+	return (n);
 }
 
 acf_outline_t *
@@ -102,9 +203,15 @@ acf_outline_read(const char *filename, int nw_i, double nw_z_dr)
 	acf_file_t *acf = acf_file_read(filename);
 	vect2_t *pts = NULL;
 	int p, s_dim_fus;
-	enum { N_WINGS = 5 };
-	int wings[N_WINGS] = { 9, 11, 13, 15, 17 }; /* even nbr = left side */
 	double nw_z, z_ref;
+
+	/* even wing numbers = left side, +1 is right side */
+	enum { N_MAIN_WINGS = 4 };
+	int main_wings[N_MAIN_WINGS] = { 9, 11, 13, 15 };
+	int n_main_wings;
+	enum { N_STAB_WINGS = 1 };
+	int stab_wings[N_STAB_WINGS] = { 17 };
+	int n_stab_wings;
 
 	if (acf == NULL)
 		goto errout;
@@ -118,17 +225,21 @@ acf_outline_read(const char *filename, int nw_i, double nw_z_dr)
 	READ_FEET(nw_z, 0, "_gear/%d/_gear_z", nw_i);
 	z_ref = nw_z + (-nw_z_dr);
 
-	outline->num_pts = s_dim_fus + N_WINGS * 6;
+	n_main_wings = count_wings(acf, main_wings, N_MAIN_WINGS);
+	n_stab_wings = count_wings(acf, stab_wings, N_STAB_WINGS);
+
+	outline->num_pts = s_dim_fus + n_main_wings * 4 + n_stab_wings * 4 + 2;
 	outline->pts = calloc(outline->num_pts, sizeof (*pts));
 
 	part_outline_read(acf, 56, outline->pts, s_dim_fus, z_ref);
-	p = s_dim_fus;
 
-	for (int i = 0; i < N_WINGS; i++) {
-		outline->pts[p++] = NULL_VECT2;
-		wing_outline_read(acf, wings[i], &outline->pts[p], z_ref);
-		p += 5;
-	}
+	p = s_dim_fus;
+	outline->pts[p++] = NULL_VECT2;
+	p += wing_outline_read(acf, n_main_wings, main_wings,
+	    &outline->pts[p], &outline->wingtip, z_ref);
+	outline->pts[p++] = NULL_VECT2;
+	p += wing_outline_read(acf, n_stab_wings, stab_wings,
+	    &outline->pts[p], &outline->wingtip, z_ref);
 
 	acf_file_free(acf);
 

@@ -104,7 +104,7 @@
 #define	TUG_DRAWING_PHASE		xplm_Phase_Objects
 #define	TUG_DRAWING_PHASE_BEFORE	1
 
-#define	TUG_APPCH_LONG_DIST	(6 * bp.tug->veh.wheelbase)
+#define	TUG_APPCH_LONG_DIST	(6 * bp_ls.tug->veh.wheelbase)
 
 #define	MIN_RADIO_VOLUME_THRESH	0.1
 
@@ -183,12 +183,11 @@ typedef struct {
  * This is the pushback state structure.
  * CAUTION: do not store anything in here that requires teardown in bp_fini
  * because bp_state_init() wipes this struct to all 0x00 each time without
- * checking any pre-existing state.
+ * checking any pre-existing state. Use bp_long_state_t for that.
  */
 typedef struct {
 	vehicle_t	veh;		/* our driving params */
 	acf_t		acf;		/* aux params of aircraft gear */
-	acf_outline_t	*outline;	/* size & outline of aircraft shape */
 
 	struct {
 		vect2_t	start_acf_pos;
@@ -217,19 +216,29 @@ typedef struct {
 
 	double		reverse_t;	/* when reversing direction */
 
-	XPLMWindowID	disco_win;
-	XPLMWindowID	recon_win;
 	bool_t		ok2disco;	/* user has ok'd disconnection */
 	bool_t		reconnect;	/* user has requested reconnection */
 
-	tug_t		*tug;
 	vect2_t		start_pos;	/* where the pushback originated */
 	double		start_hdg;	/* which way we were facing at start */
 
 	list_t		segs;
 	bool_t		last_seg_is_back;
 	double		last_hdg;
+
+	bool_t		light_warn;
 } bp_state_t;
+
+/*
+ * Stores state information which needs teardown in bp_fini and persists for
+ * a longer time than bp_state_t (which is wiped every time in bp_state_init).
+ */
+typedef struct {
+	XPLMWindowID	disco_win;
+	XPLMWindowID	recon_win;
+	tug_t		*tug;
+	acf_outline_t	*outline;	/* size & outline of aircraft shape */
+} bp_long_state_t;
 
 typedef struct {
 	const char	*acf;
@@ -271,6 +280,9 @@ static struct {
 	dr_t	cloud_types[3];
 	dr_t	use_real_wx;
 
+	dr_t	landing_lights_on;
+	dr_t	taxi_light_on;
+
 	dr_t	author;
 	dr_t	sim_paused;
 } drs;
@@ -291,6 +303,7 @@ typedef struct {
 
 static bool_t inited = B_FALSE, cam_inited = B_FALSE;
 static bp_state_t bp;
+static bp_long_state_t bp_ls;
 static XPLMFlightLoopID	bp_floop = NULL;
 
 static bool_t read_acf_file_info(void);
@@ -604,42 +617,42 @@ static double
 tug_rear2acf_nw(void)
 {
 	double nlg_tug_z_off;
-	switch (bp.tug->info->lift_wall_loc) {
+	switch (bp_ls.tug->info->lift_wall_loc) {
 	case LIFT_WALL_FRONT:
-		nlg_tug_z_off = bp.tug->info->lift_wall_z - bp.acf.tirrad;
+		nlg_tug_z_off = bp_ls.tug->info->lift_wall_z - bp.acf.tirrad;
 		break;
 	case LIFT_WALL_CENTER:
-		nlg_tug_z_off = bp.tug->info->lift_wall_z;
+		nlg_tug_z_off = bp_ls.tug->info->lift_wall_z;
 		break;
 	default:
-		ASSERT3U(bp.tug->info->lift_wall_loc, ==, LIFT_WALL_BACK);
-		nlg_tug_z_off = bp.tug->info->lift_wall_z + bp.acf.tirrad;
+		ASSERT3U(bp_ls.tug->info->lift_wall_loc, ==, LIFT_WALL_BACK);
+		nlg_tug_z_off = bp_ls.tug->info->lift_wall_z + bp.acf.tirrad;
 		break;
 	}
-	return (nlg_tug_z_off - bp.tug->veh.fixed_z_off);
+	return (nlg_tug_z_off - bp_ls.tug->veh.fixed_z_off);
 }
 
 static void
 turn_nosewheel(double req_steer)
 {
-	int dir_mult = (bp.tug->pos.spd >= 0 ? 1 : -1);
+	int dir_mult = (bp_ls.tug->pos.spd >= 0 ? 1 : -1);
 	double cur_nw_steer, tug_turn_r, tug_turn_rate, rel_tug_turn_rate;
 	double d_steer, nlg_tug_rear_off, d_hdg, turn_inc;
 	vect2_t off_v;
 
-	cur_nw_steer = rel_hdg(bp.cur_pos.hdg, bp.tug->pos.hdg);
+	cur_nw_steer = rel_hdg(bp.cur_pos.hdg, bp_ls.tug->pos.hdg);
 
 	/* limit the steering request to what we can actually do */
 	req_steer = MIN(req_steer, bp.veh.max_steer);
 	req_steer = MAX(req_steer, -bp.veh.max_steer);
 
-	if (ABS(bp.tug->cur_steer) > 0.01) {
-		tug_turn_r = (1 / tan(DEG2RAD(bp.tug->cur_steer))) *
-		    bp.tug->veh.wheelbase;
+	if (ABS(bp_ls.tug->cur_steer) > 0.01) {
+		tug_turn_r = (1 / tan(DEG2RAD(bp_ls.tug->cur_steer))) *
+		    bp_ls.tug->veh.wheelbase;
 	} else {
 		tug_turn_r = 1e10;
 	}
-	tug_turn_rate = (bp.tug->pos.spd / (2 * M_PI * tug_turn_r)) * 360;
+	tug_turn_rate = (bp_ls.tug->pos.spd / (2 * M_PI * tug_turn_r)) * 360;
 	rel_tug_turn_rate = tug_turn_rate - bp.d_pos.hdg / bp.d_t;
 
 	cur_nw_steer += rel_tug_turn_rate * bp.d_t;
@@ -647,7 +660,7 @@ turn_nosewheel(double req_steer)
 	cur_nw_steer = MAX(cur_nw_steer, -85);
 	d_steer = req_steer - cur_nw_steer;
 
-	if (ABS(bp.tug->pos.spd) > 0.01) {
+	if (ABS(bp_ls.tug->pos.spd) > 0.01) {
 		/*
 		 * Limit steering of the tug at high speeds to prevent the
 		 * tug swinging like crazy around.
@@ -655,13 +668,13 @@ turn_nosewheel(double req_steer)
 		double tug_steer = dir_mult * 3 * d_steer;
 		double speed;
 
-		tug_steer = MIN(MAX(tug_steer, -bp.tug->veh.max_steer),
-		    bp.tug->veh.max_steer);
-		speed = ang_vel_speed_limit(&bp.tug->veh, tug_steer,
-		    bp.tug->pos.spd);
-		if (speed < bp.tug->pos.spd)
-			tug_steer *= speed / bp.tug->pos.spd;
-		tug_set_steering(bp.tug, tug_steer, bp.d_t);
+		tug_steer = MIN(MAX(tug_steer, -bp_ls.tug->veh.max_steer),
+		    bp_ls.tug->veh.max_steer);
+		speed = ang_vel_speed_limit(&bp_ls.tug->veh, tug_steer,
+		    bp_ls.tug->pos.spd);
+		if (speed < bp_ls.tug->pos.spd)
+			tug_steer *= speed / bp_ls.tug->pos.spd;
+		tug_set_steering(bp_ls.tug, tug_steer, bp.d_t);
 	}
 
 	dr_setvf(&drs.tire_steer_cmd, &cur_nw_steer, bp.acf.nw_i, 1);
@@ -697,9 +710,9 @@ turn_nosewheel(double req_steer)
 	 * vector and apply the x component to the aircraft's heading.
 	 */
 	off_v.x = sin(DEG2RAD(turn_inc)) * (nlg_tug_rear_off /
-	    bp.tug->veh.wheelbase);
+	    bp_ls.tug->veh.wheelbase);
 	off_v.y = (cos(DEG2RAD(turn_inc)) - 1) * (nlg_tug_rear_off /
-	    bp.tug->veh.wheelbase);
+	    bp_ls.tug->veh.wheelbase);
 	off_v = vect2_rot(off_v, cur_nw_steer);
 	d_hdg = RAD2DEG(asin(off_v.x / bp.veh.wheelbase));
 	/*
@@ -728,7 +741,7 @@ push_at_speed(double targ_speed, double max_accel, bool_t allow_snd_ctl,
 	 */
 	targ_speed = ang_vel_speed_limit(&bp.veh, steer, targ_speed);
 	/* Also try to take the tug's angular velocity limits into account. */
-	targ_speed = ang_vel_speed_limit(&bp.tug->veh, bp.tug->cur_steer,
+	targ_speed = ang_vel_speed_limit(&bp_ls.tug->veh, bp_ls.tug->cur_steer,
 	    targ_speed);
 
 	/*
@@ -817,17 +830,17 @@ push_at_speed(double targ_speed, double max_accel, bool_t allow_snd_ctl,
 	bp.last_force = force;
 
 	if (allow_snd_ctl) {
-		tug_set_TE_override(bp.tug, B_TRUE);
+		tug_set_TE_override(bp_ls.tug, B_TRUE);
 		if ((bp.cur_pos.spd > 0 && force > 0) ||
 		    (bp.cur_pos.spd < 0 && force < 0)) {
 			double spd_fract = (ABS(bp.cur_pos.spd) /
-			    bp.tug->info->max_fwd_speed);
+			    bp_ls.tug->info->max_fwd_speed);
 			double force_fract = fabs(force /
-			    bp.tug->info->max_TE);
-			tug_set_TE_snd(bp.tug, AVG(force_fract, spd_fract),
+			    bp_ls.tug->info->max_TE);
+			tug_set_TE_snd(bp_ls.tug, AVG(force_fract, spd_fract),
 			    bp.d_t);
 		} else {
-			tug_set_TE_snd(bp.tug, 0, bp.d_t);
+			tug_set_TE_snd(bp_ls.tug, 0, bp.d_t);
 		}
 	}
 }
@@ -1207,6 +1220,10 @@ bp_init(void)
 	fdr_find(&drs.cloud_types[2], "sim/weather/cloud_type[2]");
 	fdr_find(&drs.use_real_wx, "sim/weather/use_real_weather_bool");
 
+	fdr_find(&drs.landing_lights_on,
+	    "sim/cockpit/electrical/landing_lights_on");
+	fdr_find(&drs.taxi_light_on, "sim/cockpit/electrical/taxi_light_on");
+
 	fdr_find(&drs.author, "sim/aircraft/view/acf_author");
 	fdr_find(&drs.sim_paused, "sim/time/paused");
 
@@ -1218,10 +1235,8 @@ bp_init(void)
 	 * in-flight the gear info check will fail with "non-steerable"
 	 * gears, which is a little cryptic to understand to the user.
 	 */
-	if (!acf_on_gnd_stopped(&reason)) {
-		XPLMSpeakString(reason);
-		return (B_FALSE);
-	}
+	if (!acf_on_gnd_stopped(&reason))
+		goto errout;
 
 	if (!bp_state_init())
 		goto errout;
@@ -1230,8 +1245,8 @@ bp_init(void)
 		goto errout;
 
 	XPLMGetNthAircraftModel(0, my_acf, my_path);
-	bp.outline = acf_outline_read(my_path, bp.acf.nw_i, bp.acf.nw_z);
-	if (bp.outline == NULL)
+	bp_ls.outline = acf_outline_read(my_path, bp.acf.nw_i, bp.acf.nw_z);
+	if (bp_ls.outline == NULL)
 		goto errout;
 
 	inited = B_TRUE;
@@ -1244,9 +1259,9 @@ errout:
 	unload_buttons();
 	unload_icon(&disco_buttons[0]);
 	unload_icon(&disco_buttons[1]);
-	if (bp.outline != NULL) {
-		acf_outline_free(bp.outline);
-		bp.outline = NULL;
+	if (bp_ls.outline != NULL) {
+		acf_outline_free(bp_ls.outline);
+		bp_ls.outline = NULL;
 	}
 	return (B_FALSE);
 }
@@ -1258,7 +1273,7 @@ draw_tugs(XPLMDrawingPhase phase, int before, void *refcon)
 	UNUSED(before);
 	UNUSED(refcon);
 
-	if (bp.tug == NULL) {
+	if (bp_ls.tug == NULL) {
 		/*
 		 * If we have no tug loaded, we must either be in the
 		 * tug-selection phase, or be slaved to a master instance
@@ -1268,7 +1283,7 @@ draw_tugs(XPLMDrawingPhase phase, int before, void *refcon)
 		return (1);
 	}
 
-	if (list_head(&bp.tug->segs) == NULL &&
+	if (list_head(&bp_ls.tug->segs) == NULL &&
 	    bp.step >= PB_STEP_GRABBING &&
 	    bp.step <= PB_STEP_UNGRABBING) {
 		vect2_t my_pos = VECT2(dr_getf(&drs.local_x),
@@ -1277,7 +1292,7 @@ draw_tugs(XPLMDrawingPhase phase, int before, void *refcon)
 		tug_pos_update(my_pos, my_hdg, B_TRUE);
 	}
 
-	tug_draw(bp.tug, bp.cur_t);
+	tug_draw(bp_ls.tug, bp.cur_t);
 
 	return (1);
 }
@@ -1302,6 +1317,21 @@ bp_can_start(const char **reason)
 			*reason = _("Pushback failure: cannot push this "
 			    "aircraft with engines running. Shutdown "
 			    "engines first.");
+		}
+		return (B_FALSE);
+	}
+
+	if (dr_geti(&drs.landing_lights_on) != 0) {
+		if (reason != NULL) {
+			*reason = _("Pushback failure: turn your landing "
+			    "lights off!");
+		}
+		return (B_FALSE);
+	}
+	if (dr_geti(&drs.taxi_light_on) != 0) {
+		if (reason != NULL) {
+			*reason = _("Pushback failure: turn your taxi "
+			    "lights off!");
 		}
 		return (B_FALSE);
 	}
@@ -1399,9 +1429,9 @@ bp_fini(void)
 	if (!inited)
 		return;
 
-	if (bp.outline != NULL) {
-		acf_outline_free(bp.outline);
-		bp.outline = NULL;
+	if (bp_ls.outline != NULL) {
+		acf_outline_free(bp_ls.outline);
+		bp_ls.outline = NULL;
 	}
 
 	if (bp_floop != NULL) {
@@ -1494,7 +1524,7 @@ bp_run_push(void)
 		if (dr_getf(&drs.lbrake) >= BRAKE_PEDAL_THRESH ||
 		    dr_getf(&drs.rbrake) >= BRAKE_PEDAL_THRESH ||
 		    pbrake_is_set()) {
-			tug_set_TE_snd(bp.tug, 0, bp.d_t);
+			tug_set_TE_snd(bp_ls.tug, 0, bp.d_t);
 			dr_setf(&drs.axial_force, 0);
 			dr_setf(&drs.rot_force_N, 0);
 			bp.last_force = 0;
@@ -1559,9 +1589,9 @@ bp_complete(void)
 	late_plan_requested = B_FALSE;
 	plan_complete = B_FALSE;
 
-	if (bp.tug != NULL) {
-		tug_free(bp.tug);
-		bp.tug = NULL;
+	if (bp_ls.tug != NULL) {
+		tug_free(bp_ls.tug);
+		bp_ls.tug = NULL;
 	}
 
 	disco_intf_hide();
@@ -1607,17 +1637,17 @@ pb_step_tug_load(void)
 		(void) find_nearest_airport(icao);
 		if (acf_is_airliner())
 			read_acf_airline(airline);
-		bp.tug = tug_alloc_auto(dr_getf(&drs.mtow),
+		bp_ls.tug = tug_alloc_auto(dr_getf(&drs.mtow),
 		    dr_getf(&drs.leg_len), bp.acf.tirrad,
 		    bp.acf.nw_type, strcmp(icao, "") != 0 ? icao : NULL,
 		    airline);
-		if (bp.tug == NULL) {
+		if (bp_ls.tug == NULL) {
 			XPLMSpeakString(_("Pushback failure: no suitable "
 			    "tug for your aircraft."));
 			bp_complete();
 			return (B_FALSE);
 		}
-		strlcpy(bp_tug_name, bp.tug->info->tug_name,
+		strlcpy(bp_tug_name, bp_ls.tug->info->tug_name,
 		    sizeof (bp_tug_name));
 	} else {
 		char tug_name[sizeof (bp_tug_name)];
@@ -1647,8 +1677,9 @@ pb_step_tug_load(void)
 
 		if (acf_is_airliner())
 			read_acf_airline(airline);
-		bp.tug = tug_alloc_man(tug_name, bp.acf.tirrad, icao, airline);
-		if (bp.tug == NULL) {
+		bp_ls.tug = tug_alloc_man(tug_name, bp.acf.tirrad, icao,
+		    airline);
+		if (bp_ls.tug == NULL) {
 			char msg[256];
 			snprintf(msg, sizeof (msg), _("Pushback failure: "
 			    "master requested tug \"%s\", which we don't have "
@@ -1660,17 +1691,17 @@ pb_step_tug_load(void)
 			return (B_FALSE);
 		}
 	}
-	if (!bp.tug->info->drive_debug) {
+	if (!bp_ls.tug->info->drive_debug) {
 		vect2_t p_start, dir;
 		dir = hdg2dir(bp.cur_pos.hdg);
 		p_start = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
 		    -bp.acf.nw_z + TUG_APPCH_LONG_DIST));
 		p_start = vect2_add(p_start, vect2_scmul(vect2_norm(dir,
-		    B_TRUE), 10 * bp.tug->veh.wheelbase));
-		tug_set_pos(bp.tug, p_start, normalize_hdg(bp.cur_pos.hdg - 90),
-		    bp.tug->veh.max_fwd_spd);
+		    B_TRUE), 10 * bp_ls.tug->veh.wheelbase));
+		tug_set_pos(bp_ls.tug, p_start, normalize_hdg(bp.cur_pos.hdg -
+		    90), bp_ls.tug->veh.max_fwd_spd);
 	} else {
-		tug_set_pos(bp.tug, bp.cur_pos.pos, bp.cur_pos.hdg, 0);
+		tug_set_pos(bp_ls.tug, bp.cur_pos.pos, bp.cur_pos.hdg, 0);
 	}
 	bp.step++;
 	bp.step_start_t = bp.cur_t;
@@ -1681,7 +1712,7 @@ pb_step_tug_load(void)
 static void
 pb_step_start(void)
 {
-	if (!bp.tug->info->drive_debug) {
+	if (!bp_ls.tug->info->drive_debug) {
 		vect2_t left_off, p_end, dir;
 
 		dir = hdg2dir(bp.cur_pos.hdg);
@@ -1689,19 +1720,19 @@ pb_step_start(void)
 		left_off = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
 		    -bp.acf.nw_z + TUG_APPCH_LONG_DIST));
 		left_off = vect2_add(left_off, vect2_scmul(
-		    vect2_norm(dir, B_FALSE), 2 * bp.tug->veh.wheelbase));
+		    vect2_norm(dir, B_FALSE), 2 * bp_ls.tug->veh.wheelbase));
 		p_end = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-		    (-bp.acf.nw_z) + bp.tug->info->apch_dist));
+		    (-bp.acf.nw_z) + bp_ls.tug->info->apch_dist));
 
-		VERIFY(tug_drive2point(bp.tug, left_off,
+		VERIFY(tug_drive2point(bp_ls.tug, left_off,
 		    normalize_hdg(bp.cur_pos.hdg - 90)));
-		VERIFY(tug_drive2point(bp.tug, p_end, bp.cur_pos.hdg));
+		VERIFY(tug_drive2point(bp_ls.tug, p_end, bp.cur_pos.hdg));
 	} else {
 		for (seg_t *seg = list_head(&bp.segs); seg != NULL;
 		    seg = list_next(&bp.segs, seg)) {
 			seg_t *seg2 = calloc(1, sizeof (*seg2));
 			memcpy(seg2, seg, sizeof (*seg2));
-			list_insert_tail(&bp.tug->segs, seg2);
+			list_insert_tail(&bp_ls.tug->segs, seg2);
 		}
 	}
 
@@ -1714,14 +1745,14 @@ pb_step_start(void)
 static void
 pb_step_driving_up_close(void)
 {
-	if (!tug_is_stopped(bp.tug)) {
+	if (!tug_is_stopped(bp_ls.tug)) {
 		/*
 		 * Keep resetting the start time to enforce the state
 		 * transition delay once the tug stops.
 		 */
 		bp.step_start_t = bp.cur_t;
 	} else  if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
-		tug_set_cradle_beeper_on(bp.tug, B_TRUE);
+		tug_set_cradle_beeper_on(bp_ls.tug, B_TRUE);
 		tug_set_cradle_lights_on(B_TRUE);
 		tug_set_hazard_lights_on(B_TRUE);
 		bp.step++;
@@ -1753,16 +1784,17 @@ pb_step_waiting_for_pbrake(void)
 	if (dr_find(&zibo_chocks, "laminar/B738/fms/chock_status"))
 		dr_seti(&zibo_chocks, 0);
 
-	dir = hdg2dir(bp.tug->pos.hdg);
-	if (bp.tug->info->lift_type == LIFT_GRAB) {
-		p_end = vect2_add(bp.tug->pos.pos, vect2_scmul(dir,
-		    -(bp.tug->info->apch_dist + bp.tug->info->lift_wall_z -
-		    tug_lift_wall_off(bp.tug))));
+	dir = hdg2dir(bp_ls.tug->pos.hdg);
+	if (bp_ls.tug->info->lift_type == LIFT_GRAB) {
+		p_end = vect2_add(bp_ls.tug->pos.pos, vect2_scmul(dir,
+		    -(bp_ls.tug->info->apch_dist +
+		    bp_ls.tug->info->lift_wall_z -
+		    tug_lift_wall_off(bp_ls.tug))));
 	} else {
-		p_end = vect2_add(bp.tug->pos.pos, vect2_scmul(dir,
-		    -(bp.tug->info->apch_dist + bp.tug->info->plat_z)));
+		p_end = vect2_add(bp_ls.tug->pos.pos, vect2_scmul(dir,
+		    -(bp_ls.tug->info->apch_dist + bp_ls.tug->info->plat_z)));
 	}
-	VERIFY(tug_drive2point(bp.tug, p_end, bp.cur_pos.hdg));
+	VERIFY(tug_drive2point(bp_ls.tug, p_end, bp.cur_pos.hdg));
 	bp.step++;
 	bp.step_start_t = bp.cur_t;
 }
@@ -1772,7 +1804,7 @@ pb_step_driving_up_connect(void)
 {
 	if (!slave_mode)
 		brakes_set(B_TRUE);
-	if (!tug_is_stopped(bp.tug)) {
+	if (!tug_is_stopped(bp_ls.tug)) {
 		/*
 		 * Keep resetting the start time to enforce a state
 		 * transition delay once the tug stops.
@@ -1792,7 +1824,7 @@ pb_step_connect_grab(void)
 	double cradle_closed_fract = d_t / PB_CONN_LIFT_DELAY;
 
 	cradle_closed_fract = MAX(MIN(cradle_closed_fract, 1), 0);
-	tug_set_lift_arm_pos(bp.tug, 1 - cradle_closed_fract, B_TRUE);
+	tug_set_lift_arm_pos(bp_ls.tug, 1 - cradle_closed_fract, B_TRUE);
 
 	if (!slave_mode) {
 		/* When grabbing, keep the aircraft firmly in place */
@@ -1809,7 +1841,7 @@ static void
 pb_step_connect_winch(void)
 {
 	double d_t = bp.cur_t - bp.step_start_t;
-	const tug_info_t *ti = bp.tug->info;
+	const tug_info_t *ti = bp_ls.tug->info;
 	double winch_total, winched_dist;
 
 	/* spend some time putting the winching strap in place */
@@ -1817,11 +1849,11 @@ pb_step_connect_winch(void)
 		return;
 
 	tug_set_lift_pos(0);
-	tug_set_winch_on(bp.tug, B_TRUE);
+	tug_set_winch_on(bp_ls.tug, B_TRUE);
 
 	/* after installing the strap, wait some more to make the pbrake call */
 	if (!bp.winching.complete && d_t < 2 * STATE_TRANS_DELAY) {
-		tug_set_lift_arm_pos(bp.tug, 1.0, B_TRUE);
+		tug_set_lift_arm_pos(bp_ls.tug, 1.0, B_TRUE);
 		return;
 	}
 
@@ -1839,7 +1871,8 @@ pb_step_connect_winch(void)
 		brakes_set(B_FALSE);
 	}
 
-	winch_total = ti->lift_wall_z - ti->plat_z - tug_lift_wall_off(bp.tug);
+	winch_total = ti->lift_wall_z - ti->plat_z -
+	    tug_lift_wall_off(bp_ls.tug);
 	winched_dist = vect2_dist(bp.winching.start_acf_pos, bp.cur_pos.pos);
 	if (winched_dist < winch_total && !bp.winching.complete) {
 		/*
@@ -1853,9 +1886,9 @@ pb_step_connect_winch(void)
 			push_at_speed(0.05, 0.05, B_FALSE, B_FALSE);
 			dr_setvf(&drs.leg_len, &lift, bp.acf.nw_i, 1);
 		}
-		tug_set_lift_arm_pos(bp.tug, 1 - x, B_TRUE);
-		tug_set_TE_override(bp.tug, B_TRUE);
-		tug_set_TE_snd(bp.tug, PB_LIFT_TE, bp.d_t);
+		tug_set_lift_arm_pos(bp_ls.tug, 1 - x, B_TRUE);
+		tug_set_TE_override(bp_ls.tug, B_TRUE);
+		tug_set_TE_snd(bp_ls.tug, PB_LIFT_TE, bp.d_t);
 	} else {
 		bp.winching.complete = B_TRUE;
 	}
@@ -1873,9 +1906,9 @@ pb_step_grab(void)
 		double steer = 0;
 		dr_setvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1);
 	}
-	tug_set_cradle_beeper_on(bp.tug, B_TRUE);
+	tug_set_cradle_beeper_on(bp_ls.tug, B_TRUE);
 	tug_set_lift_in_transit(B_TRUE);
-	if (bp.tug->info->lift_type == LIFT_GRAB)
+	if (bp_ls.tug->info->lift_type == LIFT_GRAB)
 		pb_step_connect_grab();
 	else
 		pb_step_connect_winch();
@@ -1892,8 +1925,8 @@ pb_step_lift(void)
 	tug_set_lift_pos(lift_fract);
 
 	/* Iterate the lift */
-	lift = (bp.tug->info->lift_height * lift_fract) + bp.acf.nw_len +
-	    tug_plat_h(bp.tug);
+	lift = (bp_ls.tug->info->lift_height * lift_fract) + bp.acf.nw_len +
+	    tug_plat_h(bp_ls.tug);
 	if (!slave_mode) {
 		brakes_set(B_TRUE);
 		dr_setvf(&drs.leg_len, &lift, bp.acf.nw_i, 1);
@@ -1905,15 +1938,15 @@ pb_step_lift(void)
 	 * being used to pressurize a hydraulic lift system.
 	 */
 	if (d_t < PB_CONN_LIFT_DURATION) {
-		tug_set_TE_override(bp.tug, B_TRUE);
-		tug_set_TE_snd(bp.tug, PB_LIFT_TE, bp.d_t);
+		tug_set_TE_override(bp_ls.tug, B_TRUE);
+		tug_set_TE_snd(bp_ls.tug, PB_LIFT_TE, bp.d_t);
 	}
 	if (d_t >= PB_CONN_LIFT_DURATION) {
-		tug_set_TE_override(bp.tug, B_TRUE);
-		tug_set_TE_snd(bp.tug, 0, bp.d_t);
-		tug_set_cradle_beeper_on(bp.tug, B_FALSE);
+		tug_set_TE_override(bp_ls.tug, B_TRUE);
+		tug_set_TE_snd(bp_ls.tug, 0, bp.d_t);
+		tug_set_cradle_beeper_on(bp_ls.tug, B_FALSE);
 		tug_set_lift_in_transit(B_FALSE);
-		tug_set_TE_override(bp.tug, B_FALSE);
+		tug_set_TE_override(bp_ls.tug, B_FALSE);
 	}
 
 	if (d_t >= PB_CONN_LIFT_DURATION + STATE_TRANS_DELAY) {
@@ -1937,7 +1970,7 @@ pb_step_lift(void)
 			}
 		}
 
-		if (bp.tug->info->lift_type != LIFT_WINCH) {
+		if (bp_ls.tug->info->lift_type != LIFT_WINCH) {
 			msg_play(MSG_CONNECTED);
 			bp.last_voice_t = bp.cur_t;
 		}
@@ -1987,6 +2020,25 @@ pb_step_connected(void)
 static void
 pb_step_pushing(void)
 {
+	if (dr_geti(&drs.landing_lights_on) != 0 ||
+	    dr_geti(&drs.taxi_light_on) != 0) {
+		if (!slave_mode)
+			push_at_speed(0, bp.veh.max_accel, B_TRUE, B_TRUE);
+		if (!bp.light_warn) {
+			if (dr_geti(&drs.landing_lights_on) != 0) {
+				XPLMSpeakString(_("Hey! Quit blinding me with "
+				    "your landing lights! Turn them off!"));
+			} else {
+				XPLMSpeakString(_("Hey! Quit blinding me with "
+				    "your taxi light! Turn it off!"));
+			}
+		}
+		bp.light_warn = B_TRUE;
+		return;
+	} else if (bp.light_warn) {
+		bp.light_warn = B_FALSE;
+	}
+
 	if (!slave_mode) {
 		dr_seti(&drs.override_steer, 1);
 		if (!bp_run_push()) {
@@ -2000,7 +2052,7 @@ pb_step_pushing(void)
 		 * tractive effort, just simulate it by following
 		 * the aircraft's speed of motion.
 		 */
-		tug_set_TE_override(bp.tug, B_FALSE);
+		tug_set_TE_override(bp_ls.tug, B_FALSE);
 	}
 }
 
@@ -2009,7 +2061,7 @@ pb_step_stopping(void)
 {
 	bool_t done = B_TRUE;
 
-	tug_set_TE_override(bp.tug, B_FALSE);
+	tug_set_TE_override(bp_ls.tug, B_FALSE);
 	if (!slave_mode) {
 		vehicle_pos_t corr_pos;
 		double steer, rhdg;
@@ -2025,7 +2077,7 @@ pb_step_stopping(void)
 			push_at_speed(bp.last_seg_is_back ? -MIN_SPEED_XP10 :
 			    MIN_SPEED_XP10, bp.veh.max_accel, B_FALSE, B_FALSE);
 			done = B_FALSE;
-		} else if (ABS(bp.tug->cur_steer) >
+		} else if (ABS(bp_ls.tug->cur_steer) >
 		    TOW_COMPLETE_TUG_STEER_THRESH ||
 		    ABS(steer) > TOW_COMPLETE_ACF_STEER_THRESH) {
 			/* Keep pushing until steering is neutralized */
@@ -2111,17 +2163,17 @@ pb_step_lowering(void)
 	lift_fract = MAX(MIN(lift_fract, 1), 0);
 
 	/* Iterate the lift */
-	lift = (bp.tug->info->lift_height * lift_fract) + bp.acf.nw_len +
-	    tug_plat_h(bp.tug);
+	lift = (bp_ls.tug->info->lift_height * lift_fract) + bp.acf.nw_len +
+	    tug_plat_h(bp_ls.tug);
 	if (!slave_mode)
 		dr_setvf(&drs.leg_len, &lift, bp.acf.nw_i, 1);
 
 	tug_set_lift_pos(lift_fract);
-	tug_set_cradle_air_on(bp.tug, B_TRUE, bp.cur_t);
-	tug_set_cradle_beeper_on(bp.tug, B_TRUE);
+	tug_set_cradle_air_on(bp_ls.tug, B_TRUE, bp.cur_t);
+	tug_set_cradle_beeper_on(bp_ls.tug, B_TRUE);
 
 	if (lift_fract == 0) {
-		tug_set_cradle_air_on(bp.tug, B_FALSE, bp.cur_t);
+		tug_set_cradle_air_on(bp_ls.tug, B_FALSE, bp.cur_t);
 		bp.step++;
 		bp.step_start_t = bp.cur_t;
 	}
@@ -2134,10 +2186,10 @@ pb_step_ungrabbing_grab(void)
 	double cradle_fract = d_t / PB_CRADLE_DELAY;
 
 	cradle_fract = MAX(MIN(cradle_fract, 1), 0);
-	tug_set_lift_arm_pos(bp.tug, cradle_fract, B_TRUE);
+	tug_set_lift_arm_pos(bp_ls.tug, cradle_fract, B_TRUE);
 
 	if (cradle_fract >= 1.0)
-		tug_set_cradle_beeper_on(bp.tug, B_FALSE);
+		tug_set_cradle_beeper_on(bp_ls.tug, B_FALSE);
 
 	return (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY);
 }
@@ -2154,7 +2206,7 @@ pb_step_ungrabbing_winch(void)
 	if (d_t < STATE_TRANS_DELAY)
 		return (B_FALSE);
 
-	tug_set_winch_on(bp.tug, B_FALSE);
+	tug_set_winch_on(bp_ls.tug, B_FALSE);
 
 	if (d_t < 2 * STATE_TRANS_DELAY)
 		return (B_FALSE);
@@ -2167,7 +2219,7 @@ pb_step_ungrabbing(void)
 {
 	bool_t complete;
 
-	if (bp.tug->info->lift_type == LIFT_GRAB)
+	if (bp_ls.tug->info->lift_type == LIFT_GRAB)
 		complete = pb_step_ungrabbing_grab();
 	else
 		complete = pb_step_ungrabbing_winch();
@@ -2177,7 +2229,7 @@ pb_step_ungrabbing(void)
 			brakes_set(B_FALSE);
 
 		tug_set_lift_in_transit(B_FALSE);
-		tug_set_TE_override(bp.tug, B_FALSE);
+		tug_set_TE_override(bp_ls.tug, B_FALSE);
 
 		/* reset the state for the disconnection phase */
 		bp.reconnect = B_FALSE;
@@ -2210,11 +2262,11 @@ pb_step_closing_cradle(void)
 	double d_t = bp.cur_t - bp.step_start_t;
 
 	tug_set_lift_in_transit(B_TRUE);
-	tug_set_tire_sense_pos(bp.tug, 1 - d_t / PB_CRADLE_DELAY);
+	tug_set_tire_sense_pos(bp_ls.tug, 1 - d_t / PB_CRADLE_DELAY);
 	tug_set_lift_pos(d_t / PB_CRADLE_DELAY);
 
 	if (d_t >= PB_CRADLE_DELAY) {
-		tug_set_cradle_beeper_on(bp.tug, B_FALSE);
+		tug_set_cradle_beeper_on(bp_ls.tug, B_FALSE);
 		tug_set_lift_in_transit(B_FALSE);
 	}
 
@@ -2242,7 +2294,7 @@ disco_win_draw(XPLMWindowID inWindowID, void *inRefcon)
 	XPLMGetMouseLocation(&mx, &my);
 
 	XPLMSetGraphicsState(0, 1, 0, 0, 1, 0, 0);
-	if (inWindowID == bp.disco_win) {
+	if (inWindowID == bp_ls.disco_win) {
 		bool_t is_lit = (mx >= w / 2 - 1.5 * disco_buttons[0].w &&
 		    mx <= w / 2 - 0.5 * disco_buttons[0].w &&
 		    my >= h - 1.5 * disco_buttons[0].h &&
@@ -2255,7 +2307,7 @@ disco_win_draw(XPLMWindowID inWindowID, void *inRefcon)
 		    mx <= w / 2 + 1.5 * disco_buttons[1].w &&
 		    my >= h - 1.5 * disco_buttons[1].h &&
 		    my <= h - 0.5 * disco_buttons[1].h);
-		ASSERT(inWindowID == bp.recon_win);
+		ASSERT(inWindowID == bp_ls.recon_win);
 		draw_icon(&disco_buttons[1], w / 2 + 0.5 * disco_buttons[1].w,
 		    h - 1.5 * disco_buttons[1].h, 1.0,
 		    B_FALSE, is_lit);
@@ -2310,9 +2362,9 @@ disco_win_click(XPLMWindowID inWindowID, int x, int y, XPLMMouseStatus inMouse,
 
 	if (inMouse != xplm_MouseUp)
 		return (1);
-	if (inWindowID == bp.disco_win) {
+	if (inWindowID == bp_ls.disco_win) {
 		XPLMCommandOnce(disco_cmd);
-	} else if (inWindowID == bp.recon_win)
+	} else if (inWindowID == bp_ls.recon_win)
 		XPLMCommandOnce(recon_cmd);
 
 	return (1);
@@ -2362,29 +2414,29 @@ disco_intf_show(void)
 	disco_ops.right = w / 2 - 0.5 * disco_buttons[0].w;
 	disco_ops.top = h - 0.5 * disco_buttons[0].h;
 	disco_ops.bottom = h - 1.5 * disco_buttons[0].h;
-	bp.disco_win = XPLMCreateWindowEx(&disco_ops);
-	ASSERT(bp.disco_win != NULL);
-	XPLMBringWindowToFront(bp.disco_win);
+	bp_ls.disco_win = XPLMCreateWindowEx(&disco_ops);
+	ASSERT(bp_ls.disco_win != NULL);
+	XPLMBringWindowToFront(bp_ls.disco_win);
 
 	disco_ops.left = w / 2 + 0.5 * disco_buttons[1].w;
 	disco_ops.right = w / 2 + 1.5 * disco_buttons[1].w;
 	disco_ops.top = h - 0.5 * disco_buttons[1].h;
 	disco_ops.bottom = h - 1.5 * disco_buttons[1].h;
-	bp.recon_win = XPLMCreateWindowEx(&disco_ops);
-	ASSERT(bp.recon_win != NULL);
-	XPLMBringWindowToFront(bp.recon_win);
+	bp_ls.recon_win = XPLMCreateWindowEx(&disco_ops);
+	ASSERT(bp_ls.recon_win != NULL);
+	XPLMBringWindowToFront(bp_ls.recon_win);
 }
 
 static void
 disco_intf_hide(void)
 {
-	if (bp.disco_win != NULL) {
-		XPLMDestroyWindow(bp.disco_win);
-		bp.disco_win = NULL;
+	if (bp_ls.disco_win != NULL) {
+		XPLMDestroyWindow(bp_ls.disco_win);
+		bp_ls.disco_win = NULL;
 	}
-	if (bp.recon_win != NULL) {
-		XPLMDestroyWindow(bp.recon_win);
-		bp.recon_win = NULL;
+	if (bp_ls.recon_win != NULL) {
+		XPLMDestroyWindow(bp_ls.recon_win);
+		bp_ls.recon_win = NULL;
 	}
 }
 
@@ -2392,7 +2444,7 @@ static void
 pb_step_waiting4ok2disco(void)
 {
 	if (!bp.ok2disco) {
-		if (bp.disco_win == NULL && !slave_mode)
+		if (bp_ls.disco_win == NULL && !slave_mode)
 			disco_intf_show();
 
 		/* Keep resetting the start time to enforce the delay */
@@ -2408,8 +2460,8 @@ pb_step_waiting4ok2disco(void)
 
 		dir = hdg2dir(bp.cur_pos.hdg);
 		p = vect2_add(bp.cur_pos.pos, vect2_scmul(dir,
-		    -bp.acf.nw_z + bp.tug->info->apch_dist));
-		(void) tug_drive2point(bp.tug, p, bp.cur_pos.hdg);
+		    -bp.acf.nw_z + bp_ls.tug->info->apch_dist));
+		(void) tug_drive2point(bp_ls.tug, p, bp.cur_pos.hdg);
 
 		bp.step++;
 		bp.step_start_t = bp.cur_t;
@@ -2429,7 +2481,7 @@ pb_step_starting2clear(void)
 		return;
 
 	right = tug_clear_is_right();
-	square_side = MAX(4 * bp.tug->veh.wheelbase, 1.5 * bp.veh.wheelbase);
+	square_side = MAX(4 * bp_ls.tug->veh.wheelbase, 1.5 * bp.veh.wheelbase);
 
 	dir = hdg2dir(bp.cur_pos.hdg);
 	norm_dir = vect2_norm(dir, right);
@@ -2438,8 +2490,8 @@ pb_step_starting2clear(void)
 	 * turn_p is offset 3x tug wheelbase forward and
 	 * half square_side to the direction of the turn.
 	 */
-	turn_p = vect2_add(bp.tug->pos.pos, vect2_scmul(dir,
-	    3 * bp.tug->veh.wheelbase));
+	turn_p = vect2_add(bp_ls.tug->pos.pos, vect2_scmul(dir,
+	    3 * bp_ls.tug->veh.wheelbase));
 	turn_p = vect2_add(turn_p, vect2_scmul(norm_dir,
 	    square_side / 2));
 	turn_hdg = normalize_hdg(bp.cur_pos.hdg + (right ? 90 : -90));
@@ -2450,13 +2502,13 @@ pb_step_starting2clear(void)
 	 * opposite way to the aircraft at a 45 degree angle.
 	 */
 	abeam_p = vect2_add(turn_p, vect2_scmul(vect2_neg(dir),
-	    2 * bp.tug->veh.wheelbase));
+	    2 * bp_ls.tug->veh.wheelbase));
 	abeam_p = vect2_add(abeam_p, vect2_scmul(norm_dir,
-	    4 * bp.tug->veh.wheelbase));
+	    4 * bp_ls.tug->veh.wheelbase));
 	back_hdg = normalize_hdg(turn_hdg + (right ? 45 : -45));
 
-	VERIFY(tug_drive2point(bp.tug, turn_p, turn_hdg));
-	VERIFY(tug_drive2point(bp.tug, abeam_p, back_hdg));
+	VERIFY(tug_drive2point(bp_ls.tug, turn_p, turn_hdg));
+	VERIFY(tug_drive2point(bp_ls.tug, abeam_p, back_hdg));
 
 	bp.step++;
 	bp.step_start_t = bp.cur_t;
@@ -2470,11 +2522,11 @@ drive_away_fallback(void)
 	 * intermediate turn segment and just send the tug straight for
 	 * a fixed distance.
 	 */
-	vect2_t end_p = vect2_add(bp.tug->pos.pos,
-	    vect2_scmul(hdg2dir(bp.tug->pos.hdg), TUG_DRIVE_AWAY_DIST));
+	vect2_t end_p = vect2_add(bp_ls.tug->pos.pos,
+	    vect2_scmul(hdg2dir(bp_ls.tug->pos.hdg), TUG_DRIVE_AWAY_DIST));
 
-	tug_set_pos(bp.tug, bp.tug->pos.pos, bp.tug->pos.hdg, 0);
-	VERIFY(tug_drive2point(bp.tug, end_p, bp.tug->pos.hdg));
+	tug_set_pos(bp_ls.tug, bp_ls.tug->pos.pos, bp_ls.tug->pos.hdg, 0);
+	VERIFY(tug_drive2point(bp_ls.tug, end_p, bp_ls.tug->pos.hdg));
 }
 
 static void
@@ -2514,30 +2566,30 @@ pb_step_clear_signal(void)
 	    acf2start_long_displ > -4 * bp.veh.wheelbase) {
 		drive_away_fallback();
 	} else {
-		double rhdg = fabs(rel_hdg(bp.tug->pos.hdg,
-		    dir2hdg(vect2_sub(bp.start_pos, bp.tug->pos.pos))));
+		double rhdg = fabs(rel_hdg(bp_ls.tug->pos.hdg,
+		    dir2hdg(vect2_sub(bp.start_pos, bp_ls.tug->pos.pos))));
 		/*
 		 * start_pos seems far enough away from the aircraft that
 		 * it won't be a problem if we drive to it. Just make sure
 		 * we're not trying to back into it.
 		 */
-		if (rhdg >= 90 || !tug_drive2point(bp.tug, bp.start_pos,
+		if (rhdg >= 90 || !tug_drive2point(bp_ls.tug, bp.start_pos,
 		    bp.start_hdg)) {
 			/*
 			 * It's possible the start_pos is beyond a 90 degree
 			 * turn, so we'd attempt to back into it. Try to stick
 			 * in an intermediate 90-degree turn in its direction.
 			 */
-			bool_t right = (rel_hdg(bp.tug->pos.hdg, dir2hdg(
-			    vect2_sub(bp.start_pos, bp.tug->pos.pos))) >= 0);
-			vect2_t dir = hdg2dir(bp.tug->pos.hdg);
-			vect2_t turn_p = vect2_add(bp.tug->pos.pos,
-			    vect2_scmul(dir, 2 * bp.tug->veh.wheelbase));
+			bool_t right = (rel_hdg(bp_ls.tug->pos.hdg, dir2hdg(
+			    vect2_sub(bp.start_pos, bp_ls.tug->pos.pos))) >= 0);
+			vect2_t dir = hdg2dir(bp_ls.tug->pos.hdg);
+			vect2_t turn_p = vect2_add(bp_ls.tug->pos.pos,
+			    vect2_scmul(dir, 2 * bp_ls.tug->veh.wheelbase));
 			turn_p = vect2_add(turn_p, vect2_scmul(vect2_norm(dir,
-			    right), 2 * bp.tug->veh.wheelbase));
-			if (!tug_drive2point(bp.tug, turn_p, normalize_hdg(
-			    bp.tug->pos.hdg + (right ? 90 : -90))) ||
-			    !tug_drive2point(bp.tug, bp.start_pos,
+			    right), 2 * bp_ls.tug->veh.wheelbase));
+			if (!tug_drive2point(bp_ls.tug, turn_p, normalize_hdg(
+			    bp_ls.tug->pos.hdg + (right ? 90 : -90))) ||
+			    !tug_drive2point(bp_ls.tug, bp.start_pos,
 			    bp.start_hdg)) {
 				drive_away_fallback();
 			}
@@ -2567,9 +2619,10 @@ tug_pos_update(vect2_t my_pos, double my_hdg, bool_t pos_only)
 
 	tug_spd = bp.cur_pos.spd / cos(DEG2RAD(fabs(steer)));
 
-	radius = tan(DEG2RAD(90 - bp.tug->cur_steer)) * bp.tug->veh.wheelbase;
+	radius = tan(DEG2RAD(90 - bp_ls.tug->cur_steer)) *
+	    bp_ls.tug->veh.wheelbase;
 	if (pos_only) {
-		tug_hdg = bp.tug->pos.hdg;
+		tug_hdg = bp_ls.tug->pos.hdg;
 	} else if (slave_mode) {
 		/*
 		 * In slave mode, the tug tracks our nosewheel and doesn't
@@ -2580,7 +2633,7 @@ tug_pos_update(vect2_t my_pos, double my_hdg, bool_t pos_only)
 		double d_hdg = RAD2DEG(tug_spd / radius) * bp.d_t;
 		double r_hdg;
 
-		tug_hdg = normalize_hdg(bp.tug->pos.hdg + d_hdg);
+		tug_hdg = normalize_hdg(bp_ls.tug->pos.hdg + d_hdg);
 		r_hdg = rel_hdg(my_hdg, tug_hdg);
 		/* check if we hit the hard steering stop */
 		if (r_hdg > bp.veh.max_steer)
@@ -2588,26 +2641,27 @@ tug_pos_update(vect2_t my_pos, double my_hdg, bool_t pos_only)
 		else if (r_hdg < -bp.veh.max_steer)
 			tug_hdg = normalize_hdg(my_hdg - bp.veh.max_steer);
 	} else {
-		tug_hdg = bp.tug->pos.hdg;
+		tug_hdg = bp_ls.tug->pos.hdg;
 	}
 
 	dir = hdg2dir(my_hdg);
 	if (bp.step == PB_STEP_GRABBING &&
-	    bp.tug->info->lift_type == LIFT_WINCH) {
+	    bp_ls.tug->info->lift_type == LIFT_WINCH) {
 		/*
 		 * When winching the aircraft forward, we keep the tug in a
 		 * fixed position relative to where the aircraft was when the
 		 * winching operation started.
 		 */
-		tug_set_pos(bp.tug, vect2_add(bp.winching.start_acf_pos,
-		    vect2_scmul(dir, (-bp.acf.nw_z) + (-bp.tug->info->plat_z))),
-		    my_hdg, 0);
+		tug_set_pos(bp_ls.tug, vect2_add(bp.winching.start_acf_pos,
+		    vect2_scmul(dir, (-bp.acf.nw_z) +
+		    (-bp_ls.tug->info->plat_z))), my_hdg, 0);
 	} else {
 		vect2_t off_v = vect2_scmul(hdg2dir(tug_hdg),
-		    (-bp.tug->info->lift_wall_z) + tug_lift_wall_off(bp.tug));
+		    (-bp_ls.tug->info->lift_wall_z) +
+		    tug_lift_wall_off(bp_ls.tug));
 		tug_pos = vect2_add(vect2_add(my_pos, vect2_scmul(dir,
 		    -bp.acf.nw_z)), off_v);
-		tug_set_pos(bp.tug, tug_pos, tug_hdg, tug_spd);
+		tug_set_pos(bp_ls.tug, tug_pos, tug_hdg, tug_spd);
 	}
 }
 
@@ -2629,15 +2683,15 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 	bp.d_pos.spd = bp.cur_pos.spd - bp.last_pos.spd;
 	bp.d_t = bp.cur_t - bp.last_t;
 
-	ASSERT(bp.tug != NULL || bp.step <= PB_STEP_TUG_LOAD);
-	if (bp.tug != NULL) {
+	ASSERT(bp_ls.tug != NULL || bp.step <= PB_STEP_TUG_LOAD);
+	if (bp_ls.tug != NULL) {
 		/* drive slowly while approaching & moving away from acf */
-		tug_run(bp.tug, bp.d_t,
+		tug_run(bp_ls.tug, bp.d_t,
 		    bp.step == PB_STEP_DRIVING_UP_CONNECT ||
 		    bp.step == PB_STEP_MOVING_AWAY);
-		tug_anim(bp.tug, bp.d_t, bp.cur_t);
+		tug_anim(bp_ls.tug, bp.d_t, bp.cur_t);
 
-		if (list_head(&bp.tug->segs) == NULL &&
+		if (list_head(&bp_ls.tug->segs) == NULL &&
 		    bp.step >= PB_STEP_GRABBING &&
 		    bp.step <= PB_STEP_UNGRABBING)
 			tug_pos_update(bp.cur_pos.pos, bp.cur_pos.hdg, B_FALSE);
@@ -2682,19 +2736,20 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 	/*
 	 * When performing quick debugging, skip the whole driving-up phase.
 	 */
-	if (!slave_mode && bp.tug != NULL && bp.tug->info->quick_debug) {
+	if (!slave_mode && bp_ls.tug != NULL && bp_ls.tug->info->quick_debug) {
 		if (bp.step < PB_STEP_CONNECTED) {
-			double lift = bp.tug->info->lift_height + bp.acf.nw_len;
+			double lift = bp_ls.tug->info->lift_height +
+			    bp.acf.nw_len;
 			bp.step = PB_STEP_CONNECTED;
 			tug_set_lift_pos(1);
-			tug_set_lift_arm_pos(bp.tug, 0, B_TRUE);
+			tug_set_lift_arm_pos(bp_ls.tug, 0, B_TRUE);
 			dr_setvf(&drs.leg_len, &lift, bp.acf.nw_i, 1);
 			/*
 			 * Just a quick'n'dirty way of removing all tug driving
 			 * segs. The actual tug position will be updated in
 			 * draw_tugs.
 			 */
-			tug_set_pos(bp.tug, ZERO_VECT2, bp.cur_pos.hdg, 0);
+			tug_set_pos(bp_ls.tug, ZERO_VECT2, bp.cur_pos.hdg, 0);
 		} else if (bp.step == PB_STEP_UNGRABBING) {
 			dr_setvf(&drs.leg_len, &bp.acf.nw_len, bp.acf.nw_i, 1);
 			bp_complete();
@@ -2715,7 +2770,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 	case PB_STEP_OFF:
 		VERIFY(bp.step != PB_STEP_OFF);
 	case PB_STEP_TUG_LOAD:
-		ASSERT3P(bp.tug, ==, NULL);
+		ASSERT3P(bp_ls.tug, ==, NULL);
 		if (!pb_step_tug_load())
 			return (0);
 		break;
@@ -2730,10 +2785,10 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 
 		tug_set_lift_in_transit(B_TRUE);
 		tug_set_lift_pos(1 - d_t / PB_CRADLE_DELAY);
-		tug_set_tire_sense_pos(bp.tug, d_t / PB_CRADLE_DELAY);
+		tug_set_tire_sense_pos(bp_ls.tug, d_t / PB_CRADLE_DELAY);
 		if (d_t >= PB_CRADLE_DELAY) {
 			tug_set_lift_in_transit(B_FALSE);
-			tug_set_cradle_beeper_on(bp.tug, B_FALSE);
+			tug_set_cradle_beeper_on(bp_ls.tug, B_FALSE);
 			prop_single_adjust();
 		}
 		if (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY) {
@@ -2807,15 +2862,15 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		pb_step_waiting4ok2disco();
 		break;
 	case PB_STEP_MOVING_AWAY:
-		if (bp.tug->info->lift_type == LIFT_WINCH && !slave_mode) {
+		if (bp_ls.tug->info->lift_type == LIFT_WINCH && !slave_mode) {
 			/*
 			 * When moving the tug away from the aircraft, the
 			 * aircraft will have been positioned on the platform.
 			 * Slowly lower the nosewheel the rest of the way.
 			 */
 			double dist = vect2_dist(bp.cur_pos.pos,
-			    bp.tug->pos.pos);
-			const tug_info_t *ti = bp.tug->info;
+			    bp_ls.tug->pos.pos);
+			const tug_info_t *ti = bp_ls.tug->info;
 			double plat_len = ti->lift_wall_z - ti->plat_z;
 			double x, lift;
 
@@ -2826,8 +2881,8 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			lift = ti->plat_h * x + bp.acf.nw_len;
 			dr_setvf(&drs.leg_len, &lift, bp.acf.nw_i, 1);
 		}
-		if (tug_is_stopped(bp.tug)) {
-			tug_set_cradle_beeper_on(bp.tug, B_TRUE);
+		if (tug_is_stopped(bp_ls.tug)) {
+			tug_set_cradle_beeper_on(bp_ls.tug, B_TRUE);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
 		}
@@ -2839,7 +2894,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		pb_step_starting2clear();
 		break;
 	case PB_STEP_MOVING2CLEAR:
-		if (tug_is_stopped(bp.tug)) {
+		if (tug_is_stopped(bp_ls.tug)) {
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
 		}
@@ -2848,7 +2903,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		pb_step_clear_signal();
 		break;
 	case PB_STEP_DRIVING_AWAY:
-		if (tug_is_stopped(bp.tug) ||
+		if (tug_is_stopped(bp_ls.tug) ||
 		    bp.cur_t - bp.step_start_t > MAX_DRIVING_AWAY_DELAY) {
 			bp_complete();
 			/*
@@ -3214,12 +3269,14 @@ draw_segment(const seg_t *seg)
 {
 	XPLMProbeRef probe = XPLMCreateProbe(xplm_ProbeY);
 	XPLMProbeInfo_t info = { .structSize = sizeof (XPLMProbeInfo_t) };
-
+	double wing_long_off = bp.acf.main_z - bp_ls.outline->wingtip.y;
+	vect2_t wing_off_l = VECT2(-bp_ls.outline->semispan, wing_long_off);
+	vect2_t wing_off_r = VECT2(bp_ls.outline->semispan, wing_long_off);
 
 	switch (seg->type) {
 	case SEG_TYPE_STRAIGHT: {
 		float h1, h2;
-		vect2_t wing, p;
+		vect2_t wing_l, wing_r, p;
 
 		VERIFY3U(XPLMProbeTerrainXYZ(probe, seg->start_pos.x, 0,
 		    -seg->start_pos.y, &info), ==, xplm_ProbeHitTerrain);
@@ -3235,19 +3292,19 @@ draw_segment(const seg_t *seg)
 		glVertex3f(seg->end_pos.x, h2, -seg->end_pos.y);
 		glEnd();
 
-		wing = vect2_scmul(hdg2dir(seg->start_hdg),
-		    bp.outline->semispan);
+		wing_l = vect2_rot(wing_off_l, seg->start_hdg);
+		wing_r = vect2_rot(wing_off_r, seg->start_hdg);
 
 		glColor3f(1, 0.25, 1);
 		glLineWidth(2);
 		glBegin(GL_LINES);
-		p = vect2_add(seg->start_pos, vect2_norm(wing, B_TRUE));
+		p = vect2_add(seg->start_pos, wing_r);
 		glVertex3f(p.x, h1, -p.y);
-		p = vect2_add(seg->end_pos, vect2_norm(wing, B_TRUE));
+		p = vect2_add(seg->end_pos, wing_r);
 		glVertex3f(p.x, h1, -p.y);
-		p = vect2_add(seg->end_pos, vect2_norm(wing, B_FALSE));
+		p = vect2_add(seg->end_pos, wing_l);
 		glVertex3f(p.x, h1, -p.y);
-		p = vect2_add(seg->start_pos, vect2_norm(wing, B_FALSE));
+		p = vect2_add(seg->start_pos, wing_l);
 		glVertex3f(p.x, h1, -p.y);
 		glEnd();
 		break;
@@ -3264,13 +3321,16 @@ draw_segment(const seg_t *seg)
 		e = MAX(0, rhdg);
 		ASSERT3F(s, <=, e);
 		for (double a = s; a < e; a += ANGLE_DRAW_STEP) {
-			vect2_t p1, p2, p, wing1, wing2;
+			vect2_t p1, p2, p;
+			vect2_t wing1_l, wing1_r, wing2_l, wing2_r;
 			double step = MIN(ANGLE_DRAW_STEP, e - a);
 
-			wing1 = vect2_scmul(hdg2dir(normalize_hdg(
-			    seg->start_hdg + a)), bp.outline->semispan);
-			wing2 = vect2_scmul(hdg2dir(normalize_hdg(
-			    seg->start_hdg + a + step)), bp.outline->semispan);
+			wing1_l = vect2_rot(wing_off_l, seg->start_hdg + a);
+			wing1_r = vect2_rot(wing_off_r, seg->start_hdg + a);
+			wing2_l = vect2_rot(wing_off_l,
+			    seg->start_hdg + a + step);
+			wing2_r = vect2_rot(wing_off_r,
+			    seg->start_hdg + a + step);
 
 			p1 = vect2_add(c, vect2_rot(c2s, a));
 			p2 = vect2_add(c, vect2_rot(c2s, a + step));
@@ -3288,13 +3348,13 @@ draw_segment(const seg_t *seg)
 			glColor3f(1, 0.25, 1);
 			glLineWidth(2);
 			glBegin(GL_LINES);
-			p = vect2_add(p1, vect2_norm(wing1, B_TRUE));
+			p = vect2_add(p1, wing1_r);
 			glVertex3f(p.x, info.locationY, -p.y);
-			p = vect2_add(p2, vect2_norm(wing2, B_TRUE));
+			p = vect2_add(p2, wing2_r);
 			glVertex3f(p.x, info.locationY, -p.y);
-			p = vect2_add(p2, vect2_norm(wing2, B_FALSE));
+			p = vect2_add(p1, wing1_l);
 			glVertex3f(p.x, info.locationY, -p.y);
-			p = vect2_add(p1, vect2_norm(wing1, B_FALSE));
+			p = vect2_add(p2, wing2_l);
 			glVertex3f(p.x, info.locationY, -p.y);
 			glEnd();
 		}
@@ -3323,28 +3383,28 @@ draw_acf_symbol(vect3_t pos, double hdg, double wheelbase, vect3_t color)
 	glColor3f(color.x, color.y, color.z);
 
 	glBegin(GL_LINES);
-	for (size_t i = 0; i + 1 < bp.outline->num_pts; i++) {
+	for (size_t i = 0; i + 1 < bp_ls.outline->num_pts; i++) {
 		/* skip gaps in outline */
-		if (IS_NULL_VECT(bp.outline->pts[i]) ||
-		    IS_NULL_VECT(bp.outline->pts[i + 1]))
+		if (IS_NULL_VECT(bp_ls.outline->pts[i]) ||
+		    IS_NULL_VECT(bp_ls.outline->pts[i + 1]))
 			continue;
 
-		v = bp.outline->pts[i];
+		v = bp_ls.outline->pts[i];
 		v = vect2_rot(VECT2(v.x, bp.acf.main_z - v.y), hdg);
 		p = vect3_add(pos, VECT3(v.x, 0, v.y));
 		glVertex3f(p.x, p.y, -p.z);
 
-		v = bp.outline->pts[i + 1];
+		v = bp_ls.outline->pts[i + 1];
 		v = vect2_rot(VECT2(v.x, bp.acf.main_z - v.y), hdg);
 		p = vect3_add(pos, VECT3(v.x, 0, v.y));
 		glVertex3f(p.x, p.y, -p.z);
 
-		v = bp.outline->pts[i];
+		v = bp_ls.outline->pts[i];
 		v = vect2_rot(VECT2(-v.x, bp.acf.main_z - v.y), hdg);
 		p = vect3_add(pos, VECT3(v.x, 0, v.y));
 		glVertex3f(p.x, p.y, -p.z);
 
-		v = bp.outline->pts[i + 1];
+		v = bp_ls.outline->pts[i + 1];
 		v = vect2_rot(VECT2(-v.x, bp.acf.main_z - v.y), hdg);
 		p = vect3_add(pos, VECT3(v.x, 0, v.y));
 		glVertex3f(p.x, p.y, -p.z);
