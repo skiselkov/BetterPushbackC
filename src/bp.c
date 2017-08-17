@@ -1321,21 +1321,6 @@ bp_can_start(const char **reason)
 		return (B_FALSE);
 	}
 
-	if (dr_geti(&drs.landing_lights_on) != 0) {
-		if (reason != NULL) {
-			*reason = _("Pushback failure: turn your landing "
-			    "lights off!");
-		}
-		return (B_FALSE);
-	}
-	if (dr_geti(&drs.taxi_light_on) != 0) {
-		if (reason != NULL) {
-			*reason = _("Pushback failure: turn your taxi "
-			    "lights off!");
-		}
-		return (B_FALSE);
-	}
-
 	seg = list_head(&bp.segs);
 	if (seg == NULL && !late_plan_requested && !slave_mode) {
 		if (reason != NULL) {
@@ -1401,6 +1386,17 @@ bp_start(void)
 
 	bp_started = B_TRUE;
 	bp_conf_set_save_enabled(!bp_started);
+
+	/*
+	 * Some aircraft (like the MD-80) do not have a taxi light switch,
+	 * so if the previously loaded aircraft had taxi lights on, the
+	 * dataref could left set to '1' with the pilot having no way of
+	 * switching the lights off. So we manually make sure the lights
+	 * are off here. This way we can be sure that if we see the light
+	 * on during pushback, it was the pilot who turned it on.
+	 */
+	dr_seti(&drs.landing_lights_on, 0);
+	dr_seti(&drs.taxi_light_on, 0);
 
 	return (B_TRUE);
 }
