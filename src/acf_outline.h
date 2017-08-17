@@ -33,7 +33,7 @@ typedef struct {
 	size_t	num_pts;	/* number of elements in `pts' */
 } acf_outline_t;
 
-acf_outline_t *acf_outline_read(const char *filename, int nw_i, double nw_z_dr);
+acf_outline_t *acf_outline_read(const char *filename);
 void acf_outline_free(acf_outline_t *outline);
 
 #ifdef	__cplusplus

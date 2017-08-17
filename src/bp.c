@@ -1245,7 +1245,7 @@ bp_init(void)
 		goto errout;
 
 	XPLMGetNthAircraftModel(0, my_acf, my_path);
-	bp_ls.outline = acf_outline_read(my_path, bp.acf.nw_i, bp.acf.nw_z);
+	bp_ls.outline = acf_outline_read(my_path);
 	if (bp_ls.outline == NULL)
 		goto errout;
 

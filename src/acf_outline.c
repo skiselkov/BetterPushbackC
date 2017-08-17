@@ -60,8 +60,12 @@ part_outline_read(const acf_file_t *acf, int part_nbr, vect2_t *pts, int s_dim,
     float z_ref)
 {
 	int r_dim;
+	double part_z;
 
+	READ_FEET(part_z, 0, "_part/56/_part_z");
+	z_ref -= part_z;
 	READ_INT(r_dim, "_part/%d/_r_dim", part_nbr);
+
 	for (int s = 0; s < s_dim; s++) {
 		vect2_t p = VECT2(-1e10, 0);
 
@@ -177,33 +181,41 @@ wing_outline_read(const acf_file_t *acf, int n_wing_nbrs,
 static int
 count_wings(const acf_file_t *acf, int *wing_nbrs, int n_wing_nbrs)
 {
+	double prev_x_arm = 0;
+
 	int n = 0;
 	for (n = 0; n < n_wing_nbrs; n++) {
-		double root_chord;
-		char path[64];
-		const char *root_chord_str;
-		VERIFY3S(snprintf(path, sizeof (path), "_wing/%d/_Croot",
-		    wing_nbrs[n]), <, sizeof (path));
-		root_chord_str = acf_prop_find(acf, path);
-		if (root_chord_str == NULL ||
-		    (root_chord = atof(root_chord_str)) == 0.0) {
-			for (int i = n + 1; i < n_wing_nbrs; i++)
-				wing_nbrs[i - 1] = wing_nbrs[i];
-			n--;
-			n_wing_nbrs--;
-		}
+		double root_chord, x_arm;
+
+		/*
+		 * For a wing segment to make sense it must have a non-zero
+		 * root chord and its X offset must be greater than the X
+		 * offset of the previous segment.
+		 */
+		READ_FEET(root_chord, 0, "_wing/%d/_Croot", wing_nbrs[n]);
+		READ_FEET(x_arm, 0, "_wing/%d/_crib_x_arm/0", wing_nbrs[n]);
+		if (root_chord == 0 || x_arm < prev_x_arm)
+			goto errout;
+		prev_x_arm = x_arm;
+
+		continue;
+errout:
+		for (int i = n + 1; i < n_wing_nbrs; i++)
+			wing_nbrs[i - 1] = wing_nbrs[i];
+		n--;
+		n_wing_nbrs--;
 	}
 	return (n);
 }
 
 acf_outline_t *
-acf_outline_read(const char *filename, int nw_i, double nw_z_dr)
+acf_outline_read(const char *filename)
 {
 	acf_outline_t *outline = NULL;
 	acf_file_t *acf = acf_file_read(filename);
 	vect2_t *pts = NULL;
 	int p, s_dim_fus;
-	double nw_z, z_ref;
+	double z_ref;
 
 	/* even wing numbers = left side, +1 is right side */
 	enum { N_MAIN_WINGS = 4 };
@@ -222,8 +234,7 @@ acf_outline_read(const char *filename, int nw_i, double nw_z_dr)
 	READ_FEET(outline->length, 0, "acf/_size_z");
 
 	READ_INT(s_dim_fus, "_part/56/_s_dim");
-	READ_FEET(nw_z, 0, "_gear/%d/_gear_z", nw_i);
-	z_ref = nw_z + (-nw_z_dr);
+	READ_FEET(z_ref, 0, "acf/_cgZ");
 
 	n_main_wings = count_wings(acf, main_wings, N_MAIN_WINGS);
 	n_stab_wings = count_wings(acf, stab_wings, N_STAB_WINGS);
