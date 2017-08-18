@@ -1777,8 +1777,16 @@ pb_step_waiting_for_pbrake(void)
 		return;
 
 	/* Workaround for Zibo 737 chocks being set - remove them. */
-	if (dr_find(&zibo_chocks, "laminar/B738/fms/chock_status"))
-		dr_seti(&zibo_chocks, 0);
+	if (dr_find(&zibo_chocks, "laminar/B738/fms/chock_status") &&
+	    dr_geti(&zibo_chocks) != 0) {
+		if (zibo_chocks.writable) {
+			dr_seti(&zibo_chocks, 0);
+		} else {
+			XPLMSpeakString(_("Pushback warning: unable to remove "
+			    "your chocks. Remove them yourself, or else I "
+			    "won't be able to push your aircraft."));
+		}
+	}
 
 	dir = hdg2dir(bp_ls.tug->pos.hdg);
 	if (bp_ls.tug->info->lift_type == LIFT_GRAB) {
