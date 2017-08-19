@@ -135,3 +135,7 @@ msgstr ""
 msgid "Pushback failure: cannot push this aircraft with engines running. "
 "Shutdown engines first."
 msgstr ""
+
+msgid "Pushback failure: your flight controls are preventing me from steering "
+"the aircraft. Unbind any buttons you have set to\"toggle nosewheel steering\"."
+msgstr ""

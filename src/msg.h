@@ -53,6 +53,7 @@ typedef enum {
 bool_t msg_init(const char *my_lang, const char *icao, lang_pref_t lang_pref);
 void msg_fini();
 void msg_play(message_t msg);
+void msg_stop(void);
 double msg_dur(message_t msg);
 
 #ifdef	__cplusplus

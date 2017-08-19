@@ -57,6 +57,7 @@ static msg_info_t msgs[MSG_NUM_MSGS] = {
 bool_t inited = B_FALSE;
 static dr_t sound_on;
 static dr_t radio_vol;
+static message_t last_msg = 0;
 
 /*
  * This examines an optional "cc_aliases.cfg" file in our messages directory.
@@ -233,6 +234,14 @@ msg_play(message_t msg)
 		return;
 	wav_set_gain(msgs[msg].wav, dr_getf(&radio_vol));
 	wav_play(msgs[msg].wav);
+	last_msg = msg;
+}
+
+void
+msg_stop(void)
+{
+	ASSERT(inited);
+	wav_stop(msgs[last_msg].wav);
 }
 
 double

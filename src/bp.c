@@ -2702,10 +2702,25 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 	}
 
 	if (!slave_mode) {
+		/*
+		 * We persistently try to enable nosewheel steering. If by
+		 * reaching PB_STEP_START nosewheel steering is still disabled,
+		 * that means something else is resetting the variable to '0'.
+		 * Stop the operation, somebody is trying to mess with us.
+		 */
+		if (bp.step > PB_STEP_START && dr_geti(&drs.nw_steer_on) != 1) {
+			XPLMSpeakString(_("Pushback failure: your flight "
+			    "controls are preventing me from steering the "
+			    "aircraft. Unbind any buttons you have set to "
+			    "\"toggle nosewheel steering\"."));
+			msg_stop();
+			bp_complete();
+			return (0);
+		}
+		dr_seti(&drs.nw_steer_on, 1);
 		if (bp.step >= PB_STEP_DRIVING_UP_CONNECT &&
 		    bp.step <= PB_STEP_MOVING_AWAY) {
 			dr_seti(&drs.override_steer, 1);
-			dr_seti(&drs.nw_steer_on, 1);
 		} else {
 			dr_seti(&drs.override_steer, 0);
 		}
