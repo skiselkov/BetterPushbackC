@@ -35,6 +35,7 @@
 #include <acfutils/time.h>
 
 #include "bp.h"
+#include "cab_view.h"
 #include "cfg.h"
 #include "msg.h"
 #include "tug.h"
@@ -47,7 +48,7 @@
 #define BP_PLUGIN_SIG		"skiselkov.BetterPushback"
 #define BP_PLUGIN_DESCRIPTION	"Generic automated pushback plugin"
 
-#define	SMARTCOPILOT_CHECK_INTVAL	1	/* second */
+#define	STATUS_CHECK_INTVAL	1	/* second */
 enum {
 	SMARTCOPILOT_STATE_OFF = 0,	/* disconnected */
 	SMARTCOPILOT_STATE_SLAVE = 1,	/* connected and we're slave */
@@ -57,10 +58,12 @@ enum {
 static bool_t		inited = B_FALSE;
 
 static XPLMCommandRef	start_pb, stop_pb, start_cam, stop_cam, conn_first;
+static XPLMCommandRef	cab_cam;
 static XPLMMenuID	root_menu;
 static int		plugins_menu_item;
 static int		start_pb_plan_menu_item, stop_pb_plan_menu_item;
 static int		start_pb_menu_item, stop_pb_menu_item;
+static int		cab_cam_menu_item;
 static int		prefs_menu_item;
 
 static int start_pb_handler(XPLMCommandRef, XPLMCommandPhase, void *);
@@ -68,6 +71,7 @@ static int stop_pb_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 static int start_cam_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 static int stop_cam_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 static int conn_first_handler(XPLMCommandRef, XPLMCommandPhase, void *);
+static int cab_cam_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 
 static bool_t		start_after_cam = B_FALSE;
 
@@ -258,6 +262,21 @@ conn_first_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	return (1);
 }
 
+static int
+cab_cam_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
+{
+	UNUSED(cmd);
+	UNUSED(refcon);
+	if (phase != xplm_CommandEnd)
+		return (0);
+	if (!cab_view_start()) {
+		XPLMSpeakString(_("Unable to select pushback tug view at "
+		    "this time."));
+		return (0);
+	}
+	return (1);
+}
+
 static void
 menu_cb(void *inMenuRef, void *inItemRef)
 {
@@ -335,12 +354,14 @@ slave_mode_cb(dr_t *dr)
 }
 
 static float
-smartcopilot_check(float elapsed, float elapsed2, int counter, void *refcon)
+status_check(float elapsed, float elapsed2, int counter, void *refcon)
 {
 	UNUSED(elapsed);
 	UNUSED(elapsed2);
 	UNUSED(counter);
 	UNUSED(refcon);
+
+	XPLMEnableMenuItem(root_menu, cab_cam_menu_item, cab_view_can_start());
 
 	if (!smartcopilot_present)
 		return (1);
@@ -379,7 +400,7 @@ smartcopilot_check(float elapsed, float elapsed2, int counter, void *refcon)
 		slave_mode = B_FALSE;
 	}
 
-	return (SMARTCOPILOT_CHECK_INTVAL);
+	return (STATUS_CHECK_INTVAL);
 }
 
 static void
@@ -455,6 +476,8 @@ XPluginStart(char *name, char *sig, char *desc)
 	    _("Stop pushback planner"));
 	conn_first = XPLMCreateCommand("BetterPushback/connect_first",
 	    _("Connect tug before entering pushback plan"));
+	cab_cam = XPLMCreateCommand("BetterPushback/cab_camera",
+	    _("View from tug's cab."));
 
 	bp_boot_init();
 	tug_glob_init();
@@ -530,6 +553,7 @@ XPluginReceiveMessage(XPLMPluginID from, int msg, void *param)
 		    "scp/api/ismaster");
 		bp_cam_stop();
 		bp_fini();
+		cab_view_fini();
 #ifndef	SLAVE_DEBUG
 		bp_tug_name[0] = '\0';
 #endif
@@ -566,6 +590,7 @@ bp_priv_enable(void)
 	XPLMRegisterCommandHandler(start_cam, start_cam_handler, 1, NULL);
 	XPLMRegisterCommandHandler(stop_cam, stop_cam_handler, 1, NULL);
 	XPLMRegisterCommandHandler(conn_first, conn_first_handler, 1, NULL);
+	XPLMRegisterCommandHandler(cab_cam, cab_cam_handler, 1, NULL);
 
 	plugins_menu_item = XPLMAppendMenuItem(XPLMFindPluginsMenu(),
 	    "Better Pushback", NULL, 1);
@@ -580,6 +605,8 @@ bp_priv_enable(void)
 	    _("Start pushback"), start_pb, 1);
 	stop_pb_menu_item = XPLMAppendMenuItem(root_menu,
 	    _("Stop pushback"), stop_pb, 1);
+	cab_cam_menu_item = XPLMAppendMenuItem(root_menu,
+	    _("Tug cab view"), cab_cam, 1);
 	prefs_menu_item = XPLMAppendMenuItem(root_menu,
 	    _("Preferences..."), &prefs_menu_item, 1);
 
@@ -587,9 +614,9 @@ bp_priv_enable(void)
 	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
 	XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_TRUE);
 	XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
+	XPLMEnableMenuItem(root_menu, cab_cam_menu_item, B_FALSE);
 
-	XPLMRegisterFlightLoopCallback(smartcopilot_check,
-	    SMARTCOPILOT_CHECK_INTVAL, NULL);
+	XPLMRegisterFlightLoopCallback(status_check, STATUS_CHECK_INTVAL, NULL);
 
 	inited = B_TRUE;
 
@@ -621,8 +648,11 @@ bp_priv_disable(void)
 	XPLMUnregisterCommandHandler(start_cam, start_pb_handler, 1, NULL);
 	XPLMUnregisterCommandHandler(stop_cam, stop_pb_handler, 1, NULL);
 	XPLMUnregisterCommandHandler(conn_first, conn_first_handler, 1, NULL);
+	XPLMUnregisterCommandHandler(cab_cam, cab_cam_handler, 1, NULL);
+
 	bp_fini();
 	openal_fini();
+	cab_view_fini();
 
 	airportdb_destroy(airportdb);
 	free(airportdb);
@@ -630,7 +660,7 @@ bp_priv_disable(void)
 
 	XPLMDestroyMenu(root_menu);
 	XPLMRemoveMenuItem(XPLMFindPluginsMenu(), plugins_menu_item);
-	XPLMUnregisterFlightLoopCallback(smartcopilot_check, NULL);
+	XPLMUnregisterFlightLoopCallback(status_check, NULL);
 
 	inited = B_FALSE;
 }

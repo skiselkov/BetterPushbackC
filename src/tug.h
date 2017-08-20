@@ -126,6 +126,9 @@ typedef struct {
 	 */
 	char	*livname;
 
+	vect3_t	cam_pos;
+	double	cab_lift_h;
+
 	avl_node_t	node;
 } tug_info_t;
 

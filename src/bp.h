@@ -149,6 +149,20 @@ typedef struct {
 	acf_outline_t	*outline;	/* size & outline of aircraft shape */
 } bp_long_state_t;
 
+typedef struct {
+	const char	*name;
+	XPLMCommandRef	cmd;
+	vect3_t		pos;
+	vect2_t		rot;
+	double		zoom;
+} view_cmd_info_t;
+#define	VCI(cmdname, x, y, z, rot_x, rot_y, zoom_incr) \
+	{.name = (cmdname), .pos = VECT3((x), (y), (z)), \
+	    .rot = VECT2((rot_x), (rot_y)), .zoom = 1 + (zoom_incr)}
+#define	VCI_POS(cmdname, x, y, z)	VCI(cmdname, x, y, z, 0, 0, 0)
+#define	VCI_ROT(cmdname, x, y)		VCI(cmdname, 0, 0, 0, (x), (y), 0)
+#define	VCI_ZOOM(cmdname, z)		VCI(cmdname, 0, 0, 0, 0, 0, (z))
+
 
 extern bp_state_t bp;
 extern bp_long_state_t bp_ls;

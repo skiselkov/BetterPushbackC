@@ -168,12 +168,6 @@ static struct {
 } drs;
 
 typedef struct {
-	const char	*name;
-	XPLMCommandRef	cmd;
-	vect3_t		incr;
-} view_cmd_info_t;
-
-typedef struct {
 	const char	*filename;	/* PNG filename in data/icons/<lang> */
 	const int	vk;		/* function virtual key, -1 if none */
 	GLuint		tex;		/* OpenGL texture object */
@@ -2863,42 +2857,38 @@ static bool_t		saved_real_wx;
 static XPLMObjectRef	cam_lamp_obj = NULL;
 
 static view_cmd_info_t view_cmds[] = {
-    { .name = "sim/general/left", .incr = VECT3(-INCR_MED, 0, 0) },
-    { .name = "sim/general/right", .incr = VECT3(INCR_MED, 0, 0) },
-    { .name  = "sim/general/up", .incr = VECT3(0, 0, INCR_MED) },
-    { .name = "sim/general/down", .incr = VECT3(0, 0, -INCR_MED) },
-    { .name = "sim/general/forward", .incr = VECT3(0, -INCR_MED, 0) },
-    { .name = "sim/general/backward", .incr = VECT3(0, INCR_MED, 0) },
-    { .name = "sim/general/zoom_in", .incr = VECT3(0, -INCR_MED, 0) },
-    { .name = "sim/general/zoom_out", .incr = VECT3(0, INCR_MED, 0) },
-    { .name = "sim/general/hat_switch_left", .incr = VECT3(-INCR_MED, 0, 0) },
-    { .name = "sim/general/hat_switch_right", .incr = VECT3(INCR_MED, 0, 0) },
-    { .name = "sim/general/hat_switch_up", .incr = VECT3(0, 0, INCR_MED) },
-    { .name = "sim/general/hat_switch_down", .incr = VECT3(0, 0, -INCR_MED) },
-    { .name = "sim/general/hat_switch_up_left",
-	.incr = VECT3(-INCR_MED, 0, INCR_MED) },
-    { .name = "sim/general/hat_switch_up_right",
-	.incr = VECT3(INCR_MED, 0, INCR_MED) },
-    { .name = "sim/general/hat_switch_down_left",
-	.incr = VECT3(-INCR_MED, 0, -INCR_MED) },
-    { .name = "sim/general/hat_switch_down_right",
-	.incr = VECT3(INCR_MED, 0, -INCR_MED) },
-    { .name = "sim/general/left_fast", .incr = VECT3(-INCR_BIG, 0, 0) },
-    { .name = "sim/general/right_fast", .incr = VECT3(INCR_BIG, 0, 0) },
-    { .name = "sim/general/up_fast", .incr = VECT3(0, 0, INCR_BIG) },
-    { .name = "sim/general/down_fast", .incr = VECT3(0, 0, -INCR_BIG) },
-    { .name = "sim/general/forward_fast", .incr = VECT3(0, -INCR_BIG, 0) },
-    { .name = "sim/general/backward_fast", .incr = VECT3(0, INCR_BIG, 0) },
-    { .name = "sim/general/zoom_in_fast", .incr = VECT3(0, -INCR_BIG, 0) },
-    { .name = "sim/general/zoom_out_fast", .incr = VECT3(0, INCR_BIG, 0) },
-    { .name = "sim/general/left_slow", .incr = VECT3(-INCR_SMALL, 0, 0) },
-    { .name = "sim/general/right_slow", .incr = VECT3(INCR_SMALL, 0, 0) },
-    { .name = "sim/general/up_slow", .incr = VECT3(0, 0, INCR_SMALL) },
-    { .name = "sim/general/down_slow", .incr = VECT3(0, 0, -INCR_SMALL) },
-    { .name = "sim/general/forward_slow", .incr = VECT3(0, -INCR_SMALL, 0) },
-    { .name = "sim/general/backward_slow", .incr = VECT3(0, INCR_SMALL, 0) },
-    { .name = "sim/general/zoom_in_slow", .incr = VECT3(0, -INCR_SMALL, 0) },
-    { .name = "sim/general/zoom_out_slow", .incr = VECT3(0, INCR_SMALL, 0) },
+    VCI_POS("sim/general/left", -INCR_MED, 0, 0),
+    VCI_POS("sim/general/right", INCR_MED, 0, 0),
+    VCI_POS("sim/general/up", 0, 0, INCR_MED),
+    VCI_POS("sim/general/down", 0, 0, -INCR_MED),
+    VCI_POS("sim/general/forward", 0, -INCR_MED, 0),
+    VCI_POS("sim/general/backward", 0, INCR_MED, 0),
+    VCI_POS("sim/general/zoom_in", 0, -INCR_MED, 0),
+    VCI_POS("sim/general/zoom_out", 0, INCR_MED, 0),
+    VCI_POS("sim/general/hat_switch_left", -INCR_MED, 0, 0),
+    VCI_POS("sim/general/hat_switch_right", INCR_MED, 0, 0),
+    VCI_POS("sim/general/hat_switch_up", 0, 0, INCR_MED),
+    VCI_POS("sim/general/hat_switch_down", 0, 0, -INCR_MED),
+    VCI_POS("sim/general/hat_switch_up_left", -INCR_MED, 0, INCR_MED),
+    VCI_POS("sim/general/hat_switch_up_right", INCR_MED, 0, INCR_MED),
+    VCI_POS("sim/general/hat_switch_down_left", -INCR_MED, 0, -INCR_MED),
+    VCI_POS("sim/general/hat_switch_down_right", INCR_MED, 0, -INCR_MED),
+    VCI_POS("sim/general/left_fast", -INCR_BIG, 0, 0),
+    VCI_POS("sim/general/right_fast", INCR_BIG, 0, 0),
+    VCI_POS("sim/general/up_fast", 0, 0, INCR_BIG),
+    VCI_POS("sim/general/down_fast", 0, 0, -INCR_BIG),
+    VCI_POS("sim/general/forward_fast", 0, -INCR_BIG, 0),
+    VCI_POS("sim/general/backward_fast", 0, INCR_BIG, 0),
+    VCI_POS("sim/general/zoom_in_fast", 0, -INCR_BIG, 0),
+    VCI_POS("sim/general/zoom_out_fast", 0, INCR_BIG, 0),
+    VCI_POS("sim/general/left_slow", -INCR_SMALL, 0, 0),
+    VCI_POS("sim/general/right_slow", INCR_SMALL, 0, 0),
+    VCI_POS("sim/general/up_slow", 0, 0, INCR_SMALL),
+    VCI_POS("sim/general/down_slow", 0, 0, -INCR_SMALL),
+    VCI_POS("sim/general/forward_slow", 0, -INCR_SMALL, 0),
+    VCI_POS("sim/general/backward_slow", 0, INCR_SMALL, 0),
+    VCI_POS("sim/general/zoom_in_slow", 0, -INCR_SMALL, 0),
+    VCI_POS("sim/general/zoom_out_slow", 0, INCR_SMALL, 0),
     { .name = NULL }
 };
 
@@ -3085,10 +3075,10 @@ move_camera(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 		uint64_t now = microclock();
 		double d_t = (now - last_cmd_t) / 1000000.0;
 		unsigned i = (uintptr_t)refcon;
-		vect2_t v = vect2_rot(VECT2(view_cmds[i].incr.x,
-		    view_cmds[i].incr.z), cam_hdg);
+		vect2_t v = vect2_rot(VECT2(view_cmds[i].pos.x,
+		    view_cmds[i].pos.z), cam_hdg);
 		cam_pos = vect3_add(cam_pos, VECT3(v.x * d_t, 0, v.y * d_t));
-		cam_height += view_cmds[i].incr.y * d_t;
+		cam_height += view_cmds[i].pos.y * d_t;
 		last_cmd_t = now;
 	}
 	return (0);

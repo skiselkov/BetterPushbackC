@@ -712,6 +712,12 @@ tug_info_read(const char *tugdir, const char *tug_name, const char *icao,
 				    cfgfilename);
 				goto errout;
 			}
+		} else if (strcmp(option, "cam_pos") == 0) {
+			READ_NUMBER("%lf", "cam_pos(x)", &ti->cam_pos.x);
+			READ_NUMBER("%lf", "cam_pos(y)", &ti->cam_pos.y);
+			READ_NUMBER("%lf", "cam_pos(z)", &ti->cam_pos.z);
+		} else if (strcmp(option, "cab_lift_h") == 0) {
+			READ_NUMBER("%lf", "cab_lift_h", &ti->cab_lift_h);
 		} else {
 			logMsg("Malformed tug config file %s: unknown "
 			    "option '%s'", cfgfilename, option);
