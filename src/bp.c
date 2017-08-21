@@ -1948,10 +1948,12 @@ pb_step_stopping(void)
 		VERIFY3S(dr_getvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i,
 		    1), ==, 1);
 		corr_pos = corr_acf_pos();
-		;
 		if (!isnan(bp.last_hdg) &&
 		    fabs(rhdg = rel_hdg(corr_pos.hdg, bp.last_hdg)) > 1) {
-			double nsteer = (bp.last_seg_is_back ? -10 : 10) * rhdg;
+			double amp = fx_lin(bp.veh.wheelbase /
+			    bp_ls.tug->veh.wheelbase, 1, 3, 5, 10);
+			double nsteer = (bp.last_seg_is_back ? -1 : 1) * rhdg *
+			    MAX(MIN(amp, 10), 2);
 			turn_nosewheel(nsteer);
 			push_at_speed(bp.last_seg_is_back ? -MIN_SPEED_XP10 :
 			    MIN_SPEED_XP10, bp.veh.max_accel, B_FALSE, B_FALSE);
