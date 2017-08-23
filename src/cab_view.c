@@ -16,11 +16,19 @@
  * Copyright 2017 Saso Kiselkov. All rights reserved.
  */
 
+#include <string.h>
+
 #include <XPLMCamera.h>
+#include <XPLMGraphics.h>
 #include <XPLMScenery.h>
 #include <XPLMUtilities.h>
 
+#include <XPStandardWidgets.h>
+
 #include <acfutils/assert.h>
+#include <acfutils/intl.h>
+#include <acfutils/widget.h>
+#include <acfutils/time.h>
 
 #include "bp.h"
 #include "cab_view.h"
@@ -36,6 +44,9 @@
 #define	INCR_ZOOM	0.04
 #define	INCR_ZOOM_FAST	0.08
 
+#define	HINTBAR_HEIGHT	20
+#define	HINTBAR_TIMEOUT	SEC2USEC(5)
+
 static bool_t started = B_FALSE;
 
 /*
@@ -46,6 +57,8 @@ static vect3_t	d_pos = ZERO_VECT3;
 static vect2_t	d_orient = ZERO_VECT2;
 static double	zoom = 1.0;
 static XPLMWindowID win = NULL;
+static uint64_t hintbar_start = 0;
+static XPWidgetID hintbar = NULL;
 static dr_t cab_pos_dr;
 
 static view_cmd_info_t view_cmds[] = {
@@ -175,6 +188,11 @@ win_draw(XPLMWindowID inWindowID, void *inRefcon)
 	UNUSED(inRefcon);
 	XPLMGetScreenSize(&w, &h);
 	XPLMSetWindowGeometry(win, 0, h, w, 0);
+
+	if (hintbar != NULL && microclock() - hintbar_start > HINTBAR_TIMEOUT) {
+		XPDestroyWidget(hintbar, 1);
+		hintbar = NULL;
+	}
 }
 
 static void
@@ -298,6 +316,33 @@ cab_view_start(void)
 	ASSERT(win != NULL);
 	XPLMBringWindowToFront(win);
 
+	/*
+	 * Because in the cab view we're using the left mouse button to
+	 * reorient the view, display a short message for 5 seconds to let
+	 * the user know of this difference.
+	 */
+	if (hintbar == NULL) {
+		const char *str = _("Left mouse button to reorient view");
+		int x, y;
+		int w = XPLMMeasureString(xplmFont_Proportional,
+		    str, strlen(str));
+		XPWidgetID caption;
+
+		XPLMGetScreenSize(&x, &y);
+		hintbar = create_widget_rel((x - w) / 2 - 10,
+		    HINTBAR_HEIGHT * 3, B_FALSE, w + 20,
+		    HINTBAR_HEIGHT, 0, "", 1, NULL, xpWidgetClass_MainWindow);
+		XPSetWidgetProperty(hintbar, xpProperty_MainWindowType,
+		    xpMainWindowStyle_Translucent);
+
+		caption = create_widget_rel(10, 0, B_FALSE, w, HINTBAR_HEIGHT,
+		    1, str, 0, hintbar, xpWidgetClass_Caption);
+		XPSetWidgetProperty(caption, xpProperty_CaptionLit, 1);
+
+		XPShowWidget(hintbar);
+		hintbar_start = microclock();
+	}
+
 	for (int i = 0; view_cmds[i].name != NULL; i++) {
 		if (view_cmds[i].cmd == NULL) {
 			view_cmds[i].cmd = XPLMFindCommand(view_cmds[i].name);
@@ -317,6 +362,10 @@ cab_view_stop(void)
 	if (win != NULL) {
 		XPLMDestroyWindow(win);
 		win = NULL;
+	}
+	if (hintbar != NULL) {
+		XPDestroyWidget(hintbar, 1);
+		hintbar = NULL;
 	}
 
 	for (int i = 0; view_cmds[i].name != NULL; i++) {
