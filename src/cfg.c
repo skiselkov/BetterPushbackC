@@ -233,7 +233,8 @@ static void
 create_main_window(void)
 {
 	tooltip_set_t *tts;
-	int col1_width, col2_width, main_window_width;
+	int col1_width, col2_width, main_window_width, l;
+	char *prefs_title;
 
 	checkbox_t col1[] = {
 	    { _("User interface"), NULL, NULL },
@@ -276,11 +277,17 @@ create_main_window(void)
 	col2_width = measure_checkboxes_width(col2);
 	main_window_width = 3 * MARGIN + col1_width + col2_width;
 
+	l = snprintf(NULL, 0, "%s (%s)",
+	    _("BetterPushback Preferences"), BP_PLUGIN_VERSION);
+	prefs_title = malloc(l + 1);
+	snprintf(prefs_title, l + 1, "%s (%s)",
+	    _("BetterPushback Preferences"), BP_PLUGIN_VERSION);
 	main_win = create_widget_rel(100, 100, B_FALSE, main_window_width,
-	    MAIN_WINDOW_HEIGHT, 0, _("BetterPushback Preferences"), 1, NULL,
+	    MAIN_WINDOW_HEIGHT, 0, prefs_title, 1, NULL,
 	    xpWidgetClass_MainWindow);
 	XPSetWidgetProperty(main_win, xpProperty_MainWindowHasCloseBoxes, 1);
 	XPAddWidgetCallback(main_win, main_window_cb);
+	free(prefs_title);
 
 	tts = tooltip_set_new(main_win);
 
