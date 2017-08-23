@@ -551,7 +551,7 @@ XPluginReceiveMessage(XPLMPluginID from, int msg, void *param)
 		/* Force a reinit to re-read aircraft size params */
 		smartcopilot_present = dr_find(&smartcopilot_state,
 		    "scp/api/ismaster");
-		bp_cam_stop();
+		stop_cam_handler(NULL, xplm_CommandEnd, NULL);
 		bp_fini();
 		cab_view_fini();
 #ifndef	SLAVE_DEBUG
