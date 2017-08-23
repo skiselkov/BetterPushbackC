@@ -62,6 +62,8 @@ static struct {
 	XPWidgetID	lang_pref_native;
 	XPWidgetID	lang_pref_match_english;
 
+	XPWidgetID	disco_when_done;
+
 	XPWidgetID	save_cfg;
 } buttons;
 
@@ -78,14 +80,19 @@ const char *native_tooltip = "Ground crew speaks my language irrespective "
 const char *match_english_tooltip = "Ground crew always speaks English "
     "with a local accent.";
 const char *save_prefs_tooltip = "Save current preferences to disk.";
+const char *disco_when_done_tooltip =
+    "Never ask and always automatically disconnect\n"
+    "the tug when the pushback operation is complete.";
 
 static void
-lang_buttons_update(void)
+buttons_update(void)
 {
 	const char *lang = "XX";
 	lang_pref_t lang_pref;
+	bool_t disco_when_done = B_FALSE;
 
 	(void) conf_get_str(bp_conf, "lang", &lang);
+	(void) conf_get_b(bp_conf, "disco_when_done", &disco_when_done);
 #define	SET_LANG_BTN(btn, l) \
 	(XPSetWidgetProperty(buttons.btn, xpProperty_ButtonState, \
 	    strcmp(lang, l) == 0))
@@ -107,6 +114,8 @@ lang_buttons_update(void)
 	    xpProperty_ButtonState, lang_pref == LANG_PREF_NATIVE);
 	XPSetWidgetProperty(buttons.lang_pref_match_english,
 	    xpProperty_ButtonState, lang_pref == LANG_PREF_MATCH_ENGLISH);
+	XPSetWidgetProperty(buttons.disco_when_done,
+	    xpProperty_ButtonState, disco_when_done);
 }
 
 static int
@@ -150,8 +159,12 @@ main_window_cb(XPWidgetMessage msg, XPWidgetID widget, intptr_t param1,
 		} else if (btn == buttons.lang_pref_match_english) {
 			conf_set_i(bp_conf, "lang_pref",
 			    LANG_PREF_MATCH_ENGLISH);
+		} else if (btn == buttons.disco_when_done) {
+			conf_set_b(bp_conf, "disco_when_done",
+			    XPGetWidgetProperty(buttons.disco_when_done,
+				xpProperty_ButtonState, NULL));
 		}
-		lang_buttons_update();
+		buttons_update();
 	}
 
 	return (0);
@@ -189,8 +202,8 @@ layout_checkboxes(checkbox_t *checkboxes, int x, int y, tooltip_set_t *tts)
 	y += BUTTON_HEIGHT;
 
 	(void) create_widget_rel(x, y, B_FALSE, width + 6,
-	    (n - 1) * BUTTON_HEIGHT, 1, "", 0, main_win,
-	    xpWidgetClass_SubWindow);
+	    MAX((n - 1) * BUTTON_HEIGHT, 2.5 * BUTTON_HEIGHT),
+	    1, "", 0, main_win, xpWidgetClass_SubWindow);
 
 	for (int i = 1; i < n; i++) {
 		int off_x = x;
@@ -250,6 +263,14 @@ create_main_window(void)
 	    },
 	    { NULL, NULL, NULL }
 	};
+	checkbox_t other[] = {
+	    { _("Miscellaneous"), NULL, NULL },
+	    {
+		_("Auto disconnect when done"), &buttons.disco_when_done,
+		disco_when_done_tooltip
+	    },
+	    { NULL, NULL, NULL }
+	};
 
 	col1_width = measure_checkboxes_width(col1);
 	col2_width = measure_checkboxes_width(col2);
@@ -265,6 +286,8 @@ create_main_window(void)
 
 	layout_checkboxes(col1, MARGIN, MARGIN, tts);
 	layout_checkboxes(col2, MARGIN + col1_width + MARGIN, MARGIN, tts);
+	layout_checkboxes(other, MARGIN + col1_width + MARGIN,
+	    MARGIN + 4 * BUTTON_HEIGHT, tts);
 
 #define LAYOUT_PUSH_BUTTON(var, x, y, w, h, label, tooltip) \
 	do { \
@@ -374,7 +397,7 @@ gui_init(void)
 {
 	tooltip_init();
 	create_main_window();
-	lang_buttons_update();
+	buttons_update();
 }
 
 void

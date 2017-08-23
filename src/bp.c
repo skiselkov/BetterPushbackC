@@ -2325,8 +2325,21 @@ static void
 pb_step_waiting4ok2disco(void)
 {
 	if (!bp.ok2disco) {
-		if (bp_ls.disco_win == NULL && !slave_mode)
+		if (bp_ls.disco_win == NULL && !slave_mode) {
+			bool_t disco_when_done = B_FALSE;
+
+			(void) conf_get_b(bp_conf, "disco_when_done",
+			    &disco_when_done);
+			if (disco_when_done) {
+				/*
+				 * Don't actually show the interface, just
+				 * fire the disconnection command.
+				 */
+				XPLMCommandOnce(disco_cmd);
+				return;
+			}
 			disco_intf_show();
+		}
 
 		/* Keep resetting the start time to enforce the delay */
 		bp.step_start_t = bp.cur_t;
