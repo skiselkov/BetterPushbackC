@@ -26,6 +26,7 @@
 #include <acfutils/assert.h>
 #include <acfutils/helpers.h>
 #include <acfutils/intl.h>
+#include <acfutils/wav.h>
 #include <acfutils/widget.h>
 
 #include "cfg.h"
@@ -66,8 +67,24 @@ static struct {
 	XPWidgetID	disco_when_done;
 	XPWidgetID	show_dev_menu;
 
+	size_t		num_radio_boxes;
+	XPWidgetID	*radio_boxes;
+	size_t		num_radio_devs;
+	char		**radio_devs;
+
+	size_t		num_sound_boxes;
+	XPWidgetID	*sound_boxes;
+	size_t		num_sound_devs;
+	char		**sound_devs;
+
 	XPWidgetID	save_cfg;
 } buttons;
+
+typedef struct {
+	const char	*string;
+	XPWidgetID	*widget;
+	const char	*tooltip;
+} checkbox_t;
 
 /* Used to set a null tooltip in the button creation macros. */
 const char *null_tooltip = NULL;
@@ -94,10 +111,13 @@ buttons_update(void)
 	lang_pref_t lang_pref;
 	bool_t disco_when_done = B_FALSE;
 	bool_t show_dev_menu = B_FALSE;
+	const char *radio_dev = "", *sound_dev = "";
 
 	(void) conf_get_str(bp_conf, "lang", &lang);
 	(void) conf_get_b(bp_conf, "disco_when_done", &disco_when_done);
 	(void) conf_get_b(bp_conf, "show_dev_menu", &show_dev_menu);
+	(void) conf_get_str(bp_conf, "radio_device", &radio_dev);
+	(void) conf_get_str(bp_conf, "sound_device", &sound_dev);
 
 #define	SET_LANG_BTN(btn, l) \
 	(XPSetWidgetProperty(buttons.btn, xpProperty_ButtonState, \
@@ -124,6 +144,22 @@ buttons_update(void)
 	    xpProperty_ButtonState, disco_when_done);
 	XPSetWidgetProperty(buttons.show_dev_menu, xpProperty_ButtonState,
 	    show_dev_menu);
+
+	XPSetWidgetProperty(buttons.radio_boxes[0], xpProperty_ButtonState,
+	    *radio_dev == 0);
+	for (size_t i = 0; i < buttons.num_radio_devs; i++) {
+		XPSetWidgetProperty(buttons.radio_boxes[i + 1],
+		    xpProperty_ButtonState,
+		    strcmp(radio_dev, buttons.radio_devs[i]) == 0);
+	}
+
+	XPSetWidgetProperty(buttons.sound_boxes[0], xpProperty_ButtonState,
+	    *sound_dev == 0);
+	for (size_t i = 0; i < buttons.num_sound_devs; i++) {
+		XPSetWidgetProperty(buttons.sound_boxes[i + 1],
+		    xpProperty_ButtonState,
+		    strcmp(sound_dev, buttons.sound_devs[i]) == 0);
+	}
 }
 
 static int
@@ -176,17 +212,29 @@ main_window_cb(XPWidgetMessage msg, XPWidgetID widget, intptr_t param1,
 			    XPGetWidgetProperty(buttons.show_dev_menu,
 			    xpProperty_ButtonState, NULL));
 		}
+		for (size_t i = 1; i < buttons.num_radio_boxes; i++) {
+			if (btn == buttons.radio_boxes[i]) {
+				conf_set_str(bp_conf, "radio_device",
+				    buttons.radio_devs[i - 1]);
+				break;
+			}
+		}
+		if (btn == buttons.radio_boxes[0])
+			conf_set_str(bp_conf, "radio_device", NULL);
+		for (size_t i = 1; i < buttons.num_sound_boxes; i++) {
+			if (btn == buttons.sound_boxes[i]) {
+				conf_set_str(bp_conf, "sound_device",
+				    buttons.sound_devs[i - 1]);
+				break;
+			}
+		}
+		if (btn == buttons.sound_boxes[0])
+			conf_set_str(bp_conf, "sound_device", NULL);
 		buttons_update();
 	}
 
 	return (0);
 }
-
-typedef struct {
-	const char	*string;
-	XPWidgetID	*widget;
-	const char	*tooltip;
-} checkbox_t;
 
 static int
 measure_checkboxes_width(checkbox_t *checkboxes)
@@ -241,11 +289,57 @@ layout_checkboxes(checkbox_t *checkboxes, int x, int y, tooltip_set_t *tts)
 	}
 }
 
+static checkbox_t *
+sound_checkboxes_init(const char *name, char ***devs_p, size_t *num_devs_p,
+    XPWidgetID **boxes, size_t *num_boxes)
+{
+	size_t num_devs;
+	char **devs = openal_list_output_devs(&num_devs);
+	checkbox_t *cb;
+
+	*devs_p = devs;
+	*num_devs_p = num_devs;
+
+	*num_boxes = num_devs + 1;
+	*boxes = calloc(*num_boxes, sizeof (XPWidgetID));
+	cb = calloc((*num_boxes) + 2, sizeof (*cb));
+
+	cb[0].string = strdup(name);
+	cb[1].string = strdup(_("Default output device"));
+	cb[1].widget = *boxes;
+	for (size_t i = 1; i < *num_boxes; i++) {
+		if (strlen(devs[i - 1]) > 30) {
+			const char *dev = devs[i - 1];
+			char name[40] = { 0 };
+			strncat(name, dev, 22);
+			strcat(name, "...");
+			strcat(name, &dev[strlen(dev) - 8]);
+			cb[i + 1].string = strdup(name);
+		} else {
+			cb[i + 1].string = strdup(devs[i - 1]);
+		}
+		cb[i + 1].widget = (*boxes) + i;
+	}
+
+	return (cb);
+}
+
+static void
+free_checkboxes(checkbox_t *boxes)
+{
+	for (checkbox_t *b = boxes; b->string != NULL; b++) {
+		free((char *)b->string);
+		free((char *)b->tooltip);
+	}
+	free(boxes);
+}
+
 static void
 create_main_window(void)
 {
 	tooltip_set_t *tts;
-	int col1_width, col2_width, main_window_width, l;
+	int col1_width, col2_width, col3_width, col4_width;
+	int main_window_width, l;
 	char *prefs_title;
 
 	checkbox_t col1[] = {
@@ -288,10 +382,19 @@ create_main_window(void)
 	    },
 	    { NULL, NULL, NULL }
 	};
+	checkbox_t *radio_out = sound_checkboxes_init(_("Radio output device"),
+	    &buttons.radio_devs, &buttons.num_radio_devs,
+	    &buttons.radio_boxes, &buttons.num_radio_boxes);
+	checkbox_t *sound_out = sound_checkboxes_init(_("Sound output device"),
+	    &buttons.sound_devs, &buttons.num_sound_devs,
+	    &buttons.sound_boxes, &buttons.num_sound_boxes);
 
 	col1_width = measure_checkboxes_width(col1);
 	col2_width = measure_checkboxes_width(col2);
-	main_window_width = 3 * MARGIN + col1_width + col2_width;
+	col3_width = measure_checkboxes_width(radio_out);
+	col4_width = measure_checkboxes_width(sound_out);
+	main_window_width = 4 * MARGIN + col1_width + col2_width +
+	    MAX(col3_width, col4_width);
 
 	l = snprintf(NULL, 0, "%s (%s)",
 	    _("BetterPushback Preferences"), BP_PLUGIN_VERSION);
@@ -310,7 +413,11 @@ create_main_window(void)
 	layout_checkboxes(col1, MARGIN, MARGIN, tts);
 	layout_checkboxes(col2, MARGIN + col1_width + MARGIN, MARGIN, tts);
 	layout_checkboxes(other, MARGIN + col1_width + MARGIN,
-	    MARGIN + 4 * BUTTON_HEIGHT, tts);
+	    MARGIN + 4.5 * BUTTON_HEIGHT, tts);
+	layout_checkboxes(radio_out, 3 * MARGIN + col1_width + col2_width,
+	    MARGIN, tts);
+	layout_checkboxes(sound_out, 3 * MARGIN + col1_width + col2_width,
+	    MARGIN + (buttons.num_radio_boxes + 1.5) * BUTTON_HEIGHT, tts);
 
 #define LAYOUT_PUSH_BUTTON(var, x, y, w, h, label, tooltip) \
 	do { \
@@ -325,11 +432,21 @@ create_main_window(void)
 	LAYOUT_PUSH_BUTTON(save_cfg, (main_window_width - BUTTON_WIDTH) / 2,
 	    MAIN_WINDOW_HEIGHT - MARGIN, BUTTON_WIDTH, BUTTON_HEIGHT,
 	    _("Save preferences"), save_prefs_tooltip);
+
+	free_checkboxes(radio_out);
+	free_checkboxes(sound_out);
 }
 
 static void
 destroy_main_window(void)
 {
+	free_strlist(buttons.radio_devs, buttons.num_radio_devs);
+	buttons.radio_devs = NULL;
+	buttons.num_radio_devs = 0;
+	free_strlist(buttons.sound_devs, buttons.num_sound_devs);
+	buttons.sound_devs = NULL;
+	buttons.num_sound_devs = 0;
+
 	XPDestroyWidget(main_win, 1);
 	main_win = NULL;
 }

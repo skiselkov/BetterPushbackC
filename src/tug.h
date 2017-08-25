@@ -179,7 +179,7 @@ typedef struct {
 	list_t		segs;
 } tug_t;
 
-void tug_glob_init(void);
+bool_t tug_glob_init(void);
 void tug_glob_fini(void);
 
 bool_t tug_available(double mtow, double ng_len, double tirrad,

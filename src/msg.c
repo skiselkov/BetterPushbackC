@@ -28,6 +28,7 @@
 #include <acfutils/log.h>
 #include <acfutils/wav.h>
 
+#include "cfg.h"
 #include "msg.h"
 #include "xplane.h"
 
@@ -58,6 +59,7 @@ bool_t inited = B_FALSE;
 static dr_t sound_on;
 static dr_t radio_vol;
 static message_t last_msg = 0;
+static alc_t *alc = NULL;
 
 /*
  * This examines an optional "cc_aliases.cfg" file in our messages directory.
@@ -108,8 +110,17 @@ msg_init(const char *my_lang, const char *icao, lang_pref_t lang_pref)
 	char match_set[MAX_MATCHES][8] = { {0}, {0}, {0}, {0} };
 	const char *msg_dir_name = NULL;
 	char cc[3];
+	const char *radio_dev = NULL;
+	bool_t shared_ctx = B_FALSE;
+
+	(void) conf_get_str(bp_conf, "radio_device", &radio_dev);
+	(void) conf_get_b(bp_conf, "shared_ctx", &shared_ctx);
 
 	ASSERT(!inited);
+
+	alc = openal_init(radio_dev, shared_ctx);
+	if (alc == NULL)
+		goto errout;
 
 	if (arpt_cc != NULL)
 		alias_cc(arpt_cc, cc);
@@ -184,7 +195,7 @@ msg_init(const char *my_lang, const char *icao, lang_pref_t lang_pref)
 	for (message_t msg = 0; msg < MSG_NUM_MSGS; msg++) {
 		char *path = mkpathname(bp_xpdir, bp_plugindir, "data",
 		    "msgs", msg_dir_name, msgs[msg].filename, NULL);
-		msgs[msg].wav = wav_load(path, msgs[msg].filename);
+		msgs[msg].wav = wav_load(path, msgs[msg].filename, alc);
 		if (msgs[msg].wav == NULL) {
 			logMsg("BetterPushback initialization error, unable "
 			    "to load sound file %s (prefdir: %s)", path,
@@ -208,6 +219,10 @@ errout:
 			msgs[msg].wav = NULL;
 		}
 	}
+	if (alc != NULL) {
+		openal_fini(alc);
+		alc = NULL;
+	}
 	return (B_FALSE);
 }
 
@@ -221,6 +236,10 @@ msg_fini(void)
 			wav_free(msgs[msg].wav);
 			msgs[msg].wav = NULL;
 		}
+	}
+	if (alc != NULL) {
+		openal_fini(alc);
+		alc = NULL;
 	}
 	inited = B_FALSE;
 }

@@ -497,7 +497,6 @@ XPluginStart(char *name, char *sig, char *desc)
 	    _("Recreate scenery routes from WED files."));
 
 	bp_boot_init();
-	tug_glob_init();
 
 	dr_create_i(&bp_started_dr, (int *)&bp_started, B_FALSE,
 	    "bp/started");
@@ -599,7 +598,7 @@ bp_priv_enable(void)
 	airportdb = calloc(1, sizeof (*airportdb));
 	airportdb_create(airportdb, bp_xpdir, cachedir);
 
-	if (!recreate_cache(airportdb) || !openal_init())
+	if (!recreate_cache(airportdb) || !tug_glob_init())
 		goto errout;
 
 	XPLMRegisterCommandHandler(start_pb, start_pb_handler, 1, NULL);
@@ -650,7 +649,6 @@ bp_priv_enable(void)
 	return (1);
 
 errout:
-	openal_fini();
 	if (cachedir != NULL)
 		free(cachedir);
 	if (airportdb != NULL) {
@@ -658,6 +656,7 @@ errout:
 		free(airportdb);
 		airportdb = NULL;
 	}
+	tug_glob_fini();
 
 	return (0);
 }
@@ -678,7 +677,7 @@ bp_priv_disable(void)
 	    1, NULL);
 
 	bp_fini();
-	openal_fini();
+	tug_glob_fini();
 	cab_view_fini();
 
 	airportdb_destroy(airportdb);

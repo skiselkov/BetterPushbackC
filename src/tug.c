@@ -27,11 +27,13 @@
 #include <XPLMPlugin.h>
 
 #include <acfutils/assert.h>
+#include <acfutils/conf.h>
 #include <acfutils/crc64.h>
 #include <acfutils/helpers.h>
 #include <acfutils/math.h>
 #include <acfutils/time.h>
 
+#include "cfg.h"
 #include "driving.h"
 #include "tug.h"
 #include "xplane.h"
@@ -168,6 +170,7 @@ static dr_t sun_pitch_dr;
 static bool_t inited = B_FALSE;
 static tug_t *glob_tug = NULL;
 static XPLMCommandRef tug_reload_cmd;
+static alc_t *alc = NULL;
 
 static char *tug_liv_apply(const tug_info_t *ti);
 static void tug_liv_destroy(char *objpath);
@@ -926,10 +929,21 @@ reload_tug_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	return (1);
 }
 
-void
+bool_t
 tug_glob_init(void)
 {
+	const char *sound_dev = NULL;
+	bool_t shared_ctx = B_FALSE;
+
 	VERIFY(!inited);
+
+	(void) conf_get_str(bp_conf, "sound_device", &sound_dev);
+	(void) conf_get_b(bp_conf, "shared_ctx", &shared_ctx);
+	alc = openal_init(sound_dev, shared_ctx);
+	if (alc == NULL && sound_dev != NULL)
+		alc = openal_init(NULL, shared_ctx);
+	if (alc == NULL)
+		return (B_FALSE);
 
 	for (anim_t a = 0; a < TUG_NUM_ANIMS; a++) {
 		dr_create_f(&anim[a].dr, &anim[a].value, B_FALSE, "%s",
@@ -939,10 +953,12 @@ tug_glob_init(void)
 	fdr_find(&sun_pitch_dr, "sim/graphics/scenery/sun_pitch_degrees");
 
 	tug_reload_cmd = XPLMCreateCommand("BetterPushback/reload_tug",
-            "Reload tug");
+            "Reload tug model");
 	XPLMRegisterCommandHandler(tug_reload_cmd, reload_tug_handler, 1, NULL);
 
 	inited = B_TRUE;
+
+	return (B_TRUE);
 }
 
 void
@@ -950,6 +966,11 @@ tug_glob_fini(void)
 {
 	if (!inited)
 		return;
+
+	if (alc != NULL) {
+		openal_fini(alc);
+		alc = NULL;
+	}
 
 	for (anim_t a = 0; a < TUG_NUM_ANIMS; a++)
 		dr_delete(&anim[a].dr);
@@ -1146,7 +1167,7 @@ tug_alloc_common(tug_info_t *ti, double tirrad)
 
 #define	LOAD_TUG_SOUND(sound) \
 	do { \
-		tug->sound = wav_load(tug->info->sound, #sound); \
+		tug->sound = wav_load(tug->info->sound, #sound, alc); \
 		if (tug->sound == NULL) { \
 			logMsg("Error loading tug sound %s", \
 			    tug->info->sound); \
