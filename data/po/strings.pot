@@ -139,3 +139,9 @@ msgstr ""
 msgid "Pushback failure: your flight controls are preventing me from steering "
 "the aircraft. Unbind any buttons you have set to\"toggle nosewheel steering\"."
 msgstr ""
+
+msgid "Left mouse button to reorient view"
+msgstr ""
+
+msgid "Tug cab view"
+msgstr ""

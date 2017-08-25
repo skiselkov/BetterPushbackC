@@ -146,3 +146,9 @@ msgid "Pushback failure: cannot push this aircraft with engines running. "
 "Shutdown engines first."
 msgstr "Repoussage de cet avion impossible moteur(s) tournant(s). "
 "Arrêtez le(s) d'abord."
+
+msgid "Left mouse button to reorient view"
+msgstr "Bouton gauche de la souris pour modifier l'angle de vue"
+
+msgid "Tug cab view"
+msgstr "Vue depuis le tracteur"
