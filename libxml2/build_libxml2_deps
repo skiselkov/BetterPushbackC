@@ -22,7 +22,7 @@ LIBXML2="libxml2-2.9.4.tar.xz"
 CFLAGS_COMMON="-fvisibility=hidden"
 CONFOPTS_COMMON="--enable-static --disable-shared --enable-silent-rules \
     --with-pic --without-lzma --without-zlib --without-iconv --without-python \
-    --without-modules"
+    --without-modules --without-http --without-ftp"
 
 case `uname` in
 	Linux)
