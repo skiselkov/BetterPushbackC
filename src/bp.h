@@ -149,24 +149,8 @@ typedef struct {
 	acf_outline_t	*outline;	/* size & outline of aircraft shape */
 } bp_long_state_t;
 
-typedef struct {
-	const char	*name;
-	XPLMCommandRef	cmd;
-	vect3_t		pos;
-	vect2_t		rot;
-	double		zoom;
-} view_cmd_info_t;
-#define	VCI(cmdname, x, y, z, rot_x, rot_y, zoom_incr) \
-	{.name = (cmdname), .pos = VECT3((x), (y), (z)), \
-	    .rot = VECT2((rot_x), (rot_y)), .zoom = 1 + (zoom_incr)}
-#define	VCI_POS(cmdname, x, y, z)	VCI(cmdname, x, y, z, 0, 0, 0)
-#define	VCI_ROT(cmdname, x, y)		VCI(cmdname, 0, 0, 0, (x), (y), 0)
-#define	VCI_ZOOM(cmdname, z)		VCI(cmdname, 0, 0, 0, 0, 0, (z))
-
-
 extern bp_state_t bp;
 extern bp_long_state_t bp_ls;
-
 
 void bp_boot_init(void);
 void bp_shut_fini(void);
@@ -179,9 +163,12 @@ bool_t bp_stop(void);
 
 bool_t bp_can_start(const char **reason);
 unsigned bp_num_segs(void);
+void bp_delete_all_segs(void);
 
-bool_t bp_cam_start(void);
-bool_t bp_cam_stop(void);
+bool_t acf_is_compatible(void);
+bool_t acf_is_airliner(void);
+void read_acf_airline(char airline[1024]);
+bool_t find_nearest_airport(char icao[8]);
 
 extern bool_t late_plan_requested;
 

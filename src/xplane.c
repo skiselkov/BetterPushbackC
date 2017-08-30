@@ -35,6 +35,7 @@
 #include <acfutils/time.h>
 
 #include "bp.h"
+#include "bp_cam.h"
 #include "cab_view.h"
 #include "cfg.h"
 #include "msg.h"

@@ -26,11 +26,13 @@
 #include <XPStandardWidgets.h>
 
 #include <acfutils/assert.h>
+#include <acfutils/dr.h>
 #include <acfutils/intl.h>
 #include <acfutils/widget.h>
 #include <acfutils/time.h>
 
 #include "bp.h"
+#include "bp_cam.h"
 #include "cab_view.h"
 #include "xplane.h"
 

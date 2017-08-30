@@ -16,10 +16,10 @@
 cmake_minimum_required(VERSION 2.8)
 project(bp C)
 
-SET(SRC acf_outline.c bp.c cab_view.c cfg.c driving.c msg.c tug.c wed2route.c
-    xplane.c)
-SET(HDR acf_outline.h bp.h cab_view.h cfg.h driving.h msg.h tug.h wed2route.h
-    xplane.h)
+SET(SRC acf_outline.c bp.c bp_cam.c cab_view.c cfg.c driving.c msg.c tug.c
+    wed2route.c xplane.c)
+SET(HDR acf_outline.h bp.h bp_cam.h cab_view.h cfg.h driving.h msg.h tug.h
+    wed2route.h xplane.h)
 
 SET(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELEASE} -DDEBUG")
 SET(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DDEBUG -O0")
