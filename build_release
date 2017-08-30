@@ -17,6 +17,7 @@
 
 DIST_FILES=(
     'COPYING'					''
+    'data/msgs/README.txt'			''
     'objects/tugs/LIVERIES_HOWTO.txt'		''
     'objects/night_lamp.obj'			''
 )
