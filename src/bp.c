@@ -51,6 +51,7 @@
 #include <acfutils/intl.h>
 #include <acfutils/math.h>
 #include <acfutils/list.h>
+#include <acfutils/perf.h>
 #include <acfutils/time.h>
 #include <acfutils/wav.h>
 
@@ -130,7 +131,7 @@ static struct {
 	dr_t	lbrake, rbrake;
 	dr_t	pbrake, pbrake_rat;
 	bool_t	pbrake_is_custom;
-	dr_t	rot_force_N;
+	dr_t	rot_force_M, rot_force_N;
 	dr_t	axial_force;
 	dr_t	override_planepath;
 	dr_t	local_x, local_y, local_z;
@@ -579,7 +580,7 @@ push_at_speed(double targ_speed, double max_accel, bool_t allow_snd_ctl,
     bool_t decelerating)
 {
 	double force_lim, force_incr, force, accel_now, d_v, Fx, Fz, steer;
-	double cur_spd;
+	double cur_spd, nose_down_moment;
 
 	VERIFY3S(dr_getvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1), ==, 1);
 
@@ -672,6 +673,47 @@ push_at_speed(double targ_speed, double max_accel, bool_t allow_snd_ctl,
 	dr_setf(&drs.axial_force, dr_getf(&drs.axial_force) - Fz);
 	dr_setf(&drs.rot_force_N, dr_getf(&drs.rot_force_N) +
 	    Fx * (-bp.acf.nw_z));
+
+	/*
+	 * The nose-down force moment is composed of two parts:
+	 * 1) Us pushing or pulling on the aircraft. This will tend
+	 *	apply a nose-down moment when pushing (because we're
+	 *	pushing below the CG), and a nose-up moment when towing.
+	 * 2) As a safety, if for whatever reason the aircraft's nose gear
+	 *	wants to lift off the ground, we will simulate that it's
+	 *	trying to lift our tug up. So as soon as ground contact is
+	 *	lost on that wheel, we start incrementing the
+	 *	tug_weight_force until the nosewheel is again in contact
+	 *	with the ground (at which point we will reset it to 0 again).
+	 *	This should prevent any possibility of the aircraft's nose
+	 *	lifting off the ground in case of a sudden application of
+	 *	brakes, or some landing gear friction bug. In that case we
+	 *	also start reducing the force pushing or pulling on the NLG.
+	 */
+	nose_down_moment = dr_getf(&drs.rot_force_M) + Fz * bp.acf.nw_len;
+	if (bp_xp_ver >= 11000) {
+		int on_gnd;
+		VERIFY3S(dr_getvi(&drs.gear_on_ground, &on_gnd, bp.acf.nw_i,
+		    1), ==, 1);
+		if (on_gnd != 1) {
+			bp.tug_weight_force +=
+			    MASS2GFORCE(bp_ls.tug->info->mass) * bp.d_t;
+			bp.tug_weight_force = MIN(bp.tug_weight_force,
+			    MASS2GFORCE(bp_ls.tug->info->mass));
+			nose_down_moment += bp.tug_weight_force * bp.acf.nw_z;
+			/*
+			 * Start neutralizing push force to get rid of
+			 * the problem.
+			 */
+			if (force < 0)
+				force += 2 * force_incr;
+			else
+				force -= 2 * force_incr;
+		} else {
+			bp.tug_weight_force = 0;
+		}
+	}
+	dr_setf(&drs.rot_force_M, nose_down_moment);
 
 	/* Don't overstep the force limits for this aircraft */
 	force = MIN(force_lim, force);
@@ -1016,6 +1058,7 @@ bp_init(void)
 		drs.pbrake_is_custom = B_TRUE;
 	}
 	fdr_find(&drs.pbrake_rat, "sim/cockpit2/controls/parking_brake_ratio");
+	fdr_find(&drs.rot_force_M, "sim/flightmodel/forces/M_plug_acf");
 	fdr_find(&drs.rot_force_N, "sim/flightmodel/forces/N_plug_acf");
 	fdr_find(&drs.axial_force, "sim/flightmodel/forces/faxil_plug_acf");
 	fdr_find(&drs.override_planepath,

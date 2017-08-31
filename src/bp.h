@@ -118,6 +118,7 @@ typedef struct {
 
 	double		last_steer;
 	double		last_force;
+	double		tug_weight_force;
 
 	pushback_step_t	step;		/* current PB step */
 	double		step_start_t;	/* PB step start time */

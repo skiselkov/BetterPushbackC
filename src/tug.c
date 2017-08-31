@@ -537,6 +537,7 @@ tug_info_read(const char *tugdir, const char *tug_name, const char *icao,
 	}
 
 	ti = calloc(1, sizeof (*ti));
+	ti->mass = NAN;
 	ti->tug_name = strdup(tug_name);
 	ti->tugdir = strdup(tugdir);
 	ti->front_z = NAN;
@@ -601,6 +602,8 @@ tug_info_read(const char *tugdir, const char *tug_name, const char *icao,
 
 		if (strcmp(option, "tug_obj") == 0) {
 			READ_FILENAME("tug_obj", ti->tug);
+		} else if (strcmp(option, "mass") == 0) {
+			READ_NUMBER("%lf", "mass", &ti->mass);
 		} else if (strcmp(option, "max_steer") == 0) {
 			READ_NUMBER("%lf", "max_steer", &ti->max_steer);
 		} else if (strcmp(option, "max_fwd_speed") == 0) {
@@ -750,6 +753,7 @@ tug_info_read(const char *tugdir, const char *tug_name, const char *icao,
 	VALIDATE_TUG(isnan(field), (optname))
 
 	VALIDATE_TUG_STR(ti->tug, "tug_obj");
+	VALIDATE_TUG_REAL(ti->mass, "mass");
 	VALIDATE_TUG_REAL(ti->max_fwd_speed, "max_fwd_speed");
 	VALIDATE_TUG_REAL(ti->max_rev_speed, "max_rev_speed");
 	VALIDATE_TUG_REAL(ti->max_accel, "max_accel");

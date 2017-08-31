@@ -57,6 +57,7 @@ typedef struct {
 
 	char	*tug;		/* main OBJ */
 
+	double	mass;		/* tug mass, kg */
 	double	max_steer;	/* max steering deflection, degrees */
 	double	max_fwd_speed;	/* m/s */
 	double	max_rev_speed;	/* m/s */
