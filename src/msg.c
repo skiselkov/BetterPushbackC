@@ -17,10 +17,12 @@
  */
 
 #include <string.h>
+#include <errno.h>
 
 #include <XPLMUtilities.h>
 
 #include <acfutils/assert.h>
+#include <acfutils/crc64.h>
 #include <acfutils/dr.h>
 #include <acfutils/helpers.h>
 #include <acfutils/icao2cc.h>
@@ -101,6 +103,46 @@ errout:
 	strlcpy(aliased_cc, cc, 3);
 }
 
+static char *
+msg_pack_variant_select(char *base)
+{
+	char **variants = NULL;
+	size_t num = 0, pick = 0;
+	char *winner;
+	char *dname = mkpathname(bp_xpdir, bp_plugindir, "data", "msgs", NULL);
+	DIR *dp = opendir(dname);
+	int n = strlen(base);
+
+	if (dp == NULL) {
+		logMsg("Error opening %s: %s", dname, strerror(errno));
+		free(dname);
+		return (base);
+	}
+	for (struct dirent *de = readdir(dp); de != NULL; de = readdir(dp)) {
+		if (strcmp(de->d_name, base) == 0 ||
+		    (strncmp(de->d_name, base, n) == 0 &&
+		    de->d_name[n] == '(')) {
+			variants = realloc(variants,
+			    (num + 1) * sizeof (*variants));
+			variants[num++] = strdup(de->d_name);
+		}
+	}
+	closedir(dp);
+
+	free(dname);
+	free(base);
+
+	ASSERT(num != 0);
+	pick = crc64_rand() % num;
+	winner = variants[pick];
+	variants[pick] = NULL;
+	for (size_t i = 0; i < num; i++)
+		free(variants[i]);
+	free(variants);
+
+	return (winner);
+}
+
 bool_t
 msg_init(const char *my_lang, const char *icao, lang_pref_t lang_pref)
 {
@@ -108,7 +150,7 @@ msg_init(const char *my_lang, const char *icao, lang_pref_t lang_pref)
 	const char *arpt_lang = icao2lang(icao);
 	enum { MAX_MATCHES = 4 };
 	char match_set[MAX_MATCHES][8] = { {0}, {0}, {0}, {0} };
-	const char *msg_dir_name = NULL;
+	char *msg_dir_name = NULL;
 	char cc[3];
 	const char *radio_dev = NULL;
 	bool_t shared_ctx = B_FALSE;
@@ -181,7 +223,7 @@ msg_init(const char *my_lang, const char *icao, lang_pref_t lang_pref)
 		    match_set[i], NULL);
 		if (file_exists(path, &isdir) && isdir) {
 			free(path);
-			msg_dir_name = match_set[i];
+			msg_dir_name = strdup(match_set[i]);
 			break;
 		}
 		free(path);
@@ -189,8 +231,16 @@ msg_init(const char *my_lang, const char *icao, lang_pref_t lang_pref)
 
 	if (msg_dir_name == NULL) {
 		/* final fallback for everything: generic English */
-		msg_dir_name = "en";
+		msg_dir_name = strdup("en");
 	}
+
+	/*
+	 * To support multiple sound pack variants, we look through data/msgs
+	 * again to look for variations of 'msg_dir_name(XYZ)', where
+	 * msg_dir_name is the message directory we selected above. If there
+	 * are multiple matching ones, we randomly select one.
+	 */
+	msg_dir_name = msg_pack_variant_select(msg_dir_name);
 
 	for (message_t msg = 0; msg < MSG_NUM_MSGS; msg++) {
 		char *path = mkpathname(bp_xpdir, bp_plugindir, "data",
@@ -206,6 +256,7 @@ msg_init(const char *my_lang, const char *icao, lang_pref_t lang_pref)
 		free(path);
 	}
 
+	free(msg_dir_name);
 	fdr_find(&sound_on, "sim/operation/sound/sound_on");
 	fdr_find(&radio_vol, "sim/operation/sound/radio_volume_ratio");
 
@@ -213,6 +264,7 @@ msg_init(const char *my_lang, const char *icao, lang_pref_t lang_pref)
 
 	return (B_TRUE);
 errout:
+	free(msg_dir_name);
 	for (message_t msg = 0; msg < MSG_NUM_MSGS; msg++) {
 		if (msgs[msg].wav != NULL) {
 			wav_free(msgs[msg].wav);

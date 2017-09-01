@@ -25,6 +25,11 @@ A voice set directory name must be one of the following:
    fallback when the local country language differs from English, but a
    local country pack following rule #3 above isn't available.
 
-Anything not conforming to this naming convention is ignored. The exact
+Any of the above rules may be suffixed by an optional variant name in
+parentheses. This is used for creating multiple variants of the same
+voice set. An example would be 'en(jonfly)', which is a variant of US
+English using the voice of Twitch streamer JonFly.
+
+Anything not conforming to these naming conventions is ignored. The exact
 method for selecting a language set is described in src/msg.c in the
 msg_init function.
