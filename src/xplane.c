@@ -136,11 +136,24 @@ static XPLMFlightLoopID		reload_floop_ID = NULL;
  *	disabled on the slave machine and stopping of the pushback can only be
  *	performed by the master machine.
  */
-static dr_t	bp_started_dr, slave_mode_dr, op_complete_dr, plan_complete_dr;
-static dr_t	bp_tug_name_dr;
-bool_t		bp_started = B_FALSE, slave_mode = B_FALSE;
-bool_t		op_complete = B_FALSE, plan_complete = B_FALSE;
+static dr_t	bp_started_dr, bp_connected_dr, slave_mode_dr, op_complete_dr;
+static dr_t	plan_complete_dr, bp_tug_name_dr;
+bool_t		bp_started = B_FALSE;
+bool_t		bp_connected = B_FALSE;
+bool_t		slave_mode = B_FALSE;
+bool_t		op_complete = B_FALSE;
+bool_t		plan_complete = B_FALSE;
 char		bp_tug_name[64] = { 0 };
+
+static void
+init_core_state(void)
+{
+	bp_started = B_FALSE;
+	bp_connected = B_FALSE;
+	slave_mode = B_FALSE;
+	op_complete = B_FALSE;
+	plan_complete = B_FALSE;
+}
 
 static int
 start_pb_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
@@ -501,6 +514,8 @@ XPluginStart(char *name, char *sig, char *desc)
 
 	dr_create_i(&bp_started_dr, (int *)&bp_started, B_FALSE,
 	    "bp/started");
+	dr_create_i(&bp_connected_dr, (int *)&bp_connected, B_FALSE,
+	    "bp/connected");
 	dr_create_i(&slave_mode_dr, (int *)&slave_mode, B_TRUE,
 	    "bp/slave_mode");
 	slave_mode_dr.write_cb = slave_mode_cb;
@@ -574,6 +589,7 @@ XPluginReceiveMessage(XPLMPluginID from, int msg, void *param)
 #ifndef	SLAVE_DEBUG
 		bp_tug_name[0] = '\0';
 #endif
+		init_core_state();
 		break;
 	}
 }
@@ -595,6 +611,8 @@ bp_priv_enable(void)
 	bp_conf_fini();
 	if (!bp_conf_init())
 		return (0);
+
+	init_core_state();
 
 	airportdb = calloc(1, sizeof (*airportdb));
 	airportdb_create(airportdb, bp_xpdir, cachedir);

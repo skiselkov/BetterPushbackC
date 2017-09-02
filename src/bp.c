@@ -1462,6 +1462,7 @@ bp_complete(void)
 		return;
 
 	bp_started = B_FALSE;
+	bp_connected = B_FALSE;
 	bp_conf_set_save_enabled(!bp_started);
 	late_plan_requested = B_FALSE;
 	plan_complete = B_FALSE;
@@ -2621,6 +2622,9 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			dr_seti(&drs.override_steer, 0);
 		}
 	}
+
+	bp_connected = (bp.step >= PB_STEP_DRIVING_UP_CONNECT &&
+	    bp.step <= PB_STEP_MOVING_AWAY);
 
 	/*
 	 * If we have no segs, means the user stopped the operation.

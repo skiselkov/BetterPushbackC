@@ -36,6 +36,7 @@ extern "C" {
 extern const char *const bp_xpdir;
 extern const char *const bp_plugindir;
 extern bool_t bp_started;
+extern bool_t bp_connected;
 extern bool_t slave_mode;
 extern bool_t op_complete;
 extern bool_t plan_complete;
