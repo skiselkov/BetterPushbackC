@@ -162,6 +162,7 @@ start_pb_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	UNUSED(refcon);
 	if (phase != xplm_CommandEnd)
 		return (1);
+
 	XPLMCommandOnce(stop_cam);
 	if (!bp_init())
 		return (1);
@@ -198,6 +199,7 @@ stop_pb_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 		return (1);
 	if (phase != xplm_CommandEnd || !bp_init())
 		return (1);
+
 	(void) bp_stop();
 	op_complete = B_TRUE;
 	if (!slave_mode) {
@@ -219,6 +221,7 @@ start_cam_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 		start_after_cam = B_FALSE;
 		return (1);
 	}
+
 	XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_FALSE);
 	XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_TRUE);
 	XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_FALSE);
@@ -235,6 +238,7 @@ stop_cam_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 		return (1);
 	if (phase != xplm_CommandEnd || !bp_init() || !bp_cam_stop())
 		return (1);
+
 	XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_TRUE);
 	XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
 	XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_TRUE);
@@ -268,6 +272,7 @@ conn_first_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	(void) bp_cam_stop();
 	if (!bp_start())
 		return (1);
+
 	if (!slave_mode) {
 		XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_FALSE);
 		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
@@ -290,6 +295,7 @@ cab_cam_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 		    "this time."));
 		return (0);
 	}
+
 	return (1);
 }
 
@@ -579,7 +585,6 @@ XPluginReceiveMessage(XPLMPluginID from, int msg, void *param)
 	switch (msg) {
 	case XPLM_MSG_AIRPORT_LOADED:
 	case XPLM_MSG_PLANE_LOADED:
-	case XPLM_MSG_PLANE_UNLOADED:
 		/* Force a reinit to re-read aircraft size params */
 		smartcopilot_present = dr_find(&smartcopilot_state,
 		    "scp/api/ismaster");

@@ -23,6 +23,8 @@
 # Locate libacfutils and build it if necessary
 LIBACFUTILS="$(qmake -query LIBACFUTILS)"
 
+release_dir="debug"
+
 if [ "$LIBACFUTILS" = "**Unknown**" ]; then
 	echo "Please use \"qmake -set LIBACFUTILS <<path>>\" to " \
 	    "point to where you have libacfutils unpacked." >&2
@@ -42,14 +44,14 @@ fi
 # for one make instance to be blocking on disk.
 NCPUS=$(( $(grep 'processor[[:space:]]\+:' /proc/cpuinfo  | wc -l) + 1 ))
 
-rm -rf release output
+rm -rf "$release_dir" output
 mkdir -p output/32 output/64
 
 make distclean > /dev/null
 qmake -set CROSS_COMPILE x86_64-w64-mingw32- && \
     qmake -spec win32-g++ && \
     make -j $NCPUS && \
-    mv release/win.xpl1.dll output/64/win.xpl
+    mv "$release_dir/win.xpl1.dll" output/64/win.xpl
 if [ $? != 0 ] ; then
   exit
 fi
@@ -58,7 +60,7 @@ make distclean > /dev/null
 qmake -set CROSS_COMPILE i686-w64-mingw32- && \
     qmake -spec win32-g++ && \
     make -j $NCPUS && \
-    mv release/win.xpl1.dll output/32/win.xpl
+    mv "$release_dir/win.xpl1.dll" output/32/win.xpl
 if [ $? != 0 ] ; then
   exit
 fi

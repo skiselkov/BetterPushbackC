@@ -75,48 +75,62 @@ wed2route_fini(void)
  * Read the route start heading based on the orientation of the ramp start.
  */
 static double
-route_read_start_hdg(const xmlNode *point_node, xmlXPathContext *xpath_ctx)
+route_read_start_hdg(const xmlNode *point_node, xmlXPathContext *xpath_ctx,
+    const fpp_t *fpp)
 {
 	char xpath_query[128];
 	xmlXPathObject *xpath_obj = NULL;
 	xmlChar *lat_prop = xmlGetProp(point_node, (xmlChar *)"latitude");
 	xmlChar *lon_prop = xmlGetProp(point_node, (xmlChar *)"longitude");
-	xmlChar *hdg_prop;
-	double hdg;
+	double hdg = NAN;
+	double lat = atof((char *)lat_prop), lon = atof((char *)lon_prop);
 
 	ASSERT(lat_prop != NULL);
 	ASSERT(lon_prop != NULL);
-
 	snprintf(xpath_query, sizeof (xpath_query),
 	    "//object[@class='WED_RampPosition']"
-	    "[point[@latitude='%s'][@longitude='%s']]/point",
+	    "[point[@latitude='%s'][@longitude='%s']]/point/@heading",
 	    (char *)lat_prop, (char *)lon_prop);
-	xmlFree(lat_prop);
-	xmlFree(lon_prop);
-
 	xpath_obj = xmlXPathEvalExpression((xmlChar *)xpath_query, xpath_ctx);
 	if (xpath_obj == NULL || xpath_obj->nodesetval == NULL ||
-	    xpath_obj->nodesetval->nodeNr == 0) {
-		logMsg("wed2route: error determining route start_hdg: "
-		    "missing ramp start at start of route %sx%s",
-		    (char *)lat_prop, (char *)lon_prop);
-		if (xpath_obj != NULL)
-			xmlXPathFreeObject(xpath_obj);
-		return (NAN);
-	}
-	hdg_prop = xmlGetProp(xpath_obj->nodesetval->nodeTab[0],
-	    (xmlChar *)"heading");
-	if (hdg_prop == NULL || sscanf((char *)hdg_prop, "%lf", &hdg) != 1 ||
-	    !is_valid_hdg(hdg)) {
-		logMsg("wed2route: error determining route start_hdg: "
-		    "missing heading tag or bad head of route %sx%s",
-		    (char *)lat_prop, (char *)lon_prop);
-		if (hdg_prop != NULL)
-			xmlFree(hdg_prop);
-		xmlXPathFreeObject(xpath_obj);
-		return (NAN);
+	    xpath_obj->nodesetval->nodeNr == 0 ||
+	    sscanf((char *)xpath_obj->nodesetval->nodeTab[0]->children->content,
+	    "%lf", &hdg) != 1 || !is_valid_hdg(hdg)) {
+		hdg = NAN;
 	}
 	xmlXPathFreeObject(xpath_obj);
+
+	if (isnan(hdg)) {
+		/*
+		 * There is no ramp start associated with this route,
+		 * try using the low control point handle and compute its
+		 * heading from the lat/lon of the actual point.
+		 */
+		xmlChar *ctrl_lat_prop = xmlGetProp(point_node,
+		    (xmlChar *)"ctrl_latitude_lo");
+		xmlChar *ctrl_lon_prop = xmlGetProp(point_node,
+		    (xmlChar *)"ctrl_longitude_lo");
+		double ctrl_d_lat = atof((char *)ctrl_lat_prop);
+		double ctrl_d_lon = atof((char *)ctrl_lon_prop);
+
+		if (ctrl_d_lat != 0.0 && ctrl_d_lon != 0.0) {
+			vect2_t pos = geo2fpp(GEO_POS2(lat, lon), fpp);
+			vect2_t ctrl_pos = geo2fpp(GEO_POS2(lat + ctrl_d_lat,
+			    lon + ctrl_d_lon), fpp);
+			ASSERT(vect2_dist(pos, ctrl_pos) != 0);
+			hdg = dir2hdg(vect2_sub(ctrl_pos, pos));
+		}
+		xmlFree(ctrl_lat_prop);
+		xmlFree(ctrl_lon_prop);
+	}
+	if (isnan(hdg)) {
+		/*
+		 * The first point on the
+		 */
+	}
+
+	xmlFree(lat_prop);
+	xmlFree(lon_prop);
 
 	return (hdg);
 }
@@ -135,23 +149,38 @@ cons_route(const xmlNode *node, const avl_tree_t *objmap, avl_tree_t *route_tbl)
 	double start_hdg = NAN;
 	list_t segs;
 	seg_t *seg;
+	char *route_name = NULL;
 
 	list_create(&segs, sizeof (seg_t), offsetof(seg_t, node));
 
-	if (id_prop == NULL)
-		goto out;
+	ASSERT(id_prop != NULL);
+
 	snprintf(xpath_query, sizeof (xpath_query),
-	    "//object[@class='WED_StringPlacement'][@id='%s'][string_placement"
-		"[@resource='pushback']]/children/child", id_prop);
+	    "//object[@id='%s']/hierarchy/@name", id_prop);
+	xpath_obj = xmlXPathEvalExpression((xmlChar *)xpath_query, xpath_ctx);
+	if (xpath_obj == NULL || xpath_obj->nodesetval->nodeNr != 1) {
+		logMsg("WED2ROUTE: error processing xpath query \"%s\"",
+		    xpath_query);
+		goto out;
+	}
+	route_name = strdup((char *)
+	    xpath_obj->nodesetval->nodeTab[0]->children->content);
+	xmlXPathFreeObject(xpath_obj);
+
+	snprintf(xpath_query, sizeof (xpath_query),
+	    "//object[@id='%s']/children/child/@id", id_prop);
 	xmlFree(id_prop);
 
 	xpath_obj = xmlXPathEvalExpression((xmlChar *)xpath_query, xpath_ctx);
-	if (xpath_obj == NULL)
+	if (xpath_obj == NULL) {
+		logMsg("WED2ROUTE: error processing xpath query \"%s\" for "
+		    "route %s", xpath_query, route_name);
 		goto out;
+	}
 
 	for (int i = 0; i < xpath_obj->nodesetval->nodeNr; i++) {
-		const xmlNode *string_node = xpath_obj->nodesetval->nodeTab[i];
-		const xmlNode *point_node = NULL;
+		const xmlNode *child_id = xpath_obj->nodesetval->nodeTab[i];
+		const xmlNode *point_node = NULL, *vertex_node = NULL;
 		const objmap_t *vertex;
 		objmap_t srch;
 		double lat, lon, lat_hi, lon_hi, lat_lo, lon_lo;
@@ -162,27 +191,44 @@ cons_route(const xmlNode *node, const avl_tree_t *objmap, avl_tree_t *route_tbl)
 	do { \
 		xmlChar *prop = xmlGetProp(node, (xmlChar *)propname); \
 		if (prop == NULL || sscanf((char *)prop, fmt, var) != 1) { \
+			logMsg("WED2ROUTE: missing or malformed attribute %s " \
+			    "in element %s", propname, node->name);\
 			if (prop != NULL) \
 				xmlFree(prop); \
 			goto out; \
 		} \
+		xmlFree(prop); \
 	} while (0)
 
-		READ_PROP(&srch.id, "%lu", node, "id");
-		vertex = avl_find(objmap, &srch, NULL);
-		if (vertex == NULL)
+		if (sscanf((char *)child_id->children->content, "%lu",
+		    &srch.id) != 1) {
+			logMsg("WED2ROUTE: malformed 'id' attribute %s in "
+			    "route %s", child_id->children->content,
+			    route_name);
 			goto out;
+		}
+		vertex = avl_find(objmap, &srch, NULL);
+		if (vertex == NULL) {
+			logMsg("WED2ROUTE: couldn't find vertex ID %lu for "
+			    "route %s", srch.id, route_name);
+			goto out;
+		}
+		vertex_node = vertex->xml_node;
 
-		for (const xmlNode *node = string_node->children;
-		    node != NULL && node != string_node->last;
+		for (const xmlNode *node = vertex_node->children;
+		    node != NULL && node != vertex_node->last;
 		    node = node->next) {
 			if (strcmp((char *)node->name, "point") == 0) {
 				point_node = node;
 				break;
 			}
 		}
-		if (point_node == NULL)
+		if (point_node == NULL) {
+			logMsg("WED2ROUTE: vertex <object id='%lu'> doesn't "
+			    "containt a <point> on route %s", srch.id,
+			    route_name);
 			goto out;
+		}
 
 		READ_PROP(&lat, "%lf", point_node, "latitude");
 		READ_PROP(&lon, "%lf", point_node, "longitude");
@@ -196,10 +242,14 @@ cons_route(const xmlNode *node, const avl_tree_t *objmap, avl_tree_t *route_tbl)
 		if (IS_NULL_GEO_POS(start_pos_geo)) {
 			start_pos_geo = GEO_POS2(lat, lon);
 			start_pos = ZERO_VECT2;
-			start_hdg = route_read_start_hdg(point_node, xpath_ctx);
-			if (isnan(start_hdg))
-				goto out;
 			fpp = stereo_fpp_init(start_pos_geo, 0, &wgs84, B_TRUE);
+			start_hdg = route_read_start_hdg(point_node, xpath_ctx,
+			    &fpp);
+			if (isnan(start_hdg)) {
+				logMsg("WED2ROUTE: error parsing start "
+				    "heading in route %s", route_name);
+				goto out;
+			}
 		} else {
 			geo_pos2_t end_pos_geo = GEO_POS2(lat, lon);
 			vect2_t end_pos = geo2fpp(end_pos_geo, &fpp);
@@ -236,24 +286,28 @@ cons_route(const xmlNode *node, const avl_tree_t *objmap, avl_tree_t *route_tbl)
 
 			if (compute_segs(&veh, start_pos, start_hdg, end_pos,
 			    end_hdg, &segs) <= 0) {
-				logMsg("wed2route: failed to construct route: "
-				    "route too erratic");
+				logMsg("WED2ROUTE: failed to construct route "
+				    "%s: route too erratic", route_name);
 				goto out;
 			}
 		}
+	}
+
+	if (list_head(&segs) == NULL) {
+		logMsg("WED2ROUTE: failed to construct route %s: "
+		    "no points in route.", route_name);
+		goto out;
 	}
 
 	route = route_alloc(NULL, NULL);
 	for (seg = list_head(&segs); seg != NULL; seg = list_next(&segs, seg))
 		route_seg_append(route_tbl, route, seg);
 
+	logMsg("WED2ROUTE: successfully constructed route %s", route_name);
+
 out:
-	if (route != NULL && list_head(&route->segs) == NULL) {
-		logMsg("wed2route: failed to construct route: "
-		    "too few points on route.");
-		route_free(route);
-		route = NULL;
-	}
+	if (route_name != NULL)
+		xmlFree(route_name);
 	if (xpath_obj != NULL)
 		xmlXPathFreeObject(xpath_obj);
 	if (xpath_ctx != NULL)
@@ -274,14 +328,21 @@ wed2dat(const char *earthwedxml, const char *route_table_filename)
 	xmlXPathObject *xpath_obj = NULL;
 	avl_tree_t route_table;
 
+	logMsg("WED2ROUTE: processing %s", earthwedxml);
+
 	route_table_create(&route_table);
 
 	doc = xmlParseFile(earthwedxml);
-	if (doc == NULL)
+	if (doc == NULL) {
+		logMsg("WED2ROUTE: error parsing XML file %s", earthwedxml);
 		goto errout;
+	}
 	xpath_ctx = xmlXPathNewContext(doc);
-	if (xpath_ctx == NULL)
+	if (xpath_ctx == NULL) {
+		logMsg("WED2ROUTE: error creating XPath context for "
+		    "document %s.", earthwedxml);
 		goto errout;
+	}
 
 	/* construct an ID-to-object mapping for faster lookup */
 	objmap = calloc(1, sizeof (*objmap));
@@ -295,23 +356,51 @@ wed2dat(const char *earthwedxml, const char *route_table_filename)
 		objmap_t *e = calloc(1, sizeof (*e));
 		const xmlNode *node = xpath_obj->nodesetval->nodeTab[i];
 		xmlChar *prop = xmlGetProp(node, (xmlChar *)"id");
+		avl_index_t where;
 
 		e->xml_node = node;
 		if (prop == NULL || sscanf((char *)prop, "%lu", &e->id) != 1 ||
 		    avl_find(objmap, e, NULL) != NULL) {
+			logMsg("WED2ROUTE: error parsing object ID mappings "
+			    "<object> is missing 'id' attribute, or "
+			    "attribute value not a number, or corresponding "
+			    "object doesn't exist.");
 			if (prop != NULL)
 				xmlFree(prop);
 			free(e);
 			goto errout;
 		}
+		xmlFree(prop);
+		if (avl_find(objmap, e, &where) != NULL) {
+			logMsg("WED2ROUTE: error parsing object ID mappings: "
+			    "duplicate <object> with id=%lu found", e->id);
+			free(e);
+			goto errout;
+		}
+		avl_insert(objmap, e, where);
 	}
 	xmlXPathFreeObject(xpath_obj);
 	xpath_obj = NULL;
 
-	/* Enumerate all pushback routes and construct them in memory */
+	/* Enumerate all pushback routes and construct them in memory. */
 	xpath_obj = xmlXPathEvalExpression((xmlChar *)
 	    "//object[@class='WED_StringPlacement'][string_placement"
 		"[@resource='pushback']]", xpath_ctx);
+	for (int i = 0; i < xpath_obj->nodesetval->nodeNr; i++) {
+		const xmlNode *node = xpath_obj->nodesetval->nodeTab[i];
+		route_t *route = cons_route(node, objmap, &route_table);
+
+		if (route == NULL)
+			goto errout;
+	}
+
+	xmlXPathFreeObject(xpath_obj);
+	xpath_obj = NULL;
+
+	/* Now do the same for all tug routes. */
+	xpath_obj = xmlXPathEvalExpression((xmlChar *)
+	    "//object[@class='WED_StringPlacement'][string_placement"
+		"[@resource='pushback_tug']]", xpath_ctx);
 	for (int i = 0; i < xpath_obj->nodesetval->nodeNr; i++) {
 		const xmlNode *node = xpath_obj->nodesetval->nodeTab[i];
 		route_t *route = cons_route(node, objmap, &route_table);
@@ -376,31 +465,30 @@ xlate_wedroutes(void)
 
 	while ((de = readdir(d)) != NULL) {
 		char *entname = NULL, *earthwed = NULL, *routefile = NULL;
-		struct stat ent_st, earthwed_st, routefile_st;
+		struct stat earthwed_st, routefile_st;
+		bool_t exists, isdir;
 
 		entname = mkpathname(bp_xpdir, "Custom Scenery",
 		    de->d_name, NULL);
-		if (stat(entname, &ent_st) < 0) {
-			logMsg("Cannot stat %s: %s", entname, strerror(errno));
+		if (!file_exists(entname, &isdir) || !isdir)
 			goto done;
-		}
 
 		earthwed = mkpathname(bp_xpdir, "Custom Scenery",
 		    de->d_name, "earth.wed.xml", NULL);
 		routefile = mkpathname(bp_xpdir, "Custom Scenery",
 		    de->d_name, "BetterPushback_routes.dat", NULL);
-		if (!file_exists(earthwed, NULL) ||
-		    !file_exists(routefile, NULL))
+		exists = file_exists(routefile, NULL);
+		if (!file_exists(earthwed, NULL))
 			goto done;
 		if (stat(earthwed, &earthwed_st) < 0 ||
-		    stat(routefile, &routefile_st) < 0) {
+		    (exists && stat(routefile, &routefile_st) < 0)) {
 			logMsg("Cannot stat %s or %s: %s", earthwed,
 			    routefile, strerror(errno));
 			goto done;
 		}
-		if (earthwed_st.st_mtime > routefile_st.st_mtime &&
+		if ((!exists || earthwed_st.st_mtime > routefile_st.st_mtime) &&
 		    !wed2dat(earthwed, routefile)) {
-			logMsg("WED2DAT: Error translating %s to %s",
+			logMsg("WED2ROUTE: Error translating %s to %s",
 			    earthwed, routefile);
 		}
 done:

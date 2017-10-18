@@ -23,6 +23,15 @@
 #define PCRE2_CODE_UNIT_WIDTH 8
 #include <pcre2.h>
 
+#if	IBM
+#include <gl.h>
+#elif	APL
+#include <OpenGL/gl.h>
+#else	/* LIN */
+#define	GL_GLEXT_PROTOTYPES
+#include <GL/gl.h>
+#endif	/* LIN */
+
 #include <XPLMUtilities.h>
 #include <XPLMPlugin.h>
 

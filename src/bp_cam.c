@@ -303,7 +303,6 @@ unload_icon(button_t *btn)
 bool_t
 load_buttons(void)
 {
-
 	for (int i = 0; buttons[i].filename != NULL; i++) {
 		/* skip spacers */
 		if (strcmp(buttons[i].filename, "") == 0)

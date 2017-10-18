@@ -29,8 +29,11 @@
 		VERIFY3S(snprintf(path, sizeof (path), __VA_ARGS__), <=, \
 		    sizeof (path)); \
 		str = acf_prop_find(acf, path); \
-		if (str == NULL) \
+		if (str == NULL) { \
+			logMsg("Error parsing acf file: property %s not found",\
+			    path); \
 			goto errout; \
+		} \
 		x = func(str); \
 	} while (0)
 
@@ -230,9 +233,6 @@ acf_outline_read(const char *filename)
 
 	outline = calloc(1, sizeof (*outline));
 
-	READ_FEET(outline->semispan, 0, "acf/_size_x");
-	READ_FEET(outline->length, 0, "acf/_size_z");
-
 	READ_INT(s_dim_fus, "_part/56/_s_dim");
 	READ_FEET(z_ref, 0, "acf/_cgZ");
 
@@ -251,6 +251,33 @@ acf_outline_read(const char *filename)
 	outline->pts[p++] = NULL_VECT2;
 	p += wing_outline_read(acf, n_stab_wings, stab_wings,
 	    &outline->pts[p], &outline->wingtip, z_ref);
+
+	if (acf_prop_find(acf, "acf/_size_x") == NULL) {
+		double x_dim[2] = {1e10, 0};
+		double y_dim[2] = {1e10, 0};
+
+		/*
+		 * XP 11.10 removed the size parameters, so we'll have to
+		 * guess them from the maximum X and Y offsets of the
+		 * individual points.
+		 */
+		for (size_t i = 0; i < outline->num_pts; i++) {
+			const vect2_t *p = &outline->pts[i];
+			if (p->x < x_dim[0])
+				x_dim[0] = p->x;
+			if (p->x > x_dim[1])
+				x_dim[1] = p->x;
+			if (p->y < y_dim[0])
+				y_dim[0] = p->y;
+			if (p->y > y_dim[1])
+				y_dim[1] = p->y;
+		}
+		outline->semispan = MAX(x_dim[1] - x_dim[0], 0);
+		outline->length = MAX(y_dim[1] - y_dim[0], 0);
+	} else {
+		READ_FEET(outline->semispan, 0, "acf/_size_x");
+		READ_FEET(outline->length, 0, "acf/_size_z");
+	}
 
 	acf_file_free(acf);
 

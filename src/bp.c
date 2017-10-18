@@ -67,6 +67,8 @@
 #define	MIN_XPLANE_VERSION_STR	"10.50"	/* X-Plane 10.50 */
 
 #define	MAX_FWD_SPEED		4	/* m/s [~8 knots] */
+#define	MAX_SPEED_MED_FRICTION	2	/* m/s */
+#define	MAX_SPEED_POOR_FRICTION	1.11	/* m/s */
 #define	MAX_REV_SPEED		1.11	/* m/s [4 km/h, "walking speed"] */
 #define	NORMAL_ACCEL		0.25	/* m/s^2 */
 #define	NORMAL_DECEL		0.17	/* m/s^2 */
@@ -79,11 +81,9 @@
 #define	BREAKAWAY_THRESH	(bp_xp_ver >= 11000 ? 0.09 : 0.35)
 #define	SEG_TURN_MULT		0.9	/* leave 10% for oversteer */
 #define	SPEED_COMPLETE_THRESH	0.08	/* m/s */
-/* beyond this our push algos go nuts */
-#define	MAX_STEER_ANGLE		(bp_xp_ver < 11000 ? 50 : 75)
-#define	MIN_STEER_ANGLE		40	/* minimum sensible tire steer angle */
-#define	MAX_FWD_ANG_VEL		4.5	/* degrees per second */
-#define	MAX_REV_ANG_VEL		2.5	/* degrees per second */
+#define	MIN_STEER_ANGLE		35	/* minimum sensible tire steer angle */
+#define	MAX_FWD_ANG_VEL		5	/* degrees per second */
+#define	MAX_REV_ANG_VEL		3.5	/* degrees per second */
 #define	PB_CRADLE_DELAY		10	/* seconds */
 #define	PB_WINCH_DELAY		10	/* seconds */
 #define	PB_CONN_DELAY		25.0	/* seconds */
@@ -122,6 +122,12 @@
  */
 #define	NEARING_END_THRESHOLD		1	/* meters */
 
+enum {
+	RWY_FRICTION_GOOD =	0,
+	RWY_FRICTION_MED =	1,
+	RWY_FRICTION_POOR =	2
+};
+
 typedef struct {
 	const char	*acf;
 	const char	*author;
@@ -145,6 +151,8 @@ static struct {
 	dr_t	nw_steerdeg1, nw_steerdeg2;
 	dr_t	tire_steer_cmd;
 	dr_t	override_steer;
+	dr_t	override_throttles;
+	dr_t	thro_use;
 	dr_t	nw_steer_on;
 	dr_t	gear_types;
 	dr_t	gear_steers;
@@ -154,6 +162,7 @@ static struct {
 	dr_t	num_engns;
 	dr_t	engn_running;
 	dr_t	acf_livery_path;
+	dr_t	rwy_friction;
 
 	dr_t	landing_lights_on;
 	dr_t	taxi_light_on;
@@ -198,6 +207,19 @@ static button_t disco_buttons[2] = {
  * pushback clearance, then do a quick plan and immediately commence pushing.
  */
 bool_t late_plan_requested = B_FALSE;
+
+static double
+max_steer_angle(void)
+{
+	switch (dr_geti(&drs.rwy_friction)) {
+	case RWY_FRICTION_MED:
+		return (50);
+	case RWY_FRICTION_POOR:
+		return (35);
+	default:
+		return (bp_xp_ver < 11000 ? 50 : 75);
+	}
+}
 
 static bool_t
 pbrake_is_set(void)
@@ -575,6 +597,15 @@ turn_nosewheel(double req_steer)
 	reorient_aircraft(0, 0, 10 * d_hdg);
 }
 
+static double
+tug_speed(void)
+{
+	vect2_t v = VECT2(DEG2RAD(bp.d_pos.hdg / bp.d_t) *
+	    bp.veh.wheelbase, bp.cur_pos.spd);
+	vect2_t u = hdg2dir(dr_getf(&drs.tire_steer_cmd));
+	return (vect2_dotprod(u, v));
+}
+
 static void
 push_at_speed(double targ_speed, double max_accel, bool_t allow_snd_ctl,
     bool_t decelerating)
@@ -585,15 +616,18 @@ push_at_speed(double targ_speed, double max_accel, bool_t allow_snd_ctl,
 	VERIFY3S(dr_getvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1), ==, 1);
 
 	/*
-	 * Primary speed control is in drive_on_line in driving.c, but that
-	 * doesn't take into account the steering delay, only the idealized
-	 * steering state it WANTS us to be at. So here we further limit
-	 * speed to the actual steering angle that we are at right now.
+	 * Limit our speed hard when on slippery surfaces.
 	 */
-	targ_speed = ang_vel_speed_limit(&bp.veh, steer, targ_speed);
-	/* Also try to take the tug's angular velocity limits into account. */
-	targ_speed = ang_vel_speed_limit(&bp_ls.tug->veh, bp_ls.tug->cur_steer,
-	    targ_speed);
+	switch (dr_geti(&drs.rwy_friction)) {
+	case RWY_FRICTION_MED:
+		targ_speed = MIN(MAX(targ_speed, -MAX_SPEED_MED_FRICTION),
+		    MAX_SPEED_MED_FRICTION);
+		break;
+	case RWY_FRICTION_POOR:
+		targ_speed = MIN(MAX(targ_speed, -MAX_SPEED_POOR_FRICTION),
+		    MAX_SPEED_POOR_FRICTION);
+		break;
+	}
 
 	/*
 	 * Multiply force limit by weight in tons - that's at most how
@@ -615,7 +649,7 @@ push_at_speed(double targ_speed, double max_accel, bool_t allow_snd_ctl,
 	 * longitudinal speed based on nosewheel steering angle.
 	 */
 	if (bp_xp_ver >= 11000) {
-		cur_spd = bp.cur_pos.spd / cos(DEG2RAD(fabs(steer)) / 2);
+		cur_spd = tug_speed();
 		accel_now = (bp.d_pos.spd / cos(DEG2RAD(fabs(steer)))) / bp.d_t;
 	} else {
 		/*
@@ -629,6 +663,9 @@ push_at_speed(double targ_speed, double max_accel, bool_t allow_snd_ctl,
 
 	force = bp.last_force;
 	d_v = targ_speed - cur_spd;
+
+	logMsg("targ speed: %f cur: %f accel: %f d_v: %f force: %f\n",
+	    targ_speed, cur_spd, accel_now, d_v, force);
 
 	/*
 	 * This is some fudge needed to get some high-thrust aircraft
@@ -856,14 +893,14 @@ bp_state_init(void)
 	}
 
 	bp.veh.max_steer = MIN(MAX(dr_getf(&drs.nw_steerdeg1),
-	    dr_getf(&drs.nw_steerdeg2)), MAX_STEER_ANGLE);
+	    dr_getf(&drs.nw_steerdeg2)), max_steer_angle());
 	/*
 	 * Some aircraft have a broken declaration here and only declare the
 	 * high-speed rudder steering angle. For those, ignore what they say
-	 * and use our MAX_STEER_ANGLE.
+	 * and use our max_steer_angle().
 	 */
 	if (bp.veh.max_steer < MIN_STEER_ANGLE)
-		bp.veh.max_steer = (MAX_STEER_ANGLE + MIN_STEER_ANGLE) / 2;
+		bp.veh.max_steer = (max_steer_angle() + MIN_STEER_ANGLE) / 2;
 	bp.veh.max_fwd_spd = MAX_FWD_SPEED;
 	bp.veh.max_rev_spd = MAX_REV_SPEED;
 	bp.veh.max_fwd_ang_vel = MAX_FWD_ANG_VEL;
@@ -1088,6 +1125,9 @@ bp_init(void)
 	    "sim/flightmodel/parts/tire_steer_cmd");
 	fdr_find(&drs.override_steer,
 	    "sim/operation/override/override_wheel_steer");
+	fdr_find(&drs.override_throttles,
+	    "sim/operation/override/override_throttles");
+	fdr_find(&drs.thro_use, "sim/flightmodel/engine/ENGN_thro_use");
 	fdr_find(&drs.nw_steer_on, "sim/cockpit2/controls/nosewheel_steer_on");
 	fdr_find(&drs.gear_types, "sim/aircraft/parts/acf_gear_type");
 	if (bp_xp_ver >= 11000) {
@@ -1100,6 +1140,7 @@ bp_init(void)
 	fdr_find(&drs.num_engns, "sim/aircraft/engine/acf_num_engines");
 	fdr_find(&drs.engn_running, "sim/flightmodel/engine/ENGN_running");
 	fdr_find(&drs.acf_livery_path, "sim/aircraft/view/acf_livery_path");
+	fdr_find(&drs.rwy_friction, "sim/weather/runway_friction");
 
 	fdr_find(&drs.landing_lights_on,
 	    "sim/cockpit/electrical/landing_lights_on");
@@ -1126,6 +1167,7 @@ bp_init(void)
 		goto errout;
 
 	XPLMGetNthAircraftModel(0, my_acf, my_path);
+
 	bp_ls.outline = acf_outline_read(my_path);
 	if (bp_ls.outline == NULL)
 		goto errout;
@@ -1479,6 +1521,7 @@ bp_complete(void)
 
 	if (!slave_mode) {
 		dr_seti(&drs.override_steer, 0);
+		dr_seti(&drs.override_throttles, 0);
 		brakes_set(B_FALSE);
 		dr_setvf(&drs.leg_len, &bp.acf.nw_len, bp.acf.nw_i, 1);
 	}
@@ -1926,7 +1969,10 @@ pb_step_pushing(void)
 	}
 
 	if (!slave_mode) {
+		double zeros[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 		dr_seti(&drs.override_steer, 1);
+		dr_seti(&drs.override_throttles, 1);
+		dr_setvf(&drs.thro_use, zeros, 0, 8);
 		if (!bp_run_push()) {
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
@@ -2518,7 +2564,7 @@ tug_pos_update(vect2_t my_pos, double my_hdg, bool_t pos_only)
 
 	dr_getvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1);
 
-	tug_spd = bp.cur_pos.spd / cos(DEG2RAD(fabs(steer)));
+	tug_spd = tug_speed();
 
 	radius = tan(DEG2RAD(90 - bp_ls.tug->cur_steer)) *
 	    bp_ls.tug->veh.wheelbase;
@@ -2617,9 +2663,13 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		dr_seti(&drs.nw_steer_on, 1);
 		if (bp.step >= PB_STEP_DRIVING_UP_CONNECT &&
 		    bp.step <= PB_STEP_MOVING_AWAY) {
+			double zeros[] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 			dr_seti(&drs.override_steer, 1);
+			dr_seti(&drs.override_throttles, 1);
+			dr_setvf(&drs.thro_use, zeros, 0, 8);
 		} else {
 			dr_seti(&drs.override_steer, 0);
+			dr_seti(&drs.override_throttles, 0);
 		}
 	}
 
