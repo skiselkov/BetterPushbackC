@@ -19,6 +19,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 
 #include <XPLMMenus.h>
 #include <XPLMUtilities.h>
@@ -145,6 +146,84 @@ bool_t		slave_mode = B_FALSE;
 bool_t		op_complete = B_FALSE;
 bool_t		plan_complete = B_FALSE;
 char		bp_tug_name[64] = { 0 };
+
+/*
+ * Hides or unhides the default X-Plane 11 tug. This is done by renaming the
+ * original OBJ file containing the tug to some temporary filename and putting
+ * an empty OBJ file in its place. To unhide the tug, we simply undo this
+ * operation. We hide the tug while starting up and before X-Plane attempts to
+ * load the tug OBJ and later undo this when shutting down.
+ */
+static void
+set_xp11_tug_hidden(bool_t flag)
+{
+	static bool_t hidden = B_FALSE;
+	char *filename, *filename_backup;
+
+	if (flag == hidden)
+		return;
+
+	ASSERT3U(bp_xp_ver, >=, 11000);
+
+	filename = mkpathname(bp_xpdir, "Resources", "default scenery",
+	    "sim objects", "apt_vehicles", "pushback", "Tug_GT110.obj", NULL);
+	filename_backup = mkpathname(bp_xpdir, "Resources", "default scenery",
+	    "sim objects", "apt_vehicles", "pushback",
+	    "Tug_GT110-BetterPushback-backup.obj", NULL);
+
+	if (flag) {
+		FILE *fp;
+
+		if (!file_exists(filename, NULL)) {
+			logMsg("Failed to hide default X-Plane 11 tug: "
+			    "original tug file doesn't exist.");
+			goto out;
+		}
+		if (file_exists(filename_backup, NULL)) {
+			logMsg("Failed to hide default X-Plane 11 tug: "
+			    "backup tug file already exists.");
+			goto out;
+		}
+		if (rename(filename, filename_backup) != 0) {
+			logMsg("Failed to hide default X-Plane 11 tug: "
+			    "cannot rename original tug file: %s.",
+			    strerror(errno));
+			goto out;
+		}
+		fp = fopen(filename, "wb");
+		if (fp == NULL) {
+			logMsg("Failed to hide default X-Plane 11 tug: "
+			    "cannot write substitute tug object file.");
+			rename(filename_backup, filename);
+			goto out;
+		}
+		fprintf(fp, "A\n800\nOBJ\n");
+		fclose(fp);
+	} else {
+		if (!file_exists(filename, NULL) ||
+		    !file_exists(filename_backup, NULL)) {
+			logMsg("Failed to unhide default X-Plane 11 "
+			    "tug: subtitute file or backup file don't exist");
+			goto out;
+		}
+		if (!remove_file(filename, B_FALSE)) {
+			logMsg("Failed to unhide default X-Plane 11 "
+			    "tug: cannot remove subtitute file");
+			goto out;
+		}
+		if (rename(filename_backup, filename) != 0) {
+			logMsg("Failed to unhide default X-Plane 11 "
+			    "tug: couldn't rename original file: %s",
+			    strerror(errno));
+			goto out;
+		}
+	}
+
+out:
+	hidden = flag;
+	free(filename);
+	free(filename_backup);
+}
 
 static void
 init_core_state(void)
@@ -596,12 +675,13 @@ XPluginReceiveMessage(XPLMPluginID from, int msg, void *param)
 		bp_tug_name[0] = '\0';
 #endif
 		init_core_state();
-		(void) ff_a320_intf_init();
-		break;
-	case XPLM_MSG_PLANE_UNLOADED:
-		ff_a320_intf_fini();
 		break;
 	}
+
+	if (msg == XPLM_MSG_PLANE_LOADED)
+		(void) ff_a320_intf_init();
+	else if (msg == XPLM_MSG_PLANE_UNLOADED)
+		ff_a320_intf_fini();
 }
 
 static bool_t
@@ -609,6 +689,7 @@ bp_priv_enable(void)
 {
 	char *cachedir = mkpathname(xpdir, "Output", "caches",
 	    "BetterPushbackAirports.cache", NULL);
+	bool_t dont_hide_xp_tug = B_FALSE;
 
 	ASSERT(!inited);
 
@@ -671,6 +752,11 @@ bp_priv_enable(void)
 
 	XPLMRegisterFlightLoopCallback(status_check, STATUS_CHECK_INTVAL, NULL);
 
+	/* If the user OK'd it, remove the default tug */
+	(void) conf_get_b(bp_conf, "dont_hide_xp11_tug", &dont_hide_xp_tug);
+	if (!dont_hide_xp_tug && bp_xp_ver >= 11000)
+		set_xp11_tug_hidden(B_TRUE);
+
 	inited = B_TRUE;
 
 	free(cachedir);
@@ -695,6 +781,8 @@ bp_priv_disable(void)
 {
 	if (!inited)
 		return;
+
+	set_xp11_tug_hidden(B_FALSE);
 
 	XPLMUnregisterCommandHandler(start_pb, start_pb_handler, 1, NULL);
 	XPLMUnregisterCommandHandler(stop_pb, stop_pb_handler, 1, NULL);

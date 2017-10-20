@@ -65,6 +65,7 @@ static struct {
 	XPWidgetID	lang_pref_match_english;
 
 	XPWidgetID	disco_when_done;
+	XPWidgetID	hide_xp11_tug;
 	XPWidgetID	show_dev_menu;
 
 	size_t		num_radio_boxes;
@@ -103,6 +104,9 @@ const char *save_prefs_tooltip = "Save current preferences to disk.";
 const char *disco_when_done_tooltip =
     "Never ask and always automatically disconnect\n"
     "the tug when the pushback operation is complete.";
+const char *hide_xp11_tug_tooltip =
+    "Hides default X-Plane 11 pushback tug.\n"
+    "Restart X-Plane for this change to take effect.";
 
 static void
 buttons_update(void)
@@ -144,6 +148,12 @@ buttons_update(void)
 	    xpProperty_ButtonState, disco_when_done);
 	XPSetWidgetProperty(buttons.show_dev_menu, xpProperty_ButtonState,
 	    show_dev_menu);
+	if (bp_xp_ver >= 11000) {
+		bool_t dont_hide = B_FALSE;
+		(void) conf_get_b(bp_conf, "dont_hide_xp11_tug", &dont_hide);
+		XPSetWidgetProperty(buttons.hide_xp11_tug,
+		    xpProperty_ButtonState, !dont_hide);
+	}
 
 	XPSetWidgetProperty(buttons.radio_boxes[0], xpProperty_ButtonState,
 	    *radio_dev == 0);
@@ -210,6 +220,10 @@ main_window_cb(XPWidgetMessage msg, XPWidgetID widget, intptr_t param1,
 		} else if (btn == buttons.show_dev_menu) {
 			conf_set_b(bp_conf, "show_dev_menu",
 			    XPGetWidgetProperty(buttons.show_dev_menu,
+			    xpProperty_ButtonState, NULL));
+		} else if (bp_xp_ver >= 11000 && btn == buttons.hide_xp11_tug) {
+			conf_set_b(bp_conf, "dont_hide_xp11_tug",
+			    !XPGetWidgetProperty(buttons.hide_xp11_tug,
 			    xpProperty_ButtonState, NULL));
 		}
 		for (size_t i = 1; i < buttons.num_radio_boxes; i++) {
@@ -370,24 +384,31 @@ create_main_window(void)
 	    },
 	    { NULL, NULL, NULL }
 	};
-	checkbox_t other[] = {
-	    { _("Miscellaneous"), NULL, NULL },
-	    {
-		_("Auto disconnect when done"), &buttons.disco_when_done,
-		disco_when_done_tooltip
-	    },
-	    {
-		_("Show developer menu"), &buttons.show_dev_menu,
-		dev_menu_tooltip
-	    },
-	    { NULL, NULL, NULL }
-	};
 	checkbox_t *radio_out = sound_checkboxes_init(_("Radio output device"),
 	    &buttons.radio_devs, &buttons.num_radio_devs,
 	    &buttons.radio_boxes, &buttons.num_radio_boxes);
 	checkbox_t *sound_out = sound_checkboxes_init(_("Sound output device"),
 	    &buttons.sound_devs, &buttons.num_sound_devs,
 	    &buttons.sound_boxes, &buttons.num_sound_boxes);
+	checkbox_t other[5] = {
+	    { _("Miscellaneous"), NULL, NULL },
+	    {
+		_("Auto disconnect when done"),
+		&buttons.disco_when_done, disco_when_done_tooltip
+	    },
+	    {
+		_("Show developer menu"),
+		&buttons.show_dev_menu, dev_menu_tooltip
+	    },
+	    {
+		_("Hide default X-Plane 11 tug"),
+		&buttons.hide_xp11_tug, hide_xp11_tug_tooltip
+	    },
+	    { NULL, NULL, NULL }
+	};
+
+	if (bp_xp_ver < 11000)
+		other[3] = (checkbox_t){ NULL, NULL, NULL };
 
 	col1_width = measure_checkboxes_width(col1);
 	col2_width = measure_checkboxes_width(col2);

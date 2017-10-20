@@ -84,7 +84,12 @@ ff_a320_intf_init(void)
 	char author[64];
 	dr_t author_dr;
 
-	ASSERT(!inited);
+	/*
+	 * For some reason X-Plane 10 can send us the PLANE_LOADED message
+	 * multiple times. WTF X-Plane...
+	 */
+	if (inited)
+		return (B_FALSE);
 
 	fdr_find(&author_dr, "sim/aircraft/view/acf_author");
 	dr_gets(&author_dr, author, sizeof (author));
@@ -223,6 +228,9 @@ type2str(unsigned int t)
 		return "unknown";
 	}
 }
+
+static void units2str(unsigned int units, char buf[32]) __attribute__((unused));
+
 static void
 units2str(unsigned int units, char buf[32])
 {
@@ -264,17 +272,7 @@ units2str(unsigned int units, char buf[32])
 static int
 val_id(const char *name)
 {
-	int id = svi.ValueIdByName(name);
-	char units[32];
-
-	units2str(id, units);
-	logMsg("%-44s  %-8s  %02x  %-10s  %s", name,
-	    type2str(svi.ValueType(id)),
-	    svi.ValueFlags(id),
-	    svi.ValueDesc(id),
-	    units);
-
-	return (id);
+	return (svi.ValueIdByName(name));
 }
 
 static void
