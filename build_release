@@ -113,8 +113,6 @@ function install_po_files() {
 
 rm -rf BetterPushback
 
-(cd zlib && ./build_zlib_deps ) || exit 1
-(cd libpng && ./build_libpng_deps ) || exit 1
 (cd pcre2 && ./build_pcre2_deps ) || exit 1
 (cd libxml2 && ./build_libxml2_deps ) || exit 1
 

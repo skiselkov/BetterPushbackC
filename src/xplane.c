@@ -38,6 +38,7 @@
 #include "bp_cam.h"
 #include "cab_view.h"
 #include "cfg.h"
+#include "ff_a320_intf.h"
 #include "msg.h"
 #include "tug.h"
 #include "xplane.h"
@@ -595,6 +596,10 @@ XPluginReceiveMessage(XPLMPluginID from, int msg, void *param)
 		bp_tug_name[0] = '\0';
 #endif
 		init_core_state();
+		(void) ff_a320_intf_init();
+		break;
+	case XPLM_MSG_PLANE_UNLOADED:
+		ff_a320_intf_fini();
 		break;
 	}
 }
