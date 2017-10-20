@@ -664,9 +664,6 @@ push_at_speed(double targ_speed, double max_accel, bool_t allow_snd_ctl,
 	force = bp.last_force;
 	d_v = targ_speed - cur_spd;
 
-	logMsg("targ speed: %f cur: %f accel: %f d_v: %f force: %f\n",
-	    targ_speed, cur_spd, accel_now, d_v, force);
-
 	/*
 	 * This is some fudge needed to get some high-thrust aircraft
 	 * going, otherwise we'll just jitter in-place due to thinking
