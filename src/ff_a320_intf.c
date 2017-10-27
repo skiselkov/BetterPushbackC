@@ -130,6 +130,7 @@ ff_a320_intf_fini(void)
 	inited = B_FALSE;
 }
 
+static inline int32_t gets32(int id) __attribute__((unused));
 static inline int32_t
 gets32(int id)
 {
@@ -142,56 +143,13 @@ gets32(int id)
 	return (val);
 }
 
+static inline void sets32(int id, int32_t val) __attribute__((unused));
 static inline void
 sets32(int id, int32_t val)
 {
 	unsigned int type = svi.ValueType(id);
 	ASSERT_MSG(type >= Value_Type_sint8 && type <= Value_Type_uint32,
 	    "%s isn't an integer type, instead it is %s",
-	    svi.ValueName(id), type2str(type));
-	svi.ValueSet(id, &val);
-}
-
-static inline float
-getf32(int id)
-{
-	float val;
-	unsigned int type = svi.ValueType(id);
-	ASSERT_MSG(type == Value_Type_float32,
-	    "%s isn't a float32 type, instead it is %s",
-	    svi.ValueName(id), type2str(type));
-	svi.ValueGet(id, &val);
-	return (val);
-}
-
-static inline void
-setf32(int id, float val)
-{
-	unsigned int type = svi.ValueType(id);
-	ASSERT_MSG(type == Value_Type_float32,
-	    "%s isn't a float32 type, instead it is %s",
-	    svi.ValueName(id), type2str(type));
-	svi.ValueSet(id, &val);
-}
-
-static inline double
-getf64(int id)
-{
-	double val;
-	unsigned int type = svi.ValueType(id);
-	ASSERT_MSG(type == Value_Type_float64,
-	    "%s isn't a float64 type, instead it is %s",
-	    svi.ValueName(id), type2str(type));
-	svi.ValueGet(id, &val);
-	return (val);
-}
-
-static inline void
-setf64(int id, double val)
-{
-	unsigned int type = svi.ValueType(id);
-	ASSERT_MSG(type == Value_Type_float64,
-	    "%s isn't a float64 type, instead it is %s",
 	    svi.ValueName(id), type2str(type));
 	svi.ValueSet(id, &val);
 }

@@ -16,10 +16,10 @@
 cmake_minimum_required(VERSION 2.8)
 project(bp C)
 
-SET(SRC acf_outline.c bp.c bp_cam.c cab_view.c cfg.c driving.c msg.c tug.c
-    wed2route.c xplane.c)
-SET(HDR acf_outline.h bp.h bp_cam.h cab_view.h cfg.h driving.h msg.h tug.h
-    wed2route.h xplane.h)
+SET(SRC acf_outline.c bp.c bp_cam.c cab_view.c cfg.c driving.c ff_a320_intf.c
+    msg.c tug.c wed2route.c xplane.c)
+SET(HDR acf_outline.h bp.h bp_cam.h cab_view.h cfg.h driving.h ff_a320_intf.h
+    msg.h tug.h wed2route.h xplane.h)
 
 SET(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELEASE} -DDEBUG")
 SET(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DDEBUG -O0")
@@ -45,8 +45,10 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64")
 #libraries
 if(UNIX)
 	include_directories(bp PUBLIC "../OpenAL/include")
-	include_directories(bp PUBLIC "../SDK/CHeaders/XPLM"
-	    "../SDK/CHeaders/Widgets" "../SDK/CHeaders/Wrappers")
+	include_directories(bp PUBLIC "${LIBACFUTILS}/SDK/CHeaders/XPLM"
+	    "${LIBACFUTILS}/SDK/CHeaders/Widgets"
+	    "${LIBACFUTILS}/SDK/CHeaders/Wrappers"
+	    "${LIBACFUTILS}/acf_apis")
 endif(UNIX)
 if(APPLE)
 	include_directories(bp PUBLIC "../libpng/libpng-mac-64/include")
