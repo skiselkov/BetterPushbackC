@@ -82,8 +82,8 @@
 #define	SEG_TURN_MULT		0.9	/* leave 10% for oversteer */
 #define	SPEED_COMPLETE_THRESH	0.08	/* m/s */
 #define	MIN_STEER_ANGLE		35	/* minimum sensible tire steer angle */
-#define	MAX_FWD_ANG_VEL		5	/* degrees per second */
-#define	MAX_REV_ANG_VEL		3.5	/* degrees per second */
+#define	MAX_FWD_ANG_VEL		6	/* degrees per second */
+#define	MAX_REV_ANG_VEL		4	/* degrees per second */
 #define	PB_CRADLE_DELAY		10	/* seconds */
 #define	PB_WINCH_DELAY		10	/* seconds */
 #define	PB_CONN_DELAY		25.0	/* seconds */
@@ -105,6 +105,7 @@
 #define	TUG_APPCH_LONG_DIST	(6 * bp_ls.tug->veh.wheelbase)
 
 #define	MIN_RADIO_VOLUME_THRESH	0.1
+#define	MIN_STEP_TIME		0.001	/* minimum simulation step in secs */
 
 /*
  * When stopping the operation, tug and aircraft steering deflections must
@@ -600,8 +601,8 @@ turn_nosewheel(double req_steer)
 static double
 tug_speed(void)
 {
-	vect2_t v = VECT2(DEG2RAD(bp.d_pos.hdg / bp.d_t) *
-	    bp.veh.wheelbase, bp.cur_pos.spd);
+	vect2_t v = VECT2(DEG2RAD(bp.d_pos.hdg / bp.d_t) * bp.veh.wheelbase,
+	    bp.cur_pos.spd);
 	vect2_t u = hdg2dir(dr_getf(&drs.tire_steer_cmd));
 	return (vect2_dotprod(u, v));
 }
@@ -1461,6 +1462,7 @@ bp_run_push(void)
 		corr_pos = corr_acf_pos();
 		if (drive_segs(&corr_pos, &bp.veh, &bp.segs,
 		    &bp.last_mis_hdg, bp.d_t, &steer, &speed, &decel)) {
+			double nw_defl;
 			if (!nearing_end()) {
 				turn_nosewheel(steer);
 			} else {
@@ -1471,6 +1473,13 @@ bp_run_push(void)
 				 */
 				turn_nosewheel(0);
 			}
+			/*
+			 * Since the drive_segs function returns a longitudinal
+			 * speed, but push_at_speed controls speed based on the
+			 * tug's angle, so we need to correct for that.
+			 */
+			nw_defl = rel_hdg(bp.cur_pos.hdg, bp_ls.tug->pos.hdg);
+			speed /= MAX(cos(DEG2RAD(nw_defl)), 0.1);
 			push_at_speed(speed, bp.veh.max_accel, B_TRUE, decel);
 			break;
 		}
@@ -2619,11 +2628,11 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 
 	bp_gather();
 
-	if (bp.cur_t <= bp.last_t)
+	if (bp.cur_t - bp.last_t < MIN_STEP_TIME)
 		return (-1);
 
 	bp.d_pos.pos = vect2_sub(bp.cur_pos.pos, bp.last_pos.pos);
-	bp.d_pos.hdg = bp.cur_pos.hdg - bp.last_pos.hdg;
+	bp.d_pos.hdg = rel_hdg(bp.last_pos.hdg, bp.cur_pos.hdg);
 	bp.d_pos.spd = bp.cur_pos.spd - bp.last_pos.spd;
 	bp.d_t = bp.cur_t - bp.last_t;
 
