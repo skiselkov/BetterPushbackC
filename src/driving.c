@@ -469,11 +469,15 @@ turn_run_speed(const vehicle_t *veh, list_t *segs, double rhdg, double radius,
 	    backward, next, out_decelerating);
 	double rmng_t = rmng_d / spd;
 	double ang_vel = rhdg / rmng_t;
+	double centr_accel;
 
 	if (!backward)
 		spd *= MIN(veh->max_fwd_ang_vel / ang_vel, 1);
 	else
 		spd *= MIN(veh->max_rev_ang_vel / ang_vel, 1);
+	/* Limit centripetal acceleration */
+	centr_accel = POW2(spd) / radius;
+	spd *= MIN(sqrt(veh->max_centr_accel / centr_accel), 1);
 	if (bp_xp_ver < 11000 && !veh->xp10_bug_ign) {
 		/*
 		 * X-Plane 10's tire model is much sticker, so don't slow down

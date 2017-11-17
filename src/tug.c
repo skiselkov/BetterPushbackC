@@ -51,6 +51,7 @@
 #define	TUG_FAST_STEER_RATE	50	/* deg/s */
 
 #define	TUG_MAX_ANG_VEL		20	/* deg/s */
+#define	TUG_MAX_CENTR_ACCEL	0.5	/* m/s^2 */
 
 #define	TUG_MAX_FWD_SPD		6	/* m/s */
 #define	TUG_MAX_REV_SPD		3	/* m/s */
@@ -1147,6 +1148,7 @@ tug_alloc_common(tug_info_t *ti, double tirrad)
 	tug->veh.max_rev_spd = tug->info->max_rev_speed;
 	tug->veh.max_fwd_ang_vel = TUG_MAX_ANG_VEL;
 	tug->veh.max_rev_ang_vel = TUG_MAX_ANG_VEL;
+	tug->veh.max_centr_accel = TUG_MAX_CENTR_ACCEL;
 	tug->veh.max_accel = tug->info->max_accel;
 	tug->veh.max_decel = tug->info->max_decel;
 	/*

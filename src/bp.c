@@ -84,6 +84,7 @@
 #define	MIN_STEER_ANGLE		35	/* minimum sensible tire steer angle */
 #define	MAX_FWD_ANG_VEL		6	/* degrees per second */
 #define	MAX_REV_ANG_VEL		4	/* degrees per second */
+#define	MAX_CENTR_ACCEL		0.1	/* m/s^2 */
 #define	PB_CRADLE_DELAY		10	/* seconds */
 #define	PB_WINCH_DELAY		10	/* seconds */
 #define	PB_CONN_DELAY		25.0	/* seconds */
@@ -152,8 +153,6 @@ static struct {
 	dr_t	nw_steerdeg1, nw_steerdeg2;
 	dr_t	tire_steer_cmd;
 	dr_t	override_steer;
-	dr_t	override_throttles;
-	dr_t	thro_use;
 	dr_t	nw_steer_on;
 	dr_t	gear_types;
 	dr_t	gear_steers;
@@ -903,6 +902,7 @@ bp_state_init(void)
 	bp.veh.max_rev_spd = MAX_REV_SPEED;
 	bp.veh.max_fwd_ang_vel = MAX_FWD_ANG_VEL;
 	bp.veh.max_rev_ang_vel = MAX_REV_ANG_VEL;
+	bp.veh.max_centr_accel = MAX_CENTR_ACCEL;
 	bp.veh.max_accel = NORMAL_ACCEL;
 	bp.veh.max_decel = NORMAL_DECEL;
 	/*
@@ -1123,9 +1123,6 @@ bp_init(void)
 	    "sim/flightmodel/parts/tire_steer_cmd");
 	fdr_find(&drs.override_steer,
 	    "sim/operation/override/override_wheel_steer");
-	fdr_find(&drs.override_throttles,
-	    "sim/operation/override/override_throttles");
-	fdr_find(&drs.thro_use, "sim/flightmodel/engine/ENGN_thro_use");
 	fdr_find(&drs.nw_steer_on, "sim/cockpit2/controls/nosewheel_steer_on");
 	fdr_find(&drs.gear_types, "sim/aircraft/parts/acf_gear_type");
 	if (bp_xp_ver >= 11000) {
@@ -1527,7 +1524,6 @@ bp_complete(void)
 
 	if (!slave_mode) {
 		dr_seti(&drs.override_steer, 0);
-		dr_seti(&drs.override_throttles, 0);
 		brakes_set(B_FALSE);
 		dr_setvf(&drs.leg_len, &bp.acf.nw_len, bp.acf.nw_i, 1);
 	}
@@ -1975,10 +1971,7 @@ pb_step_pushing(void)
 	}
 
 	if (!slave_mode) {
-		double zeros[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 		dr_seti(&drs.override_steer, 1);
-		dr_seti(&drs.override_throttles, 1);
-		dr_setvf(&drs.thro_use, zeros, 0, 8);
 		if (!bp_run_push()) {
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
@@ -2668,15 +2661,10 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		}
 		dr_seti(&drs.nw_steer_on, 1);
 		if (bp.step >= PB_STEP_DRIVING_UP_CONNECT &&
-		    bp.step <= PB_STEP_MOVING_AWAY) {
-			double zeros[] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+		    bp.step <= PB_STEP_MOVING_AWAY)
 			dr_seti(&drs.override_steer, 1);
-			dr_seti(&drs.override_throttles, 1);
-			dr_setvf(&drs.thro_use, zeros, 0, 8);
-		} else {
+		else
 			dr_seti(&drs.override_steer, 0);
-			dr_seti(&drs.override_throttles, 0);
-		}
 	}
 
 	bp_connected = (bp.step >= PB_STEP_DRIVING_UP_CONNECT &&
