@@ -448,8 +448,9 @@ bp_get_lang(void)
 }
 
 void
-slave_mode_cb(dr_t *dr)
+slave_mode_cb(dr_t *dr, void *unused)
 {
+	UNUSED(unused);
 	UNUSED(dr);
 	VERIFY(!bp_started);
 

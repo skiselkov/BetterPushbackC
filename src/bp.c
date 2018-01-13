@@ -416,7 +416,8 @@ bool_t
 find_nearest_airport(char icao[8])
 {
 	geo_pos2_t my_pos = GEO_POS2(dr_getf(&drs.lat), dr_getf(&drs.lon));
-	vect3_t my_pos_ecef = sph2ecef(GEO_POS3(my_pos.lat, my_pos.lon, 0));
+	vect3_t my_pos_ecef = geo2ecef(GEO_POS3(my_pos.lat, my_pos.lon, 0),
+	    &wgs84);
 	list_t *list;
 	airport_t *arpt;
 	double min_dist = 1e10;
