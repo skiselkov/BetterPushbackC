@@ -122,14 +122,12 @@ set -e
 case `uname` in
 Linux)
 	( cd qmake && ./build-win-lin $@ )
-	mkdir -p BetterPushback/{32,64}
-	cp qmake/output/32/{win,lin}.xpl BetterPushback/32
+	mkdir -p BetterPushback/64
 	cp qmake/output/64/{win,lin}.xpl BetterPushback/64
 	;;
 Darwin)
 	( cd qmake && ./build-mac $@ )
-	mkdir -p BetterPushback/{32,64}
-	cp qmake/output/32/mac.xpl BetterPushback/32
+	mkdir -p BetterPushback/64
 	cp qmake/output/64/mac.xpl BetterPushback/64
 	;;
 *)

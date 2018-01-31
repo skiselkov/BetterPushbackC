@@ -50,10 +50,11 @@ if [ $? != 0 ] ; then
   exit
 fi
 
-make distclean > /dev/null
-qmake -spec macx-clang-32 && \
-    make -j $NCPUS && \
-    mv libmac.xpl.dylib output/32/mac.xpl
-if [ $? != 0 ] ; then
-  exit
-fi
+# Don't bother with the 32-bit build anymore
+#make distclean > /dev/null
+#qmake -spec macx-clang-32 && \
+#    make -j $NCPUS && \
+#    mv libmac.xpl.dylib output/32/mac.xpl
+#if [ $? != 0 ] ; then
+#  exit
+#fi
