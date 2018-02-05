@@ -1170,6 +1170,8 @@ tug_alloc_common(tug_info_t *ti, double tirrad)
 	objpath = tug_liv_apply(tug->info);
 	if (objpath == NULL) {
 		logMsg("Error preparing tug object %s", tug->info->tug);
+		XPLMSpeakString("Pushback failure: error preparing "
+				"tug objects.");
 		goto errout;
 	}
 	tug->tug = XPLMLoadObject(objpath);
@@ -1177,6 +1179,8 @@ tug_alloc_common(tug_info_t *ti, double tirrad)
 
 	if (tug->tug == NULL) {
 		logMsg("Error loading tug object %s", tug->info->tug);
+		XPLMSpeakString("Pushback failure: error loading "
+				"tug objects.");
 		goto errout;
 	}
 
@@ -1186,6 +1190,8 @@ tug_alloc_common(tug_info_t *ti, double tirrad)
 		if (tug->sound == NULL) { \
 			logMsg("Error loading tug sound %s", \
 			    tug->info->sound); \
+			XPLMSpeakString("Pushback failure: error loading " \
+					"tug sounds."); \
 			goto errout; \
 		} \
 		wav_set_loop(tug->sound, B_TRUE); \
@@ -1285,6 +1291,8 @@ tug_alloc_auto(double mtow, double ng_len, double tirrad, unsigned gear_type,
 	    airline, &reason);
 	if (ti == NULL) {
 		logMsg("Failed to find a tug for you, reason:\n%s", reason);
+		XPLMSpeakString("Pushback failure: no suitable tug for "
+				"your aircraft.");
 		free(reason);
 		return (NULL);
 	}
