@@ -1328,12 +1328,27 @@ bp_stop(void)
 	if (!bp_started)
 		return (B_FALSE);
 
+	logMsg("Stop pushback command received.");
+
 	/* prevent trying to reach segment end hdg and apply correct back */
 	bp.last_hdg = NAN;
 	if ((seg = list_tail(&bp.segs)) != NULL)
 		bp.last_seg_is_back = seg->backward;
 	bp_delete_all_segs();
 	late_plan_requested = B_FALSE;
+
+	/*
+	 * hack: aircraft stationary and brake applied, jump to stopped step.
+	 *
+	 * this allows users to force-stop pushback if it looks like
+	 * e.g. the tug will overshoot the requested target position.
+	 */
+	if (bp.step < PB_STEP_STOPPING) {
+		if (ABS(bp.cur_pos.spd) < SPEED_COMPLETE_THRESH && pbrake_is_set()) {
+			logMsg("Aircraft stationary: jumping to PB_STEP_STOPPED.");
+			bp.step = PB_STEP_STOPPED;
+		}
+	}
 
 	return (B_TRUE);
 }
