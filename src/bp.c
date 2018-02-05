@@ -1566,8 +1566,7 @@ pb_step_tug_load(void)
 		    bp.acf.nw_type, strcmp(icao, "") != 0 ? icao : NULL,
 		    airline);
 		if (bp_ls.tug == NULL) {
-			XPLMSpeakString(_("Pushback failure: no suitable "
-			    "tug for your aircraft."));
+			/* tug_alloc_auto already spoke the error */
 			bp_complete();
 			return (B_FALSE);
 		}
