@@ -36,7 +36,7 @@ fi
 NCPUS=$(( $(grep 'processor[[:space:]]\+:' /proc/cpuinfo  | wc -l) + 1 ))
 
 rm -rf "$release_dir" output
-mkdir -p output/32 output/64
+mkdir -p output/64
 
 make distclean > /dev/null
 qmake -set CROSS_COMPILE x86_64-w64-mingw32- && \
@@ -48,27 +48,10 @@ if [ $? != 0 ] ; then
 fi
 
 make distclean > /dev/null
-qmake -set CROSS_COMPILE i686-w64-mingw32- && \
-    qmake -spec win32-g++ && \
-    make -j $NCPUS && \
-    mv "$release_dir/win.xpl1.dll" output/32/win.xpl
-if [ $? != 0 ] ; then
-  exit
-fi
-
-make distclean > /dev/null
 
 qmake -spec linux-g++-64 && \
     make -j $NCPUS && \
     mv liblin.xpl.so output/64/lin.xpl
-if [ $? != 0 ] ; then
-  exit
-fi
-
-make distclean > /dev/null
-qmake -spec linux-g++-32 && \
-    make -j $NCPUS && \
-    mv liblin.xpl.so output/32/lin.xpl
 if [ $? != 0 ] ; then
   exit
 fi
