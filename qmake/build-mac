@@ -28,12 +28,6 @@ if [ "$LIBACFUTILS" = "**Unknown**" ]; then
 	exit 1
 fi
 
-if ! [ -f "$LIBACFUTILS/qmake/mac64/libacfutils.a" ]; then
-	if ! ( cd "$LIBACFUTILS/qmake" && ./build-mac ) ; then
-		exit 1
-	fi
-fi
-
 # We'll try to build on N+1 CPUs we have available. The extra +1 is to allow
 # for one make instance to be blocking on disk.
 NCPUS=$(( $(sysctl -n hw.ncpu) + 1 ))

@@ -31,15 +31,6 @@ if [ "$LIBACFUTILS" = "**Unknown**" ]; then
 	exit 1
 fi
 
-if ! [ -f "$LIBACFUTILS/qmake/win32/libacfutils.a" ] ||
-    ! [ -f "$LIBACFUTILS/qmake/win64/libacfutils.a" ] ||
-    ! [ -f "$LIBACFUTILS/qmake/lin32/libacfutils.a" ] ||
-    ! [ -f "$LIBACFUTILS/qmake/lin64/libacfutils.a" ]; then
-	if ! ( cd "$LIBACFUTILS/qmake" && ./build-win-lin ) ; then
-		exit 1
-	fi
-fi
-
 # We'll try to build on N+1 CPUs we have available. The extra +1 is to allow
 # for one make instance to be blocking on disk.
 NCPUS=$(( $(grep 'processor[[:space:]]\+:' /proc/cpuinfo  | wc -l) + 1 ))
