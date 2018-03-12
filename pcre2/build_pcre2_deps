@@ -19,22 +19,15 @@ source ../build_dep.common
 
 PCRE2="pcre2-10.23.tar.bz2"
 
-do_clean=0
-if [[ "$1" = "-c" ]]; then
-	do_clean=1
-fi
-
 CONFOPTS_COMMON="--disable-shared --enable-static --with-pic"
 
 case `uname` in
 	Linux)
 		NCPUS=$(( $(grep 'processor[[:space:]]\+:' /proc/cpuinfo \
 		    | wc -l) + 1 ))
-		CFLAGS="$CFLAGS_COMMON -m64" LDLFAGS="$LDFLAGS_COMMON -m64" \
+		CFLAGS="$CFLAGS_COMMON\\ -m64" \
+		    LDLFAGS="$LDFLAGS_COMMON\\ -m64" \
 		    build_dep "linux-64" "$CONFOPTS_COMMON" \
-		    "$PCRE2" "pcre2" ".libs/libpcre2-8.a" && \
-		CFLAGS="$CFLAGS_COMMON -m32" LDLFAGS="$LDFLAGS_COMMON -m32" \
-		    build_dep "linux-32" "$CONFOPTS_COMMON" \
 		    "$PCRE2" "pcre2" ".libs/libpcre2-8.a" && \
 		# The following crude define hacks for 'iswild' and
 		# 'init_colour_output' are workarounds for broken Windows
@@ -42,26 +35,16 @@ case `uname` in
 		# don't want it, but there's no way to disable building it.
 		# So we just get rid of the errors so the build succeeds
 		# and we can use the library.
-		CFLAGS="$CFLAGS_COMMON -Diswild=strlen \
-		    -Dinit_colour_output=getchar" \
+		CFLAGS="$CFLAGS_COMMON\\ -Diswild=strlen\\ -Dinit_colour_output=getchar" \
 		    build_dep "win-64" "$CONFOPTS_COMMON \
 		    --host=x86_64-w64-mingw32" "$PCRE2" "pcre2" \
-		    ".libs/libpcre2-8.a" && \
-		CFLAGS="$CFLAGS_COMMON -Diswild=strlen \
-		    -Dinit_colour_output=getchar" \
-		    build_dep "win-32" "$CONFOPTS_COMMON \
-		    --host=i686-w64-mingw32" "$PCRE2" "pcre2" \
 		    ".libs/libpcre2-8.a"
 		;;
 	Darwin)
 		NCPUS=$(( $(sysctl -n hw.ncpu) + 1 ))
-		CFLAGS="$CFLAGS_COMMON -mmacosx-version-min=10.6" \
-		    LDFLAGS="$LDFLAGS_COMMON -mmacosx-version-min=10.6" \
+		CFLAGS="$CFLAGS_COMMON\\ -mmacosx-version-min=10.6" \
+		    LDFLAGS="$LDFLAGS_COMMON\\ -mmacosx-version-min=10.6" \
 		    build_dep "mac-64" "$CONFOPTS_COMMON" "$PCRE2" "pcre2" \
-		    ".libs/libpcre2-8.a" && \
-		CFLAGS="$CFLAGS_COMMON -mmacosx-version-min=10.6 -m32" \
-		    LDFLAGS="$LDFLAGS_COMMON -mmacosx-version-min=10.6 -m32" \
-		    build_dep "mac-32" "$CONFOPTS_COMMON" "$PCRE2" "pcre2" \
 		    ".libs/libpcre2-8.a"
 		;;
 	*)

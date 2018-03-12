@@ -21,8 +21,31 @@ function build_dep() {
 	TARBALL="$3"
 	PRODNAME="$4"
 	PRODFILE="$5"
+	PATCHFILES="$6"
 
 	SRCDIR="${TARBALL/%.tar.*/}"
+
+	if [ -n "$do_clean" ]; then
+		echo rm -rf "$PRODNAME-$PLATFORM" "$SRCDIR"
+		rm -rf "$PRODNAME-$PLATFORM" "$SRCDIR"
+		return
+	fi
+
+	case $(uname) in
+	Linux)
+		NCPUS=$(( $(grep 'processor[[:space:]]\+:' /proc/cpuinfo \
+		    | wc -l) + 1 ))
+		;;
+	Darwin)
+		NCPUS=$(( $(sysctl -n hw.ncpu) + 1 ))
+		CFLAGS_ADDTL="-mmacosx-version-min=10.9"
+		CXXFLAGS_ADDTL="-mmacosx-version-min=10.9"
+		LDFLAGS_ADDTL="-mmacosx-version-min=10.9"
+		;;
+	esac
+
+	export PKG_CONFIG_PATH=$(echo "$PKG_CONFIG_PATH_IN" | \
+	    sed "s/{PLATFORM}/$PLATFORM/g")
 
 	if ! [ -d "$SRCDIR" ]; then
 		case "${TARBALL##*.}" in
@@ -34,6 +57,12 @@ function build_dep() {
 			exit 1
 			;;
 		esac
+
+		if [ -n "$PATCHFILES" ]; then
+			for PATCHFILE in $PATCHFILES; do
+				( cd "$SRCDIR" && patch -p1 < "../$PATCHFILE" )
+			done
+		fi
 	fi
 	if [ -f "$PRODNAME-$PLATFORM/$PRODFILE" ] && \
 	    [ "$PRODNAME-$PLATFORM/$PRODFILE" -nt "$TARBALL" ]; then
@@ -47,13 +76,26 @@ function build_dep() {
 		if [ -n "$CUSTPREPCMD" ]; then
 			eval "$CUSTPREPCMD" || exit 1
 		fi
+		if [[ "$PLATFORM" = "linux-32" ]] || \
+		    [[ "$PLATFORM" = "linux-64" ]]; then
+			FPIC="-fPIC"
+		fi
 
 		# Linux: for some reason, we need to specify an optimization
 		# level or we won't get lstat/fstat correctly defined. WTF...
-		CFLAGS="${CFLAGS} -fvisibility=hidden -O2" \
-		LDFLAGS="${LDFLAGS} -fvisibility=hidden" \
-		    "../$SRCDIR/configure" --prefix="$(pwd)" \
-		    $CONFOPTS || exit 1
+		eval CFLAGS="-fvisibility=hidden\\ -O2\\ $FPIC\\ ${CFLAGS}\\ \
+$CFLAGS_ADDTL" \
+		CXXFLAGS="-fvisibility=hidden\\ -O2\\ $FPIC\\ ${CXXFLAGS}\\ \
+$CXXFLAGS_ADDTL" \
+		LDFLAGS="-fvisibility=hidden\\ $FPIC\\ ${LDFLAGS}\\ \
+$LDFLAGS_ADDTL" \
+		    "../$SRCDIR/configure" --prefix="$(pwd)/$INSTALL_DIR" \
+		    ${CONFOPTS} || exit 1
+
+		if [ -n "$CUSTPREMAKECMD" ]; then
+			eval "$CUSTPREMAKECMD" || exit 1
+		fi
+
 		make -j $NCPUS || exit 1
 		if [ -z "$NOINSTALL" ]; then
 			make install || exit 1
