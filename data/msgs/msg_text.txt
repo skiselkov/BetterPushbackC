@@ -1,0 +1,53 @@
+The nominal message text of BetterPushback (in English). Translational
+variations and/or minor variations for personality are allowed:
+
+* connected.wav:
+	"Tow connected and bypass pin inserted. Release parking brake."
+
+* disco.wav:
+	"Disconnecting tow. Stand by."
+
+* done_left.wav:
+	"Tow is disconnected and bypass pin has been removed, hand signal
+	on the left, we'll see you next time and have a safe flight."
+
+* done_right.wav:
+	"Tow is disconnected and bypass pin has been removed, hand signal
+	on the right, we'll see you next time and have a safe flight."
+
+* driving_up.wav:
+	"Ground to cockpit. Tow is driving up."
+
+* op_complete.wav:
+	"Operation complete, set parking brake."
+
+* plan_end.wav:
+	"Ground to cockpit. Plan acknowledged, call me through the menu
+	when you are ready."
+
+* plan_start.wav:
+	"Ground to cockpit. Please show me where you want to go."
+
+* ready2conn.wav:
+	"Ok, all doors and hatches are closed, ready to connect. Set
+	parking brake."
+
+	(NOTE: The original of this message should leave a short 0.5s
+	pause before "set parking brake", so it can be cut for a
+	variation when the parking brake is already set.)
+
+* start_pb.wav: "Starting pushback and you may start engines."
+
+	(NOTE: The original of this message should leave a short 0.5s
+	pause before "and you may start engines", so it can be cut for
+	a variation when the parking brake is already set.)
+
+* start_tow.wav: "Starting tow and you may start engines."
+
+	(NOTE: The original of this message should leave a short 0.5s
+	pause before "and you may start engines", so it can be cut for
+	a variation when the parking brake is already set.)
+
+* winch.wav:
+	"Winching strap and adapter in position. Release parking brake
+	when ready to start pushback."
