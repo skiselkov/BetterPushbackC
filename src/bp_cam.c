@@ -27,14 +27,6 @@
 #include <stddef.h>
 #include <errno.h>
 
-#if	IBM
-#include <gl.h>
-#elif	APL
-#include <OpenGL/gl.h>
-#else	/* LIN */
-#include <GL/gl.h>
-#endif	/* LIN */
-
 #include <png.h>
 
 #include <XPLMCamera.h>
@@ -48,6 +40,7 @@
 #include <acfutils/assert.h>
 #include <acfutils/dr.h>
 #include <acfutils/geom.h>
+#include <acfutils/glew.h>
 #include <acfutils/intl.h>
 #include <acfutils/math.h>
 #include <acfutils/list.h>

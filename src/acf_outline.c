@@ -13,8 +13,10 @@
  * CDDL HEADER END
 */
 /*
- * Copyright 2017 Saso Kiselkov. All rights reserved.
+ * Copyright 2019 Saso Kiselkov. All rights reserved.
  */
+
+#include <stdio.h>
 
 #include <acfutils/assert.h>
 #include <acfutils/acf_file.h>

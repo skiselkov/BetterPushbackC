@@ -29,6 +29,7 @@
 #include <acfutils/assert.h>
 #include <acfutils/core.h>
 #include <acfutils/crc64.h>
+#include <acfutils/glew.h>
 #include <acfutils/helpers.h>
 #include <acfutils/intl.h>
 #include <acfutils/log.h>
@@ -531,12 +532,22 @@ PLUGIN_API int
 XPluginStart(char *name, char *sig, char *desc)
 {
 	char *p;
+	GLenum err;
 
 	log_init(XPLMDebugString, "BetterPushback");
-	crc64_init();
-	crc64_srand(microclock());
 	logMsg("This is BetterPushback-" BP_PLUGIN_VERSION
 	    " libacfutils-%s", libacfutils_version);
+
+	crc64_init();
+	crc64_srand(microclock());
+
+	err = glewInit();
+	if (err != GLEW_OK) {
+		/* Problem: glewInit failed, something is seriously wrong. */
+		logMsg("FATAL ERROR: cannot initialize libGLEW: %s",
+		    glewGetErrorString(err));
+		return (0);
+	}
 
 	/* Always use Unix-native paths on the Mac! */
 	XPLMEnableFeature("XPLM_USE_NATIVE_PATHS", 1);

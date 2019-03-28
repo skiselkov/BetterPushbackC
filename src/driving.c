@@ -773,7 +773,7 @@ route_seg_append(avl_tree_t *route_table, route_t *r, const seg_t *seg)
 		route_t *r2;
 
 		r->pos = seg2->start_pos_geo;
-		r->pos_ecef = geo2ecef(GEO_POS3(r->pos.lat,
+		r->pos_ecef = geo2ecef_mtr(GEO_POS3(r->pos.lat,
 		    r->pos.lon, 0), &wgs84);
 		r->hdg = seg2->start_hdg;
 
@@ -887,10 +887,10 @@ routes_load(void)
 			}
 			switch (seg.type) {
 			case SEG_TYPE_STRAIGHT: {
-				vect3_t start_ecef = geo2ecef(GEO_POS3(
+				vect3_t start_ecef = geo2ecef_mtr(GEO_POS3(
 				    seg.start_pos_geo.lat,
 				    seg.start_pos_geo.lon, 0), &wgs84);
-				vect3_t end_ecef = geo2ecef(GEO_POS3(
+				vect3_t end_ecef = geo2ecef_mtr(GEO_POS3(
 				    seg.end_pos_geo.lat,
 				    seg.end_pos_geo.lon, 0), &wgs84);
 				seg.len = vect3_dist(start_ecef, end_ecef);
@@ -1044,7 +1044,7 @@ route_load(geo_pos2_t start_pos, double start_hdg, list_t *segs)
 	t = routes_load();
 
 	srch.pos = start_pos;
-	srch.pos_ecef = geo2ecef(GEO_POS3(start_pos.lat, start_pos.lon, 0),
+	srch.pos_ecef = geo2ecef_mtr(GEO_POS3(start_pos.lat, start_pos.lon, 0),
 	    &wgs84);
 	srch.hdg = start_hdg;
 

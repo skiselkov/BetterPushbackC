@@ -19,18 +19,11 @@
 #ifndef	_BP_CAM_H_
 #define	_BP_CAM_H_
 
-#if	IBM
-#include <gl.h>
-#elif	APL
-#include <OpenGL/gl.h>
-#else	/* LIN */
-#include <GL/gl.h>
-#endif	/* LIN */
-
 #include <XPLMDisplay.h>
 #include <XPLMUtilities.h>
 
 #include <acfutils/geom.h>
+#include <acfutils/glew.h>
 #include <acfutils/types.h>
 
 #ifdef	__cplusplus

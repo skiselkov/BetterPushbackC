@@ -23,21 +23,13 @@
 #define PCRE2_CODE_UNIT_WIDTH 8
 #include <pcre2.h>
 
-#if	IBM
-#include <gl.h>
-#elif	APL
-#include <OpenGL/gl.h>
-#else	/* LIN */
-#define	GL_GLEXT_PROTOTYPES
-#include <GL/gl.h>
-#endif	/* LIN */
-
 #include <XPLMUtilities.h>
 #include <XPLMPlugin.h>
 
 #include <acfutils/assert.h>
 #include <acfutils/conf.h>
 #include <acfutils/crc64.h>
+#include <acfutils/glew.h>
 #include <acfutils/helpers.h>
 #include <acfutils/math.h>
 #include <acfutils/time.h>
@@ -179,7 +171,7 @@ static bool_t cradle_lights_req = B_FALSE;
 static dr_t sun_pitch_dr;
 static bool_t inited = B_FALSE;
 static tug_t *glob_tug = NULL;
-static XPLMCommandRef tug_reload_cmd;
+static XPLMCommandRef tug_reload_cmd = NULL;
 static alc_t *alc = NULL;
 
 static char *tug_liv_apply(const tug_info_t *ti);
@@ -922,13 +914,15 @@ reload_tug_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 {
 	UNUSED(cmd);
 	UNUSED(refcon);
+
 	if (phase != xplm_CommandEnd)
 		return (1);
 
-	if (glob_tug != NULL) {
+	if (glob_tug != NULL && !glob_tug->load_in_prog) {
 		char *objpath;
 
-		XPLMUnloadObject(glob_tug->tug);
+		if (glob_tug->tug != NULL)
+			XPLMUnloadObject(glob_tug->tug);
 		objpath = tug_liv_apply(glob_tug->info);
 		if (objpath == NULL) {
 			logMsg("Error preparing tug object %s",
@@ -967,8 +961,8 @@ tug_glob_init(void)
 	fdr_find(&sun_pitch_dr, "sim/graphics/scenery/sun_pitch_degrees");
 
 	tug_reload_cmd = XPLMCreateCommand("BetterPushback/reload_tug",
-            "Reload tug model");
-	XPLMRegisterCommandHandler(tug_reload_cmd, reload_tug_handler, 1, NULL);
+	     "Reload tug model");
+	XPLMRegisterCommandHandler(tug_reload_cmd, reload_tug_handler, 0, NULL);
 
 	inited = B_TRUE;
 
@@ -988,6 +982,12 @@ tug_glob_fini(void)
 
 	for (anim_t a = 0; a < TUG_NUM_ANIMS; a++)
 		dr_delete(&anim[a].dr);
+
+	if (tug_reload_cmd != NULL) {
+		XPLMUnregisterCommandHandler(tug_reload_cmd,
+		    reload_tug_handler, 0, NULL);
+		tug_reload_cmd = NULL;
+	}
 
 	inited = B_FALSE;
 }
@@ -1099,7 +1099,7 @@ static void
 tug_liv_destroy(char *objpath)
 {
 	(void) remove_file(objpath, B_FALSE);
-	free(objpath);
+	lacf_free(objpath);
 }
 
 /*
@@ -1127,11 +1127,29 @@ tug_available(double mtow, double ng_len, double tirrad, unsigned gear_type,
 	return (B_FALSE);
 }
 
+static void
+tug_load_complete(XPLMCommandRef obj, void *refcon)
+{
+	tug_t *tug;
+
+	ASSERT(refcon != NULL);
+	tug = refcon;
+
+	tug_liv_destroy(tug->objpath);
+	tug->load_in_prog = B_FALSE;
+	tug->tug = obj;
+
+	if (tug->destroyed) {
+		XPLMUnloadObject(obj);
+		free(tug);
+		return;
+	}
+}
+
 static tug_t *
 tug_alloc_common(tug_info_t *ti, double tirrad)
 {
 	tug_t *tug;
-	char *objpath;
 
 	VERIFY(inited);
 
@@ -1167,22 +1185,15 @@ tug_alloc_common(tug_info_t *ti, double tirrad)
 	tug->veh_slow.max_accel = tug->info->max_accel / 3;
 	tug->veh_slow.max_decel = tug->info->max_decel / 3;
 
-	objpath = tug_liv_apply(tug->info);
-	if (objpath == NULL) {
+	tug->objpath = tug_liv_apply(tug->info);
+	if (tug->objpath == NULL) {
 		logMsg("Error preparing tug object %s", tug->info->tug);
 		XPLMSpeakString("Pushback failure: error preparing "
 				"tug objects.");
 		goto errout;
 	}
-	tug->tug = XPLMLoadObject(objpath);
-	tug_liv_destroy(objpath);
-
-	if (tug->tug == NULL) {
-		logMsg("Error loading tug object %s", tug->info->tug);
-		XPLMSpeakString("Pushback failure: error loading "
-				"tug objects.");
-		goto errout;
-	}
+	tug->load_in_prog = B_TRUE;
+	XPLMLoadObjectAsync(tug->objpath, tug_load_complete, tug);
 
 #define	LOAD_TUG_SOUND(sound) \
 	do { \
@@ -1330,6 +1341,15 @@ tug_free(tug_t *tug)
 	WAV_STOP_AND_DESTROY(beeper_snd);
 	WAV_STOP_AND_DESTROY(beeper_snd_in);
 
+	if (tug->load_in_prog) {
+		/*
+		 * An async load is in progress, wait for it to complete
+		 * before we totally free up.
+		 */
+		tug->destroyed = B_TRUE;
+		return;
+	}
+
 	free(tug);
 	glob_tug = NULL;
 }
@@ -1375,6 +1395,9 @@ tug_run(tug_t *tug, double d_t, bool_t drive_slow)
 {
 	double steer = 0, speed = 0;
 	double accel, turn, radius;
+
+	if (tug->load_in_prog)
+		return;
 
 	if (list_head(&tug->segs) != NULL) {
 		drive_segs(&tug->pos, drive_slow ? &tug->veh_slow : &tug->veh,
@@ -1533,10 +1556,15 @@ void
 tug_draw(tug_t *tug, double cur_t)
 {
 	XPLMDrawInfo_t di;
-	XPLMProbeRef probe = XPLMCreateProbe(xplm_ProbeY);
+	XPLMProbeRef probe;
 	XPLMProbeInfo_t info = { .structSize = sizeof (XPLMProbeInfo_t) };
 	vect3_t pos, norm, norm_hdg;
 	double gain_in, gain_out;
+
+	ASSERT(tug != NULL);
+	if (tug->tug == NULL)
+		return;
+	probe = XPLMCreateProbe(xplm_ProbeY);
 
 	/* X-Plane's Z axis is inverted to ours */
 	VERIFY3U(XPLMProbeTerrainXYZ(probe, tug->pos.pos.x, 0,

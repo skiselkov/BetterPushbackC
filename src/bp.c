@@ -20,20 +20,12 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2017 Saso Kiselkov. All rights reserved.
+ * Copyright 2019 Saso Kiselkov. All rights reserved.
  */
 
 #include <string.h>
 #include <stddef.h>
 #include <errno.h>
-
-#if	IBM
-#include <gl.h>
-#elif	APL
-#include <OpenGL/gl.h>
-#else	/* LIN */
-#include <GL/gl.h>
-#endif	/* LIN */
 
 #include <png.h>
 
@@ -48,6 +40,7 @@
 #include <acfutils/assert.h>
 #include <acfutils/dr.h>
 #include <acfutils/geom.h>
+#include <acfutils/glew.h>
 #include <acfutils/intl.h>
 #include <acfutils/math.h>
 #include <acfutils/list.h>
@@ -416,7 +409,7 @@ bool_t
 find_nearest_airport(char icao[8])
 {
 	geo_pos2_t my_pos = GEO_POS2(dr_getf(&drs.lat), dr_getf(&drs.lon));
-	vect3_t my_pos_ecef = geo2ecef(GEO_POS3(my_pos.lat, my_pos.lon, 0),
+	vect3_t my_pos_ecef = geo2ecef_mtr(GEO_POS3(my_pos.lat, my_pos.lon, 0),
 	    &wgs84);
 	list_t *list;
 	airport_t *arpt;

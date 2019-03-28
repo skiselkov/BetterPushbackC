@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # CDDL HEADER START
 #
@@ -22,6 +22,18 @@
 
 # Locate libacfutils and build it if necessary
 LIBACFUTILS="$(qmake -query LIBACFUTILS)"
+LINUXONLY=0
+
+while getopts "li" opt; do
+	case "$opt" in
+	l)
+		LINUXONLY=1
+		;;
+	i)
+		DOCLEAN=n
+		;;
+	esac
+done
 
 release_dir="debug"
 
@@ -38,17 +50,18 @@ NCPUS=$(( $(grep 'processor[[:space:]]\+:' /proc/cpuinfo  | wc -l) + 1 ))
 rm -rf "$release_dir" output
 mkdir -p output/64
 
-make distclean > /dev/null
-qmake -set CROSS_COMPILE x86_64-w64-mingw32- && \
-    qmake -spec win32-g++ && \
-    make -j $NCPUS && \
-    mv "$release_dir/win.xpl1.dll" output/64/win.xpl
-if [ $? != 0 ] ; then
-  exit
+if [[ "$LINUXONLY" == 0 ]]; then
+	[ -z "$DOCLEAN" ] && make distclean > /dev/null
+	qmake -set CROSS_COMPILE x86_64-w64-mingw32- && \
+	    qmake -spec win32-g++ && \
+	    make -j $NCPUS && \
+	    mv "$release_dir/win.xpl.dll" output/64/win.xpl
+	if [ $? != 0 ] ; then
+	  exit
+	fi
 fi
 
-make distclean > /dev/null
-
+[ -z "$DOCLEAN" ] && make distclean > /dev/null
 qmake -spec linux-g++-64 && \
     make -j $NCPUS && \
     mv liblin.xpl.so output/64/lin.xpl
@@ -56,4 +69,4 @@ if [ $? != 0 ] ; then
   exit
 fi
 
-make distclean > /dev/null
+[ -z "$DOCLEAN" ] && make distclean > /dev/null

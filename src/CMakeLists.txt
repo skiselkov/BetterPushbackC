@@ -83,71 +83,34 @@ endif()
 # ordered as first symbol callers and then as symbol providers (i.e.
 # libpng16 depends on libz, so linking must be first: libpng, then libz).
 link_libraries(m)
-if(APPLE)
-	set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH} ../SDK/Libraries/Mac/
-	    ../zlib/zlib-mac-64 ../libpng/libpng-mac-64/.libs
-	    ../pcre2/pcre2-mac-64/.libs
-	    ${LIBACFUTILS}/qmake/mac64
-	    ${LIBACFUTILS}/opus/opusfile-mac-64/lib
-	    ${LIBACFUTILS}/opus/opus-mac-64/lib
-	    ${LIBACFUTILS}/opus/libogg-mac-64/install/lib
-	    ../libxml2/libxml2-mac-64/.libs)
-	FIND_LIBRARY(XPLM_LIBRARY XPLM ../SDK/Libraries/Mac/)
-	FIND_LIBRARY(XPWIDGETS_LIBRARY XPWidgets ../SDK/Libraries/Mac/)
-	FIND_LIBRARY(OPENGL_LIBRARY OpenGL)
-	FIND_LIBRARY(OPENAL_LIBRARY OpenAL)
-	FIND_LIBRARY(LIBACFUTILS_LIBRARY acfutils)
-	FIND_LIBRARY(LIBPNG_LIBRARY png16)
-	FIND_LIBRARY(ZLIB_LIBRARY z)
-	FIND_LIBRARY(PCRE2_LIBRARY pcre2-8)
-	FIND_LIBRARY(OPUSFILE_LIBRARY opusfile)
-	FIND_LIBRARY(OPUS_LIBRARY opus)
-	FIND_LIBRARY(OGG_LIBRARY ogg)
-	FIND_LIBRARY(LIBXML2_LIBRARY xml2)
-	target_link_libraries(bp
-	    ${LIBACFUTILS_LIBRARY}
-	    ${OPENAL_LIBRARY}
-	    ${OPENGL_LIBRARY}
-	    ${XPLM_LIBRARY}
-	    ${XPWIDGETS_LIBRARY}
-	    ${LIBPNG_LIBRARY}
-	    ${ZLIB_LIBRARY}
-	    ${PCRE2_LIBRARY}
-	    ${OPUSFILE_LIBRARY}
-	    ${OPUS_LIBRARY}
-	    ${OGG_LIBRARY}
-	    ${LIBXML2_LIBRARY}
-	    )
-else()
-	set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH}
-	    ../zlib/zlib-linux-64 ../libpng/libpng-linux-64/.libs
-	    ../pcre2/pcre2-linux-64/.libs
-	    ${LIBACFUTILS}/qmake/lin64
-	    ${LIBACFUTILS}/opus/opusfile-linux-64/lib
-	    ${LIBACFUTILS}/opus/opus-linux-64/lib
-	    ${LIBACFUTILS}/opus/libogg-linux-64/install/lib
-	    ../libxml2/libxml2-linux-64/.libs)
-	FIND_LIBRARY(LIBACFUTILS_LIBRARY acfutils)
-	FIND_LIBRARY(LIBPNG_LIBRARY png16)
-	FIND_LIBRARY(ZLIB_LIBRARY z)
-	FIND_LIBRARY(PCRE2_LIBRARY pcre2-8)
-	FIND_LIBRARY(OPUSFILE_LIBRARY opusfile)
-	FIND_LIBRARY(OPUS_LIBRARY opus)
-	FIND_LIBRARY(OGG_LIBRARY ogg)
-	FIND_LIBRARY(LIBXML2_LIBRARY xml2)
-	FIND_LIBRARY(LIBC_NONSHARED c_nonshared)
-	target_link_libraries(bp
-	    ${LIBACFUTILS_LIBRARY}
-	    ${LIBPNG_LIBRARY}
-	    ${ZLIB_LIBRARY}
-	    ${PCRE2_LIBRARY}
-	    ${OPUSFILE_LIBRARY}
-	    ${OPUS_LIBRARY}
-	    ${OGG_LIBRARY}
-	    ${LIBXML2_LIBRARY}
-	    ${LIBC_NONSHARED}
-	    )
-endif()
+set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH}
+    ../zlib/zlib-linux-64 ../libpng/libpng-linux-64/.libs
+    ../pcre2/pcre2-linux-64/.libs
+    ${LIBACFUTILS}/qmake/lin64
+    ${LIBACFUTILS}/opus/opusfile-linux-64/lib
+    ${LIBACFUTILS}/opus/opus-linux-64/lib
+    ${LIBACFUTILS}/opus/libogg-linux-64/install/lib
+    ../libxml2/libxml2-linux-64/.libs)
+FIND_LIBRARY(LIBACFUTILS_LIBRARY acfutils)
+FIND_LIBRARY(LIBPNG_LIBRARY png16)
+FIND_LIBRARY(ZLIB_LIBRARY z)
+FIND_LIBRARY(PCRE2_LIBRARY pcre2-8)
+FIND_LIBRARY(OPUSFILE_LIBRARY opusfile)
+FIND_LIBRARY(OPUS_LIBRARY opus)
+FIND_LIBRARY(OGG_LIBRARY ogg)
+FIND_LIBRARY(LIBXML2_LIBRARY xml2)
+FIND_LIBRARY(LIBC_NONSHARED c_nonshared)
+target_link_libraries(bp
+    ${LIBACFUTILS_LIBRARY}
+    ${LIBPNG_LIBRARY}
+    ${ZLIB_LIBRARY}
+    ${PCRE2_LIBRARY}
+    ${OPUSFILE_LIBRARY}
+    ${OPUS_LIBRARY}
+    ${OGG_LIBRARY}
+    ${LIBXML2_LIBRARY}
+    ${LIBC_NONSHARED}
+    )
 
 SET_TARGET_PROPERTIES(bp PROPERTIES PREFIX "")
 SET_TARGET_PROPERTIES(bp PROPERTIES SUFFIX "")

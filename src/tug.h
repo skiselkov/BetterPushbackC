@@ -143,6 +143,11 @@ typedef struct {
 	XPLMObjectRef	tug, winch;
 	double		front_phi, rear_phi;	/* tire roll angle, degrees */
 
+	/* async loading info */
+	char		*objpath;
+	bool_t		load_in_prog;
+	bool_t		destroyed;
+
 	tug_info_t	*info;
 
 	double		tirrad;			/* acf tire radius, meters */

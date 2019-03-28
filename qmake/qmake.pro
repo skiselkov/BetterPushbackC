@@ -11,7 +11,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2017 Saso Kiselkov. All rights reserved.
+# Copyright 2019 Saso Kiselkov. All rights reserved.
 
 # Shared library without any Qt functionality
 TEMPLATE = lib
@@ -19,8 +19,6 @@ QT -= gui core
 
 CONFIG += plugin debug
 CONFIG -= thread exceptions qt rtti
-
-VERSION = 1.0.0
 
 INCLUDEPATH += $$[LIBACFUTILS]/SDK/CHeaders/XPLM
 INCLUDEPATH += $$[LIBACFUTILS]/SDK/CHeaders/Widgets
@@ -46,7 +44,7 @@ QMAKE_CXXFLAGS_WARN_ON -= -W -Wall
 DEFINES += _GNU_SOURCE DEBUG _FILE_OFFSET_BITS=64 _USE_MATH_DEFINES
 
 # Latest X-Plane APIs. No legacy support needed.
-DEFINES += XPLM200 XPLM210
+DEFINES += XPLM200 XPLM210 XPLM300 XPLM301
 
 # Grab the latest tag as the version number for a release version.
 DEFINES += BP_PLUGIN_VERSION=\'\"$$system("git describe --abbrev=0 --tags")\"\'
@@ -60,53 +58,21 @@ win32 {
 	CONFIG += dll
 	DEFINES += APL=0 IBM=1 LIN=0 _WIN32_WINNT=0x0600
 	TARGET = win.xpl
-	INCLUDEPATH += /usr/include/GL
 	QMAKE_DEL_FILE = rm -f
 	LIBS += -Wl,--exclude-libs,ALL
 }
 
 win32:contains(CROSS_COMPILE, x86_64-w64-mingw32-) {
-	QMAKE_CFLAGS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-win-64 \
-	    pkg-config --cflags libpcre2-8")
-	QMAKE_CFLAGS += $$system("PKG_CONFIG_PATH=../libxml2/libxml2-win-64 \
-	    pkg-config --cflags libxml-2.0")
 	QMAKE_CFLAGS += $$system("$$[LIBACFUTILS]/pkg-config-deps win-64 \
-	    --cflags")
+	    --static-openal --cflags")
 
 	# This must go first for GCC to properly find dependent symbols
 	LIBS += -L$$[LIBACFUTILS]/qmake/win64 -lacfutils
-	LIBS += $$system("$$[LIBACFUTILS]/pkg-config-deps win-64 --libs")
-	LIBS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-win-64 pkg-config \
-	    --libs libpcre2-8")
-	LIBS += "../libxml2/libxml2-win-64/.libs/libxml2.a"
+	LIBS += $$system("$$[LIBACFUTILS]/pkg-config-deps win-64 \
+	    --static-openal --libs")
 
-	LIBS += -L$$[LIBACFUTILS]/SDK/Libraries/Win -lXPLM_64
-	LIBS += -L$$[LIBACFUTILS]/SDK/Libraries/Win -lXPWidgets_64
-	LIBS += -L$$[LIBACFUTILS]/OpenAL/libs/Win64 -lOpenAL32
-	LIBS += -L$$[LIBACFUTILS]/GL_for_Windows/lib -lopengl32
-
-	LIBS += -ldbghelp
-}
-
-win32:contains(CROSS_COMPILE, i686-w64-mingw32-) {
-	QMAKE_CFLAGS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-win-32 \
-	    pkg-config --cflags libpcre2-8")
-	QMAKE_CFLAGS += $$system("$$[LIBACFUTILS]/pkg-config-deps win-32 \
-	    --cflags")
-	QMAKE_CFLAGS += $$system("PKG_CONFIG_PATH=../libxml2/libxml2-win-32 \
-	    pkg-config --cflags libxml-2.0")
-
-	LIBS += -L$$[LIBACFUTILS]/qmake/win32 -lacfutils
-	LIBS += $$system("$$[LIBACFUTILS]/pkg-config-deps win-32 --libs")
-	LIBS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-win-32 pkg-config \
-	    --libs libpcre2-8")
-	LIBS += "../libxml2/libxml2-win-32/.libs/libxml2.a"
-
-	LIBS += -L../SDK/Libraries/Win -lXPLM
-	LIBS += -L../SDK/Libraries/Win -lXPWidgets
-	LIBS += -L../OpenAL/libs/Win32 -lOpenAL32
-	LIBS += -L../GL_for_Windows/lib -lopengl32
-
+	LIBS += -L$$[LIBACFUTILS]/SDK/Libraries/Win -lXPLM_64 -lXPWidgets_64
+	LIBS += -L$$[LIBACFUTILS]/GL_for_Windows/lib -lglu32 -lopengl32
 	LIBS += -ldbghelp
 }
 
@@ -120,43 +86,11 @@ unix:!macx {
 
 linux-g++-64 {
 	QMAKE_CFLAGS += $$system("$$[LIBACFUTILS]/pkg-config-deps linux-64 \
-	    --cflags")
-	QMAKE_CFLAGS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-linux-64 \
-	    pkg-config --cflags libpcre2-8")
-	QMAKE_CFLAGS += $$system("PKG_CONFIG_PATH=../libxml2/libxml2-linux-64 \
-	    pkg-config --cflags libxml-2.0")
+	    --static-openal --cflags")
 
 	LIBS += -L$$[LIBACFUTILS]/qmake/lin64 -lacfutils
-	LIBS += $$system("$$[LIBACFUTILS]/pkg-config-deps linux-64 --libs")
-
-	LIBS += $$system("PKG_CONFIG_PATH=../libxml2/libxml2-linux-64 \
-	    pkg-config --libs libxml-2.0")
-	LIBS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-linux-64 pkg-config \
-	    --libs libpcre2-8")
-	LIBS += "../libxml2/libxml2-linux-64/.libs/libxml2.a"
-}
-
-linux-g++-32 {
-	QMAKE_CFLAGS += $$system("$$[LIBACFUTILS]/pkg-config-deps linux-32 \
-	    --cflags")
-	QMAKE_CFLAGS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-linux-32 \
-	    pkg-config --cflags libpcre2-8")
-	QMAKE_CFLAGS += $$system("PKG_CONFIG_PATH=../libxml2/libxml2-linux-32 \
-	    pkg-config --cflags libxml-2.0")
-
-	# The stack protector forces us to depend on libc,
-	# but we'd prefer to be static.
-	QMAKE_CFLAGS += -fno-stack-protector
-	LIBS += -fno-stack-protector
-
-	LIBS += -L$$[LIBACFUTILS]/qmake/lin32 -lacfutils
-	LIBS += $$system("$$[LIBACFUTILS]/pkg-config-deps linux-32 --libs")
-
-	LIBS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-linux-32 pkg-config \
-	    --libs libpcre2-8")
-	LIBS += "../libxml2/libxml2-linux-32/.libs/libxml2.a"
-
-	LIBS += -lssp_nonshared
+	LIBS += $$system("$$[LIBACFUTILS]/pkg-config-deps linux-64 \
+	    --static-openal --libs")
 }
 
 macx {
@@ -167,42 +101,18 @@ macx {
 
 	DEFINES += APL=1 IBM=0 LIN=0
 	TARGET = mac.xpl
-	INCLUDEPATH += ../OpenAL/include
 	LIBS += -F$$[LIBACFUTILS]/SDK/Libraries/Mac
-	LIBS += -framework OpenGL -framework OpenAL -framework XPLM
-	LIBS += -framework XPWidgets
+	LIBS += -framework OpenGL -framework OpenAL
+	LIBS += -framework XPLM -framework XPWidgets
 }
 
 macx-clang {
 	QMAKE_CFLAGS += $$system("$$[LIBACFUTILS]/pkg-config-deps mac-64 \
-	    --cflags")
-	QMAKE_CFLAGS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-mac-64 \
-	    pkg-config --cflags libpcre2-8")
-	QMAKE_CFLAGS += $$system("PKG_CONFIG_PATH=../libxml2/libxml2-mac-64 \
-	    pkg-config --cflags libxml-2.0")
+	    --static-openal --cflags")
 
 	LIBS += -L$$[LIBACFUTILS]/qmake/mac64 -lacfutils
-	LIBS += $$system("$$[LIBACFUTILS]/pkg-config-deps mac-64 --libs")
-
-	LIBS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-mac-64 pkg-config \
-	    --libs libpcre2-8")
-	LIBS += "../libxml2/libxml2-mac-64/.libs/libxml2.a"
-}
-
-macx-clang-32 {
-	QMAKE_CFLAGS += $$system("$$[LIBACFUTILS]/pkg-config-deps mac-32 \
-	    --cflags")
-	QMAKE_CFLAGS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-mac-32 \
-	    pkg-config --cflags libpcre2-8")
-	QMAKE_CFLAGS += $$system("PKG_CONFIG_PATH=../libxml2/libxml2-mac-32 \
-	    pkg-config --cflags libxml-2.0")
-
-	LIBS += -L$$[LIBACFUTILS]/qmake/mac32 -lacfutils
-	LIBS += $$system("$$[LIBACFUTILS]/pkg-config-deps mac-32 --libs")
-
-	LIBS += $$system("PKG_CONFIG_PATH=../pcre2/pcre2-mac-32 pkg-config \
-	    --libs libpcre2-8")
-	LIBS += "../libxml2/libxml2-mac-32/.libs/libxml2.a"
+	LIBS += $$system("$$[LIBACFUTILS]/pkg-config-deps mac-64 \
+	    --static-openal --libs")
 }
 
 HEADERS += ../src/*.h
