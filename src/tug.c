@@ -1569,8 +1569,6 @@ tug_draw(tug_t *tug, double cur_t)
 	/* X-Plane's Z axis is inverted to ours */
 	VERIFY3U(XPLMProbeTerrainXYZ(probe, tug->pos.pos.x, 0,
 	    -tug->pos.pos.y, &info), ==, xplm_ProbeHitTerrain);
-	/* Must be upright, no driving on ceilings! */
-	ASSERT3F(info.normalY, >, 0.0);
 
 	pos = VECT3(tug->pos.pos.x, info.locationY, -tug->pos.pos.y);
 	norm = VECT3(info.normalX, info.normalY, info.normalZ);
