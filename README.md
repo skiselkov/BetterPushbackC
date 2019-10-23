@@ -1,7 +1,7 @@
 # !!!! IMPORTANT !!!!
 DO NOT download BetterPushback using the green "Clone or Download" button
 on the main repository page. Use the
-[RELEASES](https://github.com/skiselkov/BetterPushbackC/releases) section to download the plugin.
+[RELEASES](https://github.com/skiselkov/BetterPushbackC/releases) section, the click on "Assets" and download "BetterPushback.zip".
 
 # About BetterPushback
 
