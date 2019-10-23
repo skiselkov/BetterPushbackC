@@ -1,7 +1,12 @@
-# BetterPushback
+# !!!! IMPORTANT !!!!
+DO NOT download BetterPushback using the green "Clone or Download" button
+on the main repository page. Use the
+[RELEASES](https://github.com/skiselkov/BetterPushbackC/releases) section to download the plugin.
 
-This is a pushback plugin for the X-Plane 10 and X-Plane 11 flight
-simulators. It provides an overhead view to plan a pushback route and
+# About BetterPushback
+
+This is a pushback plugin for the X-Plane 11 flight simulator.
+It provides an overhead view to plan a pushback route and
 accomplishes a fully automated "hands-off" pushback, letting the user
 focus on aircraft startup and other pilot duties during pushback. It can
 of course also tow you forward, or perform any arbitrarily complicated
