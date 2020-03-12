@@ -19,6 +19,7 @@
 #ifndef	_TUG_H_
 #define	_TUG_H_
 
+#include <XPLMInstance.h>
 #include <XPLMScenery.h>
 
 #include <acfutils/avl.h>
@@ -140,7 +141,8 @@ typedef struct {
 	double		cur_steer;
 	double		last_mis_hdg;
 
-	XPLMObjectRef	tug, winch;
+	XPLMObjectRef	tug;
+	XPLMInstanceRef	instance;
 	double		front_phi, rear_phi;	/* tire roll angle, degrees */
 
 	/* async loading info */

@@ -93,9 +93,6 @@
 
 #define	MAX_ARPT_DIST		10000	/* meters */
 
-#define	TUG_DRAWING_PHASE		xplm_Phase_Objects
-#define	TUG_DRAWING_PHASE_BEFORE	1
-
 #define	TUG_APPCH_LONG_DIST	(6 * bp_ls.tug->veh.wheelbase)
 
 #define	MIN_RADIO_VOLUME_THRESH	0.1
@@ -1178,13 +1175,9 @@ errout:
 	return (B_FALSE);
 }
 
-static int
-draw_tugs(XPLMDrawingPhase phase, int before, void *refcon)
+static void
+draw_tugs(void)
 {
-	UNUSED(phase);
-	UNUSED(before);
-	UNUSED(refcon);
-
 	if (bp_ls.tug == NULL) {
 		/*
 		 * If we have no tug loaded, we must either be in the
@@ -1192,7 +1185,7 @@ draw_tugs(XPLMDrawingPhase phase, int before, void *refcon)
 		 * which has not yet notified us which tug to use.
 		 */
 		ASSERT(bp.step <= PB_STEP_TUG_LOAD || slave_mode);
-		return (1);
+		return;
 	}
 
 	if (list_head(&bp_ls.tug->segs) == NULL &&
@@ -1205,8 +1198,6 @@ draw_tugs(XPLMDrawingPhase phase, int before, void *refcon)
 	}
 
 	tug_draw(bp_ls.tug, bp.cur_t);
-
-	return (1);
 }
 
 bool_t
@@ -1289,9 +1280,6 @@ bp_start(void)
 	if (bp_floop == NULL)
 		bp_floop = XPLMCreateFlightLoop(&floop);
 	XPLMScheduleFlightLoop(bp_floop, -1, 1);
-
-	XPLMRegisterDrawCallback(draw_tugs, TUG_DRAWING_PHASE,
-	    TUG_DRAWING_PHASE_BEFORE, NULL);
 
 	if (!slave_mode && !late_plan_requested)
 		route_save(&bp.segs);
@@ -1512,9 +1500,6 @@ bp_complete(void)
 	}
 
 	disco_intf_hide();
-
-	XPLMUnregisterDrawCallback(draw_tugs, TUG_DRAWING_PHASE,
-	    TUG_DRAWING_PHASE_BEFORE, NULL);
 
 	if (!slave_mode) {
 		dr_seti(&drs.override_steer, 0);
@@ -2613,6 +2598,12 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 	UNUSED(refcon);
 
 	bp_gather();
+	/*
+	 * This used to draw the tug from a drawing phase, but since
+	 * we've switched to the XPLMInstance API, this instead updates
+	 * the tug's position.
+	 */
+	draw_tugs();
 
 	if (bp.cur_t - bp.last_t < MIN_STEP_TIME)
 		return (-1);

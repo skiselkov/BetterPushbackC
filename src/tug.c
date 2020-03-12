@@ -13,7 +13,7 @@
  * CDDL HEADER END
 */
 /*
- * Copyright 2017 Saso Kiselkov. All rights reserved.
+ * Copyright 2020 Saso Kiselkov. All rights reserved.
  */
 
 #include <errno.h>
@@ -165,6 +165,26 @@ static anim_info_t anim[TUG_NUM_ANIMS] = {
     { .name = "bp/anim/clear_signal" },
     { .name = "bp/anim/lift_in_transit" },
     { .name = "bp/anim/beacon_flash" }
+};
+
+static const char *tug_dr_list[TUG_NUM_ANIMS + 1] = {
+    "bp/anim/front_drive",
+    "bp/anim/front_steer",
+    "bp/anim/rear_drive",
+    "bp/anim/lift",
+    "bp/anim/lift_arm",
+    "bp/anim/tire_sense",
+    "bp/anim/vehicle_lights",
+    "bp/anim/cradle_lights",
+    "bp/anim/reverse_lights",
+    "bp/anim/hazard_lights",
+    "bp/anim/driver_orientation",
+    "bp/anim/cab_position",
+    "bp/anim/winch_on",
+    "bp/anim/clear_signal",
+    "bp/anim/lift_in_transit",
+    "bp/anim/beacon_flash",
+    NULL
 };
 
 static bool_t cradle_lights_req = B_FALSE;
@@ -921,6 +941,8 @@ reload_tug_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	if (glob_tug != NULL && !glob_tug->load_in_prog) {
 		char *objpath;
 
+		if (glob_tug->instance != NULL)
+			XPLMDestroyInstance(glob_tug->instance);
 		if (glob_tug->tug != NULL)
 			XPLMUnloadObject(glob_tug->tug);
 		objpath = tug_liv_apply(glob_tug->info);
@@ -932,6 +954,8 @@ reload_tug_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 		glob_tug->tug = XPLMLoadObject(objpath);
 		tug_liv_destroy(objpath);
 		VERIFY(glob_tug->tug != NULL);
+		glob_tug->instance = XPLMCreateInstance(glob_tug->tug,
+		    tug_dr_list);
 	}
 
 	return (1);
@@ -1138,12 +1162,13 @@ tug_load_complete(XPLMCommandRef obj, void *refcon)
 	tug_liv_destroy(tug->objpath);
 	tug->load_in_prog = B_FALSE;
 	tug->tug = obj;
-
 	if (tug->destroyed) {
+		ASSERT3P(tug->instance, ==, NULL);
 		XPLMUnloadObject(obj);
 		free(tug);
 		return;
 	}
+	tug->instance = XPLMCreateInstance(tug->tug, tug_dr_list);
 }
 
 static tug_t *
@@ -1322,7 +1347,8 @@ tug_free(tug_t *tug)
 
 	if (tug->info != NULL)
 		tug_info_free(tug->info);
-
+	if (tug->instance != NULL)
+		XPLMDestroyInstance(tug->instance);
 	if (tug->tug != NULL)
 		XPLMUnloadObject(tug->tug);
 
@@ -1560,6 +1586,7 @@ tug_draw(tug_t *tug, double cur_t)
 	XPLMProbeInfo_t info = { .structSize = sizeof (XPLMProbeInfo_t) };
 	vect3_t pos, norm, norm_hdg;
 	double gain_in, gain_out;
+	float anim_data[TUG_NUM_ANIMS];
 
 	ASSERT(tug != NULL);
 	if (tug->tug == NULL)
@@ -1585,7 +1612,9 @@ tug_draw(tug_t *tug, double cur_t)
 	di.pitch = -RAD2DEG(atan(norm_hdg.z / norm_hdg.y));
 	di.roll = RAD2DEG(atan(norm_hdg.x / norm_hdg.y));
 
-	XPLMDrawObjects(tug->tug, 1, &di, 1, 1);
+	for (int i = 0; i < TUG_NUM_ANIMS; i++)
+		anim_data[i] = anim[i].value;
+	XPLMInstanceSetPosition(tug->instance, &di, anim_data);
 
 	/*
 	 * Sound control. No more drawing after this point.

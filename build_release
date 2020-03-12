@@ -114,9 +114,6 @@ function install_po_files() {
 
 rm -rf BetterPushback
 
-(cd pcre2 && ./build_pcre2_deps ) || exit 1
-(cd libxml2 && ./build_libxml2_deps ) || exit 1
-
 set -e
 
 case `uname` in
