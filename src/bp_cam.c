@@ -355,6 +355,16 @@ get_vp(vec4 vp)
 	vp[1] = vp_xp[1];
 	vp[2] = vp_xp[2] - vp_xp[0];
 	vp[3] = vp_xp[3] - vp_xp[1];
+	if (vp[2] == 0 || vp[3] == 0) {
+		int scr_w, scr_h;
+		/*
+		 * Due to an outstanding X-Plane 11.50 beta bug, the viewport
+		 * dataref might not be properly updated in OpenGL mode.
+		 */
+		XPLMGetScreenSize(&scr_w, &scr_h);
+		vp[2] = scr_w;
+		vp[3] = scr_h;
+	}
 }
 
 /*
@@ -383,7 +393,12 @@ vp_unproject(double x, double y, double *x_phys, double *y_phys)
 	 * 3D coordinate based on Z-distance of the camera from the
 	 * reference plane.
 	 */
+	ASSERT(!isnan(out_pt[0]));
+	ASSERT(!isnan(out_pt[1]));
+	ASSERT(out_pt[2] != 0);
 	glm_vec_scale(out_pt, ABS(cam_height / out_pt[2]), out_pt);
+	ASSERT(!isnan(out_pt[0]));
+	ASSERT(!isnan(out_pt[1]));
 	*x_phys = out_pt[0];
 	*y_phys = out_pt[1];
 }
