@@ -102,7 +102,8 @@ macx {
 	DEFINES += APL=1 IBM=0 LIN=0
 	TARGET = mac.xpl
 	LIBS += -F$$[LIBACFUTILS]/SDK/Libraries/Mac
-	LIBS += -framework OpenGL -framework OpenAL
+	LIBS += -framework OpenGL -framework AudioToolbox
+	LIBS += -framework CoreAudio -framework AudioUnit
 	LIBS += -framework XPLM -framework XPWidgets
 }
 
