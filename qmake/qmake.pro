@@ -11,7 +11,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2019 Saso Kiselkov. All rights reserved.
+# Copyright 2020 Saso Kiselkov. All rights reserved.
 
 # Shared library without any Qt functionality
 TEMPLATE = lib
@@ -41,7 +41,7 @@ QMAKE_CXXFLAGS_WARN_ON -= -W -Wall
 # DEBUG - used by our ASSERT macro
 # _FILE_OFFSET_BITS=64 to get 64-bit ftell and fseek on 32-bit platforms.
 # _USE_MATH_DEFINES - sometimes helps getting M_PI defined from system headers
-DEFINES += _GNU_SOURCE DEBUG _FILE_OFFSET_BITS=64 _USE_MATH_DEFINES
+DEFINES += _GNU_SOURCE DEBUG _FILE_OFFSET_BITS=64
 
 # Latest X-Plane APIs. No legacy support needed.
 DEFINES += XPLM200 XPLM210 XPLM300 XPLM301

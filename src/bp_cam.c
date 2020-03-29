@@ -20,7 +20,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2017 Saso Kiselkov. All rights reserved.
+ * Copyright 2020 Saso Kiselkov. All rights reserved.
  */
 
 #include <string.h>
@@ -31,6 +31,7 @@
 
 #include <XPLMCamera.h>
 #include <XPLMGraphics.h>
+#include <XPLMInstance.h>
 #include <XPLMNavigation.h>
 #include <XPLMScenery.h>
 #include <XPLMUtilities.h>
@@ -46,6 +47,8 @@
 #include <acfutils/list.h>
 #include <acfutils/time.h>
 #include <acfutils/wav.h>
+
+#include <cglm/cglm.h>
 
 #include "bp.h"
 #include "bp_cam.h"
@@ -74,8 +77,8 @@
 
 #define	BP_PLANNER_VISIBILITY	40000	/* meters */
 
-#define	PREDICTION_DRAWING_PHASE	xplm_Phase_Airplanes
-#define	PREDICTION_DRAWING_PHASE_BEFORE	0
+#define	PREDICTION_DRAWING_PHASE	xplm_Phase_Window
+#define	PREDICTION_DRAWING_PHASE_BEFORE	1
 
 static vect3_t		cam_pos;
 static double		cam_height;
@@ -90,15 +93,17 @@ static float		saved_visibility;
 static int		saved_cloud_types[3];
 static bool_t		saved_real_wx;
 static XPLMObjectRef	cam_lamp_obj = NULL;
+static XPLMInstanceRef	cam_lamp_inst = NULL;
+static const char	*cam_lamp_drefs[] = { NULL };
 
 static int key_sniffer(char inChar, XPLMKeyFlags inFlags, char inVirtualKey,
     void *refcon);
 
 static struct {
-	dr_t	camera_fov_h, camera_fov_v;
 	dr_t	lat, lon;
 	dr_t	local_x, local_y, local_z;
 	dr_t	local_vx, local_vy, local_vz;
+	dr_t	cam_x, cam_y, cam_z;
 	dr_t	hdg;
 	dr_t	mtow;
 	dr_t	tire_x, tire_z;
@@ -107,6 +112,8 @@ static struct {
 	dr_t	visibility;
 	dr_t	cloud_types[3];
 	dr_t	use_real_wx;
+	dr_t	proj_matrix_3d;
+	dr_t	viewport;
 } drs;
 
 static view_cmd_info_t view_cmds[] = {
@@ -337,14 +344,56 @@ move_camera(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	return (0);
 }
 
+static void
+get_vp(vec4 vp)
+{
+	int vp_xp[4];
+
+	ASSERT(vp != NULL);
+	VERIFY3S(dr_getvi(&drs.viewport, vp_xp, 0, 4), ==, 4);
+	vp[0] = vp_xp[0];
+	vp[1] = vp_xp[1];
+	vp[2] = vp_xp[2] - vp_xp[0];
+	vp[3] = vp_xp[3] - vp_xp[1];
+}
+
+/*
+ * Un-projects a viewport coordinate at X, Y using the current projection
+ * matrix and figures out to which point on the reference plane it
+ * corresponds. The reference plane is a plane that is parallel with the
+ * Earth's surface at the local coordinate origin and is elevation-centered
+ * on the aircraft's current local Y coordinate.
+ */
+static void
+vp_unproject(double x, double y, double *x_phys, double *y_phys)
+{
+	mat4 proj;
+	vec4 vp;
+	vec3 out_pt;
+
+	ASSERT(x_phys != NULL);
+	ASSERT(y_phys != NULL);
+
+	VERIFY3S(dr_getvf32(&drs.proj_matrix_3d, (float *)proj, 0, 16), ==, 16);
+	get_vp(vp);
+	glm_unproject((vec3){x, y, 0.5}, proj, vp, out_pt);
+	/*
+	 * To avoid having to figure out the viewport Z coordinate that
+	 * matches the reference plane distance, we scale the returned
+	 * 3D coordinate based on Z-distance of the camera from the
+	 * reference plane.
+	 */
+	glm_vec_scale(out_pt, ABS(cam_height / out_pt[2]), out_pt);
+	*x_phys = out_pt[0];
+	*y_phys = out_pt[1];
+}
+
 static int
 cam_ctl(XPLMCameraPosition_t *pos, int losing_control, void *refcon)
 {
-	int x, y, w, h;
-	double rx, ry, dx, dy, rw, rh;
-	double fov_h, fov_v;
+	int x, y;
+	double dx, dy, start_hdg;
 	vect2_t start_pos, end_pos;
-	double start_hdg;
 	seg_t *seg;
 	int n;
 
@@ -362,16 +411,7 @@ cam_ctl(XPLMCameraPosition_t *pos, int losing_control, void *refcon)
 	pos->zoom = 1;
 
 	XPLMGetMouseLocation(&x, &y);
-	XPLMGetScreenSize(&w, &h);
-	/* make the mouse coordinates relative to the screen center */
-	rx = ((double)x - w / 2) / (w / 2);
-	ry = ((double)y - h / 2) / (h / 2);
-	fov_h = DEG2RAD(dr_getf(&drs.camera_fov_h));
-	fov_v = DEG2RAD(dr_getf(&drs.camera_fov_v));
-	rw = cam_height * tan(fov_h / 2);
-	rh = cam_height * tan(fov_v / 2);
-	dx = rw * rx;
-	dy = rh * ry;
+	vp_unproject(x, y, &dx, &dy);
 
 	/*
 	 * Don't make predictions if due to the camera FOV angle (>= 180 deg)
@@ -588,11 +628,27 @@ draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 	seg_t *seg;
 	XPLMProbeRef probe = XPLMCreateProbe(xplm_ProbeY);
 	XPLMProbeInfo_t info = { .structSize = sizeof (XPLMProbeInfo_t) };
+	mat4 view, proj;
 	XPLMDrawInfo_t di;
+	vec3 up = {sin(DEG2RAD(cam_hdg)), 0, -cos(DEG2RAD(cam_hdg))};
+	vec3 fwd = {0, -1, 0};
+	vec3 cam_pos = {dr_getf(&drs.cam_x), dr_getf(&drs.cam_y),
+	    dr_getf(&drs.cam_z)};
 
 	UNUSED(phase);
 	UNUSED(before);
 	UNUSED(refcon);
+
+	VERIFY3S(dr_getvf32(&drs.proj_matrix_3d, (float *)proj, 0, 16), ==, 16);
+	glm_look(cam_pos, fwd, up, view);
+
+	glMatrixMode(GL_PROJECTION);
+	glPushMatrix();
+	glLoadMatrixf((float *)proj);
+
+	glMatrixMode(GL_MODELVIEW);
+	glPushMatrix();
+	glLoadMatrixf((float *)view);
 
 	if (dr_geti(&drs.view_is_ext) != 1)
 		XPLMCommandOnce(circle_view_cmd);
@@ -662,9 +718,18 @@ draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 	di.heading = 0;
 	di.pitch = 0;
 	di.roll = 0;
+#if 0
 	XPLMDrawObjects(cam_lamp_obj, 1, &di, 1, 1);
+#endif
+	ASSERT(cam_lamp_inst != NULL);
+	XPLMInstanceSetPosition(cam_lamp_inst, &di, NULL);
 
 	XPLMDestroyProbe(probe);
+
+	glMatrixMode(GL_MODELVIEW);
+	glPopMatrix();
+	glMatrixMode(GL_PROJECTION);
+	glPopMatrix();
 
 	return (1);
 }
@@ -856,19 +921,15 @@ fake_win_click(XPLMWindowID inWindowID, int x, int y, XPLMMouseStatus inMouse,
 		}
 		if (dragging && (x != last_x || y != last_y) &&
 		    button_hit == -1) {
-			int w, h;
-			double fov_h, fov_v, rx, ry, rw, rh, dx, dy;
+			double x_phys, last_x_phys, y_phys, last_y_phys, dx, dy;
 			vect2_t v;
 
-			XPLMGetScreenSize(&w, &h);
-			rx = ((double)x - last_x) / (w / 2);
-			ry = ((double)y - last_y) / (h / 2);
-			fov_h = DEG2RAD(dr_getf(&drs.camera_fov_h));
-			fov_v = DEG2RAD(dr_getf(&drs.camera_fov_v));
-			rw = cam_height * tan(fov_h / 2);
-			rh = cam_height * tan(fov_v / 2);
-			dx = rw * rx;
-			dy = rh * ry;
+			vp_unproject(x, y, &x_phys, &y_phys);
+			vp_unproject(last_x, last_y,
+			    &last_x_phys, &last_y_phys);
+			dx = x_phys - last_x_phys;
+			dy = y_phys - last_y_phys;
+
 			v = vect2_rot(VECT2(dx, dy), cam_hdg);
 			cam_pos.x -= v.x;
 			cam_pos.z -= v.y;
@@ -981,10 +1042,6 @@ find_drs(void)
 	fdr_find(&drs.local_y, "sim/flightmodel/position/local_y");
 	fdr_find(&drs.local_z, "sim/flightmodel/position/local_z");
 	fdr_find(&drs.hdg, "sim/flightmodel/position/psi");
-	fdr_find(&drs.camera_fov_h,
-	    "sim/graphics/view/field_of_view_deg");
-	fdr_find(&drs.camera_fov_v,
-	    "sim/graphics/view/vertical_field_of_view_deg");
 	fdr_find(&drs.tire_z, "sim/flightmodel/parts/tire_z_no_deflection");
 	fdr_find(&drs.tire_x, "sim/flightmodel/parts/tire_x_no_deflection");
 	fdr_find(&drs.tirrad, "sim/aircraft/parts/acf_gear_tirrad");
@@ -997,6 +1054,12 @@ find_drs(void)
 	fdr_find(&drs.cloud_types[1], "sim/weather/cloud_type[1]");
 	fdr_find(&drs.cloud_types[2], "sim/weather/cloud_type[2]");
 	fdr_find(&drs.use_real_wx, "sim/weather/use_real_weather_bool");
+
+	fdr_find(&drs.cam_x, "sim/graphics/view/view_x");
+	fdr_find(&drs.cam_y, "sim/graphics/view/view_y");
+	fdr_find(&drs.cam_z, "sim/graphics/view/view_z");
+	fdr_find(&drs.proj_matrix_3d, "sim/graphics/view/projection_matrix_3d");
+	fdr_find(&drs.viewport, "sim/graphics/view/viewport");
 }
 
 bool_t
@@ -1085,6 +1148,7 @@ bp_cam_start(void)
 
 	XPLMRegisterDrawCallback(draw_prediction, PREDICTION_DRAWING_PHASE,
 	    PREDICTION_DRAWING_PHASE_BEFORE, NULL);
+	cam_lamp_inst = XPLMCreateInstance(cam_lamp_obj, cam_lamp_drefs);
 
 	for (int i = 0; view_cmds[i].name != NULL; i++) {
 		view_cmds[i].cmd = XPLMFindCommand(view_cmds[i].name);
@@ -1131,7 +1195,11 @@ bp_cam_stop(void)
 	if (!cam_inited)
 		return (B_FALSE);
 
-	XPLMUnloadObject(cam_lamp_obj);
+	if (cam_lamp_inst != NULL)
+		XPLMDestroyInstance(cam_lamp_inst);
+	cam_lamp_inst = NULL;
+	if (cam_lamp_obj != NULL)
+		XPLMUnloadObject(cam_lamp_obj);
 	cam_lamp_obj = NULL;
 
 	while ((seg = list_remove_head(&pred_segs)) != NULL)
