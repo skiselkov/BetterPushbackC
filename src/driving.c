@@ -437,7 +437,7 @@ next_seg_speed(const vehicle_t *veh, list_t *segs, const seg_t *next,
 	if (next != NULL && next->backward == cur_backward) {
 		if (next->type == SEG_TYPE_STRAIGHT) {
 			return (straight_run_speed(veh, segs, next->len,
-			    next->backward,list_next(segs, next), NULL));
+			    next->backward, list_next(segs, next), NULL));
 		} else {
 			return (turn_run_speed(veh, segs,
 			    rel_hdg(next->start_hdg, next->end_hdg),
