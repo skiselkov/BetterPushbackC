@@ -28,7 +28,7 @@ INCLUDEPATH += $$[LIBACFUTILS]/OpenAL/include
 INCLUDEPATH += $$[LIBACFUTILS]/src
 INCLUDEPATH += $$[LIBACFUTILS]/acf_apis
 
-QMAKE_CFLAGS += -std=c99 -g -W -Wall -Wextra -fvisibility=hidden \
+QMAKE_CFLAGS += -std=c99 -g -W -Wall -Wextra -Werror -fvisibility=hidden \
     -Wno-unused-local-typedefs -Wunused-result
 
 # Make sure to disable Qmake's own warnings system, because it overrides
