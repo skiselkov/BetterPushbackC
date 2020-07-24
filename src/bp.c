@@ -2715,7 +2715,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 
 	switch (bp.step) {
 	case PB_STEP_OFF:
-		VERIFY(bp.step != PB_STEP_OFF);
+		VERIFY_FAIL();
 	case PB_STEP_TUG_LOAD:
 		ASSERT3P(bp_ls.tug, ==, NULL);
 		if (!pb_step_tug_load())
