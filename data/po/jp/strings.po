@@ -1,0 +1,156 @@
+# CDDL HEADER START
+#
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
+#
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# http://www.illumos.org/license/CDDL.
+#
+# CDDL HEADER END
+
+# Copyright 2017 Saso Kiselkov. All rights reserved.
+
+msgid ""
+msgstr ""
+"Last-Translator: josephting"
+
+msgid "Can't start planner: aircraft not stationary."
+msgstr "プランナーが起動できない：航空機が止まっていません。"
+
+msgid ""
+"Can't start planner: pushback already in progress. Please stop the pushback "
+"operation first."
+msgstr "プランナーが起動できない：プッシュバックしております。プッシュバックをやめてから起動"
+"しなおしてください。"
+
+msgid "Can't start pushback planner: please set the parking brake first."
+msgstr "プッシュバックプランナーが起動できない：パーキングブレーキをかけてください。"
+
+msgid ""
+"Pushback advisory: you have your radio volume turned very low and may not be "
+"able to hear ground crew. Please increase your radio volume in the X-Plane "
+"sound preferences."
+msgstr "プッシュバック勧告：ラジオ音量が小さすぎのため、地上勤務係員の話が聞こえない可能性が"
+"あります。X-Plane音声設定にてラジオ音量を大きくしてください。"
+
+msgid ""
+"Pushback failure: X-Plane version too old. This plugin requires at least X-"
+"Plane %s to operate."
+msgstr "プッシュバック失敗：X-Planeバージョンが古すぎます。このプラグインは最低X-Plane "
+"%sが必要です。"
+
+msgid "Pushback failure: aircraft appears to not have any steerable gears."
+msgstr "プッシュバック失敗：航空機が操向装置がないようです。"
+
+msgid ""
+"Pushback failure: aircraft has non-positive wheelbase. Sorry, tail draggers "
+"aren't supported."
+msgstr "プッシュバック失敗：航空機の軸距がマイナスです。尾輪式は対応しておりません、ご容赦"
+"ください。"
+
+msgid "Pushback failure: aircraft is incompatible with BetterPushback."
+msgstr "プッシュバック失敗：この航空機は対応しておりません。"
+
+msgid ""
+"Pushback failure: master requested tug \"%s\", which we don't have in our in "
+"our library. Please sync your tug libraries before trying again."
+msgstr "プッシュバック失敗：依頼されたトーイングカー \"%s\" は車庫に存在しておりません。"
+"トーイングカー車庫を更新してください。"
+
+msgid "Pushback failure: no suitable tug for your aircraft."
+msgstr "プッシュバック失敗：この航空機に適切なトーイングカーが見つかりませんでした。"
+
+msgid ""
+"Pushback failure: smartcopilot attempted to switch master/slave or network "
+"connection lost. Stopping operation."
+msgstr "プッシュバック失敗：smartcopilotが乱れた状態になってるか、ネット接続が切れて"
+"しまいました。プッシュバックを中止します。"
+
+msgid "Start pushback"
+msgstr "プッシュバック開始"
+
+msgid "Stop pushback"
+msgstr "プッシュバック中止"
+
+msgid "Start pushback planner"
+msgstr "プッシュバックプランナー起動"
+
+msgid "Stop pushback planner"
+msgstr "プッシュバックプランナー中止"
+
+msgid "Connect tug before entering pushback plan"
+msgstr "トーイングカーを接続してからプッシュバックプランナーを起動してください。"
+
+msgid "Pre-plan pushback"
+msgstr "プッシュバック設計計画"
+
+msgid "Close pushback planner"
+msgstr "プッシュバックプランナー終了"
+
+msgid "Preferences..."
+msgstr "設定"
+
+msgid "BetterPushback Preferences"
+msgstr "BetterPushback設定"
+
+msgid "User interface"
+msgstr "表示画面"
+
+msgid "X-Plane's language"
+msgstr "X-Planeシステム言語"
+
+msgid "Ground crew audio"
+msgstr "地上勤務係員音声"
+
+msgid "My language only at domestic airports"
+msgstr "国内空港のみ日本語使用"
+
+msgid "My language at all airports"
+msgstr "全ての空港で日本語使用"
+
+msgid "English at all airports"
+msgstr "全ての空港で英語使用"
+
+msgid "Save preferences"
+msgstr "設定保存"
+
+msgid "Ground crew speaks my language only if the country the airport is\n"
+"in speaks my language. Otherwise the ground crew speaks English\n"
+"with a local accent."
+msgstr "地上勤務係員は日本語が分かる国の中の空港でのみ、日本語使用され、でなければ\n"
+"当地訛りの英語で喋ります。"
+
+msgid "Ground crew speaks my language irrespective of what country the "
+"airport is in."
+msgstr "空港の国に関係なく、地上勤務係員は日本語で喋ります。"
+
+msgid "Ground crew always speaks English with a local accent."
+msgstr "地上勤務係員は常に当地訛りの英語で喋ります。"
+
+msgid "Save current preferences to disk."
+msgstr "ディスクに設定保存"
+
+msgid "Disconnect tow + headset and switch to hand signals."
+msgstr "トーイングカーへの接続を切れ、ヘッドセットを外し、手信号を注意してください。"
+
+msgid "Reconnect tow and await further instructions."
+msgstr "トイングカーへ再接続し、待機してください。"
+
+msgid "Pushback failure: cannot push this aircraft with engines running. "
+"Shutdown engines first."
+msgstr "プッシュバック失敗：エンジンがついたままでプッシュバックできません。"
+"エンジンを切れてください。"
+
+msgid "Pushback failure: your flight controls are preventing me from steering "
+"the aircraft. Unbind any buttons you have set to\"toggle nosewheel steering\"."
+msgstr "プッシュバック失敗：あなたの操向装置が動作を妨げています。\"前輪操向切替\"キー設定"
+"を解除してください。"
+
+msgid "Left mouse button to reorient view"
+msgstr "左クリックで視点をリセット"
+
+msgid "Tug cab view"
+msgstr "トーイングカー視点"
