@@ -396,7 +396,7 @@ vp_unproject(double x, double y, double *x_phys, double *y_phys)
 	ASSERT(!isnan(out_pt[0]));
 	ASSERT(!isnan(out_pt[1]));
 	ASSERT(out_pt[2] != 0);
-	glm_vec_scale(out_pt, ABS(cam_height / out_pt[2]), out_pt);
+	glm_vec3_scale(out_pt, ABS(cam_height / out_pt[2]), out_pt);
 	ASSERT(!isnan(out_pt[0]));
 	ASSERT(!isnan(out_pt[1]));
 	*x_phys = out_pt[0];
