@@ -2672,7 +2672,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			 * step to avoid playing MSG_OP_COMPLETE.
 			 */
 			if (ABS(bp.cur_pos.spd) < SPEED_COMPLETE_THRESH &&
-			    pbrake_is_set()) {
+			    (pbrake_is_set() || slave_mode)) {
 				bp.step = PB_STEP_STOPPED;
 			} else {
 				bp.step = PB_STEP_STOPPING;
