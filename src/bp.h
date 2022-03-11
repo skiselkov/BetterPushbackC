@@ -162,6 +162,10 @@ void bp_fini(void);
 bool_t bp_start(void);
 bool_t bp_stop(void);
 
+void bp_set_step(pushback_step_t stp);
+void bp_set_step_local(pushback_step_t stp);
+void bp_set_step_rcvd(pushback_step_t stp);
+
 bool_t bp_can_start(const char **reason);
 unsigned bp_num_segs(void);
 void bp_delete_all_segs(void);

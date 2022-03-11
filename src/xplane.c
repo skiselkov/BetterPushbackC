@@ -144,7 +144,7 @@ static XPLMFlightLoopID		reload_floop_ID = NULL;
  *	disabled on the slave machine and stopping of the pushback can only be
  *	performed by the master machine.
  */
-static dr_t	bp_started_dr, bp_connected_dr, slave_mode_dr, op_complete_dr;
+static dr_t	bp_started_dr, bp_connected_dr, slave_mode_dr, op_complete_dr, step_dr;
 static dr_t	plan_complete_dr, bp_tug_name_dr;
 bool_t		bp_started = B_FALSE;
 bool_t		bp_connected = B_FALSE;
@@ -475,21 +475,16 @@ slave_mode_cb(dr_t *dr, void *unused)
 	if (slave_mode) bp_fini();
 
 	coupled_state_change();
+}
 
-	/*
-	if (slave_mode) {
-		bp_fini();
-		XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_FALSE);
-		XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
-		XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_FALSE);
-		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
-	} else {
-		XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_TRUE);
-		XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
-		XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_TRUE);
-		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
-	}*/
+void
+step_cb(dr_t *dr, void *new_step_ptr)
+{
+	UNUSED(dr);
 
+	pushback_step_t new_step = *((pushback_step_t*) new_step_ptr);
+
+	bp_set_step_rcvd(new_step);
 }
 
 static float
@@ -660,6 +655,9 @@ XPluginStart(char *name, char *sig, char *desc)
 	dr_create_i(&slave_mode_dr, (int *)&slave_mode, B_TRUE,
 	    "bp/slave_mode");
 	slave_mode_dr.write_cb = slave_mode_cb;
+	dr_create_i(&step_dr, (int *)&bp.step, B_TRUE,
+	    "bp/step");
+	step_dr.write_cb = step_cb;
 	dr_create_i(&op_complete_dr, (int *)&op_complete, B_TRUE,
 	    "bp/op_complete");
 	dr_create_i(&plan_complete_dr, (int *)&plan_complete, B_TRUE,
@@ -683,6 +681,7 @@ XPluginStop(void)
 	bp_shut_fini();
 	dr_delete(&bp_started_dr);
 	dr_delete(&slave_mode_dr);
+	dr_delete(&step_dr);
 	dr_delete(&op_complete_dr);
 	dr_delete(&bp_tug_name_dr);
 

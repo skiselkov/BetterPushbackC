@@ -1244,6 +1244,42 @@ bp_delete_all_segs(void)
 		free(seg);
 }
 
+void
+bp_set_step(pushback_step_t stp)
+{
+	if (bp.step == stp) {
+		return;
+	}
+
+	bp.step = stp;
+
+	if (bp.step == PB_STEP_LOWERING) {
+		msg_play(MSG_DISCO);
+	}
+}
+
+void
+bp_set_step_local(pushback_step_t stp)
+{
+	if (!slave_mode) {
+		bp_set_step(stp);
+	}
+}
+
+void
+bp_set_step_rcvd(pushback_step_t stp)
+{
+
+	if (slave_mode) {
+
+		if (bp.step != stp) {
+			logMsg("[DEBUG] bp.step change received with new value of %d (currently %d)", stp, bp.step);
+		}
+
+		bp_set_step(stp);
+	}
+}
+
 bool_t
 bp_start(void)
 {
@@ -1667,6 +1703,8 @@ pb_step_waiting_for_pbrake(void)
 	vect2_t p_end, dir;
 	dr_t zibo_chocks;
 
+	logMsg("[DEBUG] In PB_STEP_WAITING_FOR_PBRAKE...");
+
 	if (!pbrake_is_set() ||
 	    /* wait until the rdy2conn message has stopped playing */
 	    bp.cur_t - bp.last_voice_t < msg_dur(MSG_RDY2CONN)) {
@@ -1752,6 +1790,8 @@ pb_step_connect_winch(void)
 	double d_t = bp.cur_t - bp.step_start_t;
 	const tug_info_t *ti = bp_ls.tug->info;
 	double winch_total, winched_dist;
+
+	logMsg("[DEBUG] In step PB_STEP_GRABBING with pb_step_connect_winch ...");
 
 	/* spend some time putting the winching strap in place */
 	if (!bp.winching.complete && d_t < STATE_TRANS_DELAY)
@@ -2027,6 +2067,9 @@ pb_step_stopped(void)
 		push_at_speed(0, bp.veh.max_accel, B_FALSE, B_FALSE);
 		brakes_set(B_TRUE);
 	}
+
+	logMsg("[DEBUG] In pb step stopped...");
+
 	if (!pbrake_is_set()) {
 		/*
 		 * Keep resetting the start time to enforce a delay
@@ -2036,7 +2079,6 @@ pb_step_stopped(void)
 	} else if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY &&
 	    bp.cur_t - bp.last_voice_t >= msg_dur(MSG_OP_COMPLETE) +
 	    STATE_TRANS_DELAY) {
-		msg_play(MSG_DISCO);
 		bp.step++;
 		bp.step_start_t = bp.cur_t;
 		bp.last_voice_t = bp.cur_t;
@@ -2257,7 +2299,7 @@ recon_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	 */
 	op_complete = B_FALSE;
 	bp.reconnect = B_TRUE;
-	bp.step = PB_STEP_GRABBING;
+	bp_set_step_local(PB_STEP_GRABBING);
 	bp.step_start_t = bp.cur_t;
 	bp_reconnect_notify();
 	return (1);
@@ -2613,7 +2655,14 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 	bp.d_pos.spd = bp.cur_pos.spd - bp.last_pos.spd;
 	bp.d_t = bp.cur_t - bp.last_t;
 
-	ASSERT(bp_ls.tug != NULL || bp.step <= PB_STEP_TUG_LOAD);
+	//ASSERT(bp_ls.tug != NULL || bp.step <= PB_STEP_TUG_LOAD);
+	
+	if (bp_ls.tug == NULL && bp.step > PB_STEP_TUG_LOAD) {
+		ASSERT3P(bp_ls.tug, ==, NULL);
+		if (!pb_step_tug_load())
+			return (0);
+	}
+
 	if (bp_ls.tug != NULL) {
 		/* drive slowly while approaching & moving away from acf */
 		tug_run(bp_ls.tug, bp.d_t,
@@ -2672,10 +2721,10 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			 * step to avoid playing MSG_OP_COMPLETE.
 			 */
 			if (ABS(bp.cur_pos.spd) < SPEED_COMPLETE_THRESH &&
-			    (pbrake_is_set() || slave_mode)) {
-				bp.step = PB_STEP_STOPPED;
+			    pbrake_is_set()) {
+				bp_set_step_local(PB_STEP_STOPPED);
 			} else {
-				bp.step = PB_STEP_STOPPING;
+				bp_set_step_local(PB_STEP_STOPPING);
 			}
 		}
 	}
@@ -2687,7 +2736,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		if (bp.step < PB_STEP_CONNECTED) {
 			double lift = bp_ls.tug->info->lift_height +
 			    bp.acf.nw_len;
-			bp.step = PB_STEP_CONNECTED;
+			bp_set_step_local(PB_STEP_CONNECTED);
 			tug_set_lift_pos(1);
 			tug_set_lift_arm_pos(bp_ls.tug, 0, B_TRUE);
 			dr_setvf(&drs.leg_len, &lift, bp.acf.nw_i, 1);
