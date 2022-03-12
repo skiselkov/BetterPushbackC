@@ -163,6 +163,7 @@ bool_t bp_start(void);
 bool_t bp_stop(void);
 
 void bp_set_step(pushback_step_t stp);
+void bp_msg_play_on_next_step(void);
 void bp_set_step_local(pushback_step_t stp);
 void bp_set_step_rcvd(pushback_step_t stp);
 

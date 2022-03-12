@@ -144,11 +144,13 @@ static XPLMFlightLoopID		reload_floop_ID = NULL;
  *	disabled on the slave machine and stopping of the pushback can only be
  *	performed by the master machine.
  */
-static dr_t	bp_started_dr, bp_connected_dr, slave_mode_dr, op_complete_dr, step_dr;
+static dr_t	bp_started_dr, bp_connected_dr, slave_mode_dr, pb_set_remote_dr;
+static dr_t op_complete_dr, step_dr;
 static dr_t	plan_complete_dr, bp_tug_name_dr;
 bool_t		bp_started = B_FALSE;
 bool_t		bp_connected = B_FALSE;
 bool_t		slave_mode = B_FALSE;
+bool_t      pb_set_remote = B_FALSE;
 bool_t		op_complete = B_FALSE;
 bool_t		plan_complete = B_FALSE;
 char		bp_tug_name[64] = { 0 };
@@ -237,6 +239,7 @@ init_core_state(void)
 	bp_started = B_FALSE;
 	bp_connected = B_FALSE;
 	slave_mode = B_FALSE;
+	pb_set_remote = B_FALSE;
 	op_complete = B_FALSE;
 	plan_complete = B_FALSE;
 }
@@ -472,9 +475,21 @@ slave_mode_cb(dr_t *dr, void *unused)
 	UNUSED(dr);
 	VERIFY(!bp_started);
 
-	if (slave_mode) bp_fini();
+	if (slave_mode) {
+		bp_fini();
+	} else {
+		pb_set_remote = B_FALSE;
+	}
 
 	coupled_state_change();
+}
+
+void
+pb_set_remote_cb(dr_t *dr, void *new_remote_pb_ptr)
+{
+	UNUSED(dr);
+	
+	pb_set_remote = *((int*) new_remote_pb_ptr) ? B_TRUE : B_FALSE;
 }
 
 void
@@ -655,6 +670,9 @@ XPluginStart(char *name, char *sig, char *desc)
 	dr_create_i(&slave_mode_dr, (int *)&slave_mode, B_TRUE,
 	    "bp/slave_mode");
 	slave_mode_dr.write_cb = slave_mode_cb;
+	dr_create_i(&pb_set_remote_dr, (int *)&pb_set_remote, B_TRUE,
+	    "bp/pb_remote");
+	pb_set_remote_dr.write_cb = pb_set_remote_cb;
 	dr_create_i(&step_dr, (int *)&bp.step, B_TRUE,
 	    "bp/step");
 	step_dr.write_cb = step_cb;
@@ -681,6 +699,7 @@ XPluginStop(void)
 	bp_shut_fini();
 	dr_delete(&bp_started_dr);
 	dr_delete(&slave_mode_dr);
+	dr_delete(&pb_set_remote_dr);
 	dr_delete(&step_dr);
 	dr_delete(&op_complete_dr);
 	dr_delete(&bp_tug_name_dr);

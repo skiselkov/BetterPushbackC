@@ -214,6 +214,8 @@ max_steer_angle(void)
 static bool_t
 pbrake_is_set(void)
 {
+	if (pb_set_remote) 
+		return B_TRUE;
 	if (drs.pbrake_is_custom)
 		return (dr_getf(&drs.pbrake) != 0);
 	return (dr_getf(&drs.pbrake) != 0 || dr_getf(&drs.pbrake_rat) != 0);
@@ -1252,18 +1254,41 @@ bp_set_step(pushback_step_t stp)
 	}
 
 	bp.step = stp;
+	bp.step_start_t = bp.cur_t;
 
-	if (bp.step == PB_STEP_LOWERING) {
-		msg_play(MSG_DISCO);
+	bp_msg_play_on_next_step();
+}
+
+void bp_msg_play_on_next_step(void)
+{
+	switch (bp.step) {
+		case PB_STEP_LOWERING:
+			msg_play(MSG_DISCO);
+			bp.last_voice_t = bp.cur_t;
+			break;
+		case PB_STEP_DRIVING_UP_CLOSE:
+			msg_play(MSG_DRIVING_UP);
+			bp.last_voice_t = bp.cur_t;
+			break;
+		case PB_STEP_STARTING:
+			// Message playe here depends on some logic
+			// which has been left in pb_step_connected(void)
+			// but probably should be moved into its own func
+			bp.last_voice_t = bp.cur_t;
+			break;
+		case PB_STEP_STOPPED:
+			msg_play(MSG_OP_COMPLETE);
+			bp.last_voice_t = bp.cur_t;
+			break;
+		default:
+			break;
 	}
 }
 
 void
 bp_set_step_local(pushback_step_t stp)
 {
-	if (!slave_mode) {
-		bp_set_step(stp);
-	}
+	bp_set_step(stp);
 }
 
 void
@@ -1271,12 +1296,10 @@ bp_set_step_rcvd(pushback_step_t stp)
 {
 
 	if (slave_mode) {
-
 		if (bp.step != stp) {
-			logMsg("[DEBUG] bp.step change received with new value of %d (currently %d)", stp, bp.step);
+			logMsg("[ADVISORY/DEBUG] bp.step change received with new value of %d (currently %d)", stp, bp.step);
 		}
-
-		bp_set_step(stp);
+		//bp_set_step(stp);
 	}
 }
 
@@ -1302,8 +1325,7 @@ bp_start(void)
 	bp.last_pos = bp.cur_pos;
 	bp.last_t = bp.cur_t;
 
-	bp.step = 1;
-	bp.step_start_t = bp.cur_t;
+	bp_set_step(1);
 
 	/*
 	 * Memorize where we were at the start. We will use this to determine
@@ -1640,9 +1662,8 @@ pb_step_tug_load(void)
 	} else {
 		tug_set_pos(bp_ls.tug, bp.cur_pos.pos, bp.cur_pos.hdg, 0);
 	}
-	bp.step++;
-	bp.step_start_t = bp.cur_t;
-
+	bp_set_step_local(bp.step+1);
+	
 	return (B_TRUE);
 }
 
@@ -1673,10 +1694,7 @@ pb_step_start(void)
 		}
 	}
 
-	msg_play(MSG_DRIVING_UP);
-	bp.step++;
-	bp.step_start_t = bp.cur_t;
-	bp.last_voice_t = bp.cur_t;
+	bp_set_step_local(bp.step+1);
 }
 
 static void
@@ -1692,8 +1710,7 @@ pb_step_driving_up_close(void)
 		tug_set_cradle_beeper_on(bp_ls.tug, B_TRUE);
 		tug_set_cradle_lights_on(B_TRUE);
 		tug_set_hazard_lights_on(B_TRUE);
-		bp.step++;
-		bp.step_start_t = bp.cur_t;
+		bp_set_step_local(bp.step+1);
 	}
 }
 
@@ -1702,8 +1719,6 @@ pb_step_waiting_for_pbrake(void)
 {
 	vect2_t p_end, dir;
 	dr_t zibo_chocks;
-
-	logMsg("[DEBUG] In PB_STEP_WAITING_FOR_PBRAKE...");
 
 	if (!pbrake_is_set() ||
 	    /* wait until the rdy2conn message has stopped playing */
@@ -1742,8 +1757,7 @@ pb_step_waiting_for_pbrake(void)
 		    -(bp_ls.tug->info->apch_dist + bp_ls.tug->info->plat_z)));
 	}
 	VERIFY(tug_drive2point(bp_ls.tug, p_end, bp.cur_pos.hdg));
-	bp.step++;
-	bp.step_start_t = bp.cur_t;
+	bp_set_step_local(bp.step+1);
 }
 
 static void
@@ -1759,8 +1773,7 @@ pb_step_driving_up_connect(void)
 		bp.step_start_t = bp.cur_t;
 	} else if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
 		bp.winching.start_acf_pos = bp.cur_pos.pos;
-		bp.step++;
-		bp.step_start_t = bp.cur_t;
+		bp_set_step_local(bp.step+1);
 	}
 }
 
@@ -1779,8 +1792,7 @@ pb_step_connect_grab(void)
 	}
 
 	if (cradle_closed_fract >= 1) {
-		bp.step++;
-		bp.step_start_t = bp.cur_t;
+		bp_set_step_local(bp.step+1);
 	}
 }
 
@@ -1843,8 +1855,7 @@ pb_step_connect_winch(void)
 	}
 
 	if (bp.winching.complete) {
-		bp.step++;
-		bp.step_start_t = bp.cur_t;
+		bp_set_step_local(bp.step+1);
 	}
 }
 
@@ -1923,8 +1934,7 @@ pb_step_lift(void)
 			msg_play(MSG_CONNECTED);
 			bp.last_voice_t = bp.cur_t;
 		}
-		bp.step++;
-		bp.step_start_t = bp.cur_t;
+		bp_set_step_local(bp.step+1);
 	}
 }
 
@@ -1960,9 +1970,7 @@ pb_step_connected(void)
 			msg_play(MSG_START_PB);
 		}
 
-		bp.step++;
-		bp.step_start_t = bp.cur_t;
-		bp.last_voice_t = bp.cur_t;
+		bp_set_step_local(bp.step+1);
 	}
 }
 
@@ -1991,8 +1999,7 @@ pb_step_pushing(void)
 	if (!slave_mode) {
 		dr_seti(&drs.override_steer, 1);
 		if (!bp_run_push()) {
-			bp.step++;
-			bp.step_start_t = bp.cur_t;
+			bp_set_step_local(bp.step+1);
 			op_complete = B_TRUE;
 		}
 	} else {
@@ -2051,10 +2058,7 @@ pb_step_stopping(void)
 		if (!slave_mode)
 			brakes_set(B_TRUE);
 		if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY) {
-			msg_play(MSG_OP_COMPLETE);
-			bp.step++;
-			bp.step_start_t = bp.cur_t;
-			bp.last_voice_t = bp.cur_t;
+			bp_set_step_local(bp.step+1);
 		}
 	}
 }
@@ -2079,8 +2083,7 @@ pb_step_stopped(void)
 	} else if (bp.cur_t - bp.step_start_t >= STATE_TRANS_DELAY &&
 	    bp.cur_t - bp.last_voice_t >= msg_dur(MSG_OP_COMPLETE) +
 	    STATE_TRANS_DELAY) {
-		bp.step++;
-		bp.step_start_t = bp.cur_t;
+		bp_set_step_local(bp.step+1);
 		bp.last_voice_t = bp.cur_t;
 	}
 }
@@ -2127,8 +2130,7 @@ pb_step_lowering(void)
 
 	if (lift_fract == 0) {
 		tug_set_cradle_air_on(bp_ls.tug, B_FALSE, bp.cur_t);
-		bp.step++;
-		bp.step_start_t = bp.cur_t;
+		bp_set_step_local(bp.step+1);
 	}
 }
 
@@ -2188,8 +2190,7 @@ pb_step_ungrabbing(void)
 		bp.reconnect = B_FALSE;
 		bp.ok2disco = B_FALSE;
 
-		bp.step++;
-		bp.step_start_t = bp.cur_t;
+		bp_set_step_local(bp.step+1);
 	}
 }
 
@@ -2231,8 +2232,7 @@ pb_step_closing_cradle(void)
 
 		tug_set_hazard_lights_on(B_FALSE);
 
-		bp.step++;
-		bp.step_start_t = bp.cur_t;
+		bp_set_step_local(bp.step+1);
 		bp.last_voice_t = bp.cur_t;
 	}
 }
@@ -2300,7 +2300,6 @@ recon_handler(XPLMCommandRef cmd, XPLMCommandPhase phase, void *refcon)
 	op_complete = B_FALSE;
 	bp.reconnect = B_TRUE;
 	bp_set_step_local(PB_STEP_GRABBING);
-	bp.step_start_t = bp.cur_t;
 	bp_reconnect_notify();
 	return (1);
 }
@@ -2429,8 +2428,7 @@ pb_step_waiting4ok2disco(void)
 		    -bp.acf.nw_z + bp_ls.tug->info->apch_dist));
 		(void) tug_drive2point(bp_ls.tug, p, bp.cur_pos.hdg);
 
-		bp.step++;
-		bp.step_start_t = bp.cur_t;
+		bp_set_step_local(bp.step+1);
 	}
 }
 
@@ -2476,8 +2474,7 @@ pb_step_starting2clear(void)
 	VERIFY(tug_drive2point(bp_ls.tug, turn_p, turn_hdg));
 	VERIFY(tug_drive2point(bp_ls.tug, abeam_p, back_hdg));
 
-	bp.step++;
-	bp.step_start_t = bp.cur_t;
+	bp_set_step_local(bp.step+1);
 }
 
 static void
@@ -2562,8 +2559,7 @@ pb_step_clear_signal(void)
 		}
 	}
 	tug_set_clear_signal(B_FALSE, B_FALSE);
-	bp.step++;
-	bp.step_start_t = bp.cur_t;
+	bp_set_step_local(bp.step+1);
 }
 
 /*
@@ -2795,8 +2791,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 					msg_play(MSG_RDY2CONN);
 				bp.last_voice_t = bp.cur_t;
 			}
-			bp.step++;
-			bp.step_start_t = bp.cur_t;
+			bp_set_step_local(bp.step+1);
 		}
 		break;
 	}
@@ -2821,8 +2816,8 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			brakes_set(B_FALSE);
 		}
 		if (bp.cur_t - bp.step_start_t >= PB_START_DELAY) {
-			bp.step++;
-			bp.step_start_t = bp.cur_t;
+			bp_set_step_local(bp.step+1);
+			
 		} else if (!slave_mode) {
 			seg_t *seg = list_tail(&bp.segs);
 			ASSERT(seg != NULL);
@@ -2879,8 +2874,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		}
 		if (tug_is_stopped(bp_ls.tug)) {
 			tug_set_cradle_beeper_on(bp_ls.tug, B_TRUE);
-			bp.step++;
-			bp.step_start_t = bp.cur_t;
+			bp_set_step_local(bp.step+1);
 		}
 		break;
 	case PB_STEP_CLOSING_CRADLE:
@@ -2891,8 +2885,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 		break;
 	case PB_STEP_MOVING2CLEAR:
 		if (tug_is_stopped(bp_ls.tug)) {
-			bp.step++;
-			bp.step_start_t = bp.cur_t;
+			bp_set_step_local(bp.step+1);
 		}
 		break;
 	case PB_STEP_CLEAR_SIGNAL:
