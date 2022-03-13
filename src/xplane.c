@@ -55,15 +55,16 @@
 
 #define	STATUS_CHECK_INTVAL	1	/* second */
 enum {
-	SMARTCOPILOT_STATE_OFF = 0,	/* disconnected */
-	SMARTCOPILOT_STATE_SLAVE = 1,	/* connected and we're slave */
-	SMARTCOPILOT_STATE_MASTER = 2	/* connected and we're master */
+	COUPLED_STATE_OFF = 0,	/* disconnected */
+	COUPLED_STATE_SLAVE = 1,	/* connected and we're slave */
+	COUPLED_STATE_MASTER = 2,	/* connected and we're master */
+	COUPLED_STATE_PASSENGER = -1 /* connected and we're passenger */
 };
 
 static bool_t		inited = B_FALSE;
 
 static XPLMCommandRef	start_pb, stop_pb, start_cam, stop_cam, conn_first;
-static XPLMCommandRef	cab_cam, recreate_routes;
+static XPLMCommandRef	cab_cam, recreate_routes, abort_push;
 static XPLMMenuID	root_menu, dev_menu;
 static int		plugins_menu_item, dev_menu_item;
 static int		start_pb_plan_menu_item, stop_pb_plan_menu_item;
@@ -78,6 +79,7 @@ static int stop_cam_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 static int conn_first_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 static int cab_cam_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 static int recreate_routes_handler(XPLMCommandRef, XPLMCommandPhase, void *);
+static int abort_push_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 
 static bool_t		start_after_cam = B_FALSE;
 
@@ -88,6 +90,9 @@ const char *const	bp_plugindir = plugindir;
 
 static bool_t		smartcopilot_present;
 static dr_t		smartcopilot_state;
+
+static bool_t		sharedflight_present;
+static dr_t     sharedflight_state;		
 
 int			bp_xp_ver, bp_xplm_ver;
 XPLMHostApplicationID	bp_host_id;
@@ -139,11 +144,13 @@ static XPLMFlightLoopID		reload_floop_ID = NULL;
  *	disabled on the slave machine and stopping of the pushback can only be
  *	performed by the master machine.
  */
-static dr_t	bp_started_dr, bp_connected_dr, slave_mode_dr, op_complete_dr;
+static dr_t	bp_started_dr, bp_connected_dr, slave_mode_dr, pb_set_remote_dr;
+static dr_t op_complete_dr, step_dr;
 static dr_t	plan_complete_dr, bp_tug_name_dr;
 bool_t		bp_started = B_FALSE;
 bool_t		bp_connected = B_FALSE;
 bool_t		slave_mode = B_FALSE;
+bool_t      pb_set_remote = B_FALSE;
 bool_t		op_complete = B_FALSE;
 bool_t		plan_complete = B_FALSE;
 char		bp_tug_name[64] = { 0 };
@@ -232,6 +239,7 @@ init_core_state(void)
 	bp_started = B_FALSE;
 	bp_connected = B_FALSE;
 	slave_mode = B_FALSE;
+	pb_set_remote = B_FALSE;
 	op_complete = B_FALSE;
 	plan_complete = B_FALSE;
 }
@@ -448,6 +456,18 @@ bp_get_lang(void)
 	return (acfutils_xplang2code(XPLMGetLanguage()));
 }
 
+
+static void
+coupled_state_change()
+{
+	/* If we were in slave mode, reenable the menu items. */
+	XPLMEnableMenuItem(root_menu, start_pb_menu_item, slave_mode ? 1 : 0);
+	XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, slave_mode ? 1 : 0);
+	
+	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
+	XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
+}
+
 void
 slave_mode_cb(dr_t *dr, void *unused)
 {
@@ -457,16 +477,29 @@ slave_mode_cb(dr_t *dr, void *unused)
 
 	if (slave_mode) {
 		bp_fini();
-		XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_FALSE);
-		XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
-		XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_FALSE);
-		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
 	} else {
-		XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_TRUE);
-		XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
-		XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_TRUE);
-		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
+		pb_set_remote = B_FALSE;
 	}
+
+	coupled_state_change();
+}
+
+void
+pb_set_remote_cb(dr_t *dr, void *new_remote_pb_ptr)
+{
+	UNUSED(dr);
+	
+	pb_set_remote = *((int*) new_remote_pb_ptr) ? B_TRUE : B_FALSE;
+}
+
+void
+step_cb(dr_t *dr, void *new_step_ptr)
+{
+	UNUSED(dr);
+
+	pushback_step_t new_step = *((pushback_step_t*) new_step_ptr);
+
+	bp_set_step_rcvd(new_step);
 }
 
 static float
@@ -479,10 +512,11 @@ status_check(float elapsed, float elapsed2, int counter, void *refcon)
 
 	XPLMEnableMenuItem(root_menu, cab_cam_menu_item, cab_view_can_start());
 
-	if (!smartcopilot_present)
+	// Status check only needed if we have a known system of coupling installed...
+	if (!smartcopilot_present && !sharedflight_present)
 		return (1);
 
-	if (dr_geti(&smartcopilot_state) == SMARTCOPILOT_STATE_SLAVE &&
+	if (smartcopilot_present && dr_geti(&smartcopilot_state) == COUPLED_STATE_SLAVE &&
 	    !slave_mode) {
 		if (bp_started) {
 			XPLMSpeakString(_("Pushback failure: smartcopilot "
@@ -495,25 +529,40 @@ status_check(float elapsed, float elapsed2, int counter, void *refcon)
 		 * will control us.
 		 */
 		bp_fini();
-		XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_FALSE);
-		XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
-		XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_FALSE);
-		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
 		slave_mode = B_TRUE;
-	} else if (dr_geti(&smartcopilot_state) != SMARTCOPILOT_STATE_SLAVE &&
+		coupled_state_change();
+	} else if (sharedflight_present && dr_geti(&sharedflight_state) == COUPLED_STATE_SLAVE &&
+		!slave_mode) {
+		if (bp_started) {
+			XPLMSpeakString(_("Pushback failure: Shared Flight "
+			    "attempted to switch pilot flying or network "
+			    "connection lost. Stopping operation."));
+		}
+		bp_fini();
+		slave_mode = B_TRUE;
+		coupled_state_change();
+	} else if ((smartcopilot_present && dr_geti(&smartcopilot_state) != COUPLED_STATE_SLAVE) &&
+		(!sharedflight_present || dr_geti(&sharedflight_state) != COUPLED_STATE_SLAVE) &&
 	    slave_mode) {
 		if (bp_started) {
 			XPLMSpeakString(_("Pushback failure: smartcopilot "
 			    "attempted to switch master/slave or network "
 			    "connection lost. Stopping operation."));
 		}
-		/* If we were in slave mode, reenable the menu items. */
 		bp_fini();
-		XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_TRUE);
-		XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
-		XPLMEnableMenuItem(root_menu, start_pb_plan_menu_item, B_TRUE);
-		XPLMEnableMenuItem(root_menu, stop_pb_plan_menu_item, B_FALSE);
 		slave_mode = B_FALSE;
+		coupled_state_change();
+	} else if ((sharedflight_present && dr_geti(&sharedflight_state) != COUPLED_STATE_SLAVE && dr_geti(&sharedflight_state) != COUPLED_STATE_PASSENGER) &&
+		(!smartcopilot_present || dr_geti(&smartcopilot_state) != COUPLED_STATE_SLAVE) &&
+	    slave_mode) {
+		if (bp_started) {
+			XPLMSpeakString(_("Pushback failure: Shared Flight "
+			    "attempted to switch pilot flying or network "
+			    "connection lost. Stopping operation."));
+		}
+		bp_fini();
+		slave_mode = B_FALSE;
+		coupled_state_change();
 	}
 
 	return (STATUS_CHECK_INTVAL);
@@ -608,6 +657,10 @@ XPluginStart(char *name, char *sig, char *desc)
 	    "BetterPushback/recreate_scenery_routes",
 	    _("Recreate scenery routes from WED files."));
 
+	abort_push = XPLMCreateCommand("BetterPushback/abort_push",
+		_("Abort pushback during coupled push"));
+
+
 	bp_boot_init();
 
 	dr_create_i(&bp_started_dr, (int *)&bp_started, B_FALSE,
@@ -617,6 +670,12 @@ XPluginStart(char *name, char *sig, char *desc)
 	dr_create_i(&slave_mode_dr, (int *)&slave_mode, B_TRUE,
 	    "bp/slave_mode");
 	slave_mode_dr.write_cb = slave_mode_cb;
+	dr_create_i(&pb_set_remote_dr, (int *)&pb_set_remote, B_TRUE,
+	    "bp/pb_remote");
+	pb_set_remote_dr.write_cb = pb_set_remote_cb;
+	dr_create_i(&step_dr, (int *)&bp.step, B_TRUE,
+	    "bp/step");
+	step_dr.write_cb = step_cb;
 	dr_create_i(&op_complete_dr, (int *)&op_complete, B_TRUE,
 	    "bp/op_complete");
 	dr_create_i(&plan_complete_dr, (int *)&plan_complete, B_TRUE,
@@ -640,6 +699,8 @@ XPluginStop(void)
 	bp_shut_fini();
 	dr_delete(&bp_started_dr);
 	dr_delete(&slave_mode_dr);
+	dr_delete(&pb_set_remote_dr);
+	dr_delete(&step_dr);
 	dr_delete(&op_complete_dr);
 	dr_delete(&bp_tug_name_dr);
 
@@ -680,6 +741,9 @@ XPluginReceiveMessage(XPLMPluginID from, int msg, void *param)
 		/* Force a reinit to re-read aircraft size params */
 		smartcopilot_present = dr_find(&smartcopilot_state,
 		    "scp/api/ismaster");
+		sharedflight_present = dr_find(&sharedflight_state,
+			"SharedFlight/is_pilot_flying");
+
 		stop_cam_handler(NULL, xplm_CommandEnd, NULL);
 		bp_fini();
 		cab_view_fini();
@@ -731,6 +795,7 @@ bp_priv_enable(void)
 	XPLMRegisterCommandHandler(cab_cam, cab_cam_handler, 1, NULL);
 	XPLMRegisterCommandHandler(recreate_routes, recreate_routes_handler,
 	    1, NULL);
+	XPLMRegisterCommandHandler(abort_push, abort_push_handler, 1, NULL);
 
 	plugins_menu_item = XPLMAppendMenuItem(XPLMFindPluginsMenu(),
 	    "Better Pushback", NULL, 1);
@@ -841,6 +906,21 @@ bp_sched_reload(void)
 	reload_rqst = B_TRUE;
 	ASSERT(reload_floop_ID != NULL);
 	XPLMScheduleFlightLoop(reload_floop_ID, -1, 1);
+}
+
+static int
+abort_push_handler(XPLMCommandRef cmd, XPLMCommandPhase phase,
+	void *refcon)
+{
+	UNUSED(cmd);
+	UNUSED(refcon);
+	if (phase != xplm_CommandEnd)
+		return (0);
+	bp_fini();
+	logMsg("bp_fini called from abort_push_handler, bp_started = %d", bp_started);
+	slave_mode = B_FALSE;
+	coupled_state_change(); 
+	return (1);
 }
 
 #if	IBM

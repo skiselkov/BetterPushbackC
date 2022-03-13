@@ -20,13 +20,13 @@ QT -= gui core
 CONFIG += plugin debug
 CONFIG -= thread exceptions qt rtti
 
-INCLUDEPATH += $$[LIBACFUTILS]/SDK/CHeaders/XPLM
-INCLUDEPATH += $$[LIBACFUTILS]/SDK/CHeaders/Widgets
+INCLUDEPATH += $$[LIBACFUTILSBP]/SDK/CHeaders/XPLM
+INCLUDEPATH += $$[LIBACFUTILSBP]/SDK/CHeaders/Widgets
 # Always just use the shipped OpenAL headers for predictability.
 # The ABI is X-Plane-internal and stable anyway.
-INCLUDEPATH += $$[LIBACFUTILS]/OpenAL/include
-INCLUDEPATH += $$[LIBACFUTILS]/src
-INCLUDEPATH += $$[LIBACFUTILS]/acf_apis
+INCLUDEPATH += $$[LIBACFUTILSBP]/OpenAL/include
+INCLUDEPATH += $$[LIBACFUTILSBP]/src
+INCLUDEPATH += $$[LIBACFUTILSBP]/acf_apis
 
 QMAKE_CFLAGS += -std=c99 -g -W -Wall -Wextra -Werror -fvisibility=hidden \
     -Wno-unused-local-typedefs -Wunused-result
@@ -53,7 +53,7 @@ DEFINES += BP_PLUGIN_VERSION=\'\"$$system("git describe --abbrev=0 --tags")\"\'
 !macx {
 	LIBS += -static-libgcc
 }
-
+LIBACFUTILSBP
 win32 {
 	CONFIG += dll
 	DEFINES += APL=0 IBM=1 LIN=0 _WIN32_WINNT=0x0600
@@ -63,16 +63,16 @@ win32 {
 }
 
 win32:contains(CROSS_COMPILE, x86_64-w64-mingw32-) {
-	QMAKE_CFLAGS += $$system("$$[LIBACFUTILS]/pkg-config-deps win-64 \
+	QMAKE_CFLAGS += $$system("$$[LIBACFUTILSBP]/pkg-config-deps win-64 \
 	    --static-openal --cflags")
 
 	# This must go first for GCC to properly find dependent symbols
-	LIBS += -L$$[LIBACFUTILS]/qmake/win64 -lacfutils
-	LIBS += $$system("$$[LIBACFUTILS]/pkg-config-deps win-64 \
+	LIBS += -L$$[LIBACFUTILSBP]/qmake/win64 -lacfutils
+	LIBS += $$system("$$[LIBACFUTILSBP]/pkg-config-deps win-64 \
 	    --static-openal --libs")
 
-	LIBS += -L$$[LIBACFUTILS]/SDK/Libraries/Win -lXPLM_64 -lXPWidgets_64
-	LIBS += -L$$[LIBACFUTILS]/GL_for_Windows/lib -lglu32 -lopengl32
+	LIBS += -L$$[LIBACFUTILSBP]/SDK/Libraries/Win -lXPLM_64 -lXPWidgets_64
+	LIBS += -L$$[LIBACFUTILSBP]/GL_for_Windows/lib -lglu32 -lopengl32
 	LIBS += -ldbghelp
 }
 
@@ -85,11 +85,11 @@ unix:!macx {
 }
 
 linux-g++-64 {
-	QMAKE_CFLAGS += $$system("$$[LIBACFUTILS]/pkg-config-deps linux-64 \
+	QMAKE_CFLAGS += $$system("$$[LIBACFUTILSBP]/pkg-config-deps linux-64 \
 	    --static-openal --cflags")
 
-	LIBS += -L$$[LIBACFUTILS]/qmake/lin64 -lacfutils
-	LIBS += $$system("$$[LIBACFUTILS]/pkg-config-deps linux-64 \
+	LIBS += -L$$[LIBACFUTILSBP]/qmake/lin64 -lacfutils
+	LIBS += $$system("$$[LIBACFUTILSBP]/pkg-config-deps linux-64 \
 	    --static-openal --libs")
 }
 
@@ -101,18 +101,18 @@ macx {
 
 	DEFINES += APL=1 IBM=0 LIN=0
 	TARGET = mac.xpl
-	LIBS += -F$$[LIBACFUTILS]/SDK/Libraries/Mac
+	LIBS += -F$$[LIBACFUTILSBP]/SDK/Libraries/Mac
 	LIBS += -framework OpenGL -framework AudioToolbox
 	LIBS += -framework CoreAudio -framework AudioUnit
 	LIBS += -framework XPLM -framework XPWidgets
 }
 
 macx-clang {
-	QMAKE_CFLAGS += $$system("$$[LIBACFUTILS]/pkg-config-deps mac-64 \
+	QMAKE_CFLAGS += $$system("$$[LIBACFUTILSBP]/pkg-config-deps mac-64 \
 	    --static-openal --cflags")
 
-	LIBS += -L$$[LIBACFUTILS]/qmake/mac64 -lacfutils
-	LIBS += $$system("$$[LIBACFUTILS]/pkg-config-deps mac-64 \
+	LIBS += -L$$[LIBACFUTILSBP]/qmake/mac64 -lacfutils
+	LIBS += $$system("$$[LIBACFUTILSBP]/pkg-config-deps mac-64 \
 	    --static-openal --libs")
 }
 

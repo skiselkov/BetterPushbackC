@@ -38,6 +38,7 @@ extern const char *const bp_plugindir;
 extern bool_t bp_started;
 extern bool_t bp_connected;
 extern bool_t slave_mode;
+extern bool_t pb_set_remote;
 extern bool_t op_complete;
 extern bool_t plan_complete;
 extern char bp_tug_name[64];
