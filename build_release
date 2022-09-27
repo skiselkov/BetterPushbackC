@@ -142,7 +142,6 @@ Linux)
 Darwin)
 	( cd src && rm -f CMakeCache.txt && cmake $CMAKE_OPTS_COMMON . \
 	    && make clean && make -j${NCPUS} )
-	strip mac_x64/BetterPushback.xpl
 	cp -r mac_x64 BetterPushback
 	;;
 *)
