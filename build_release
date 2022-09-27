@@ -121,6 +121,7 @@ set -e
 
 # We'll try to build on N+1 CPUs we have available. The extra +1 is to allow
 # for one make instance to be blocking on disk.
+HOST_OS="$(uname)"
 if [[ "$HOST_OS" = "Darwin" ]]; then
 	NCPUS=$(( $(sysctl -n hw.ncpu) + 1 ))
 else
