@@ -20,7 +20,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2020 Saso Kiselkov. All rights reserved.
+ * Copyright 2022 Saso Kiselkov. All rights reserved.
  */
 
 #include <string.h>
@@ -247,10 +247,10 @@ load_icon(button_t *btn)
 	}
 	rowbytes = png_get_rowbytes(pngp, infop);
 
-	rowp = malloc(sizeof (*rowp) * btn->h);
+	rowp = safe_malloc(sizeof (*rowp) * btn->h);
 	VERIFY(rowp != NULL);
 	for (int i = 0; i < btn->h; i++) {
-		rowp[i] = malloc(rowbytes);
+		rowp[i] = safe_malloc(rowbytes);
 		VERIFY(rowp[i] != NULL);
 	}
 
@@ -261,7 +261,7 @@ load_icon(button_t *btn)
 	}
 	png_read_image(pngp, rowp);
 
-	btn->tex_data = malloc(btn->h * rowbytes);
+	btn->tex_data = safe_malloc(btn->h * rowbytes);
 	for (int i = 0; i < btn->h; i++)
 		memcpy(&btn->tex_data[i * rowbytes], rowp[i], rowbytes);
 
@@ -350,7 +350,13 @@ get_vp(vec4 vp)
 	int vp_xp[4];
 
 	ASSERT(vp != NULL);
-	VERIFY3S(dr_getvi(&drs.viewport, vp_xp, 0, 4), ==, 4);
+
+	if (bp_xp_ver >= 12000) {
+		XPLMGetScreenBoundsGlobal(&vp_xp[0], &vp_xp[3], &vp_xp[2],
+		    &vp_xp[1]);
+	} else {
+		VERIFY3S(dr_getvi(&drs.viewport, vp_xp, 0, 4), ==, 4);
+	}
 	vp[0] = vp_xp[0];
 	vp[1] = vp_xp[1];
 	vp[2] = vp_xp[2] - vp_xp[0];
@@ -396,7 +402,7 @@ vp_unproject(double x, double y, double *x_phys, double *y_phys)
 	ASSERT(!isnan(out_pt[0]));
 	ASSERT(!isnan(out_pt[1]));
 	ASSERT(out_pt[2] != 0);
-	glm_vec_scale(out_pt, ABS(cam_height / out_pt[2]), out_pt);
+	glm_vec3_scale(out_pt, ABS(cam_height / out_pt[2]), out_pt);
 	ASSERT(!isnan(out_pt[0]));
 	ASSERT(!isnan(out_pt[1]));
 	*x_phys = out_pt[0];
@@ -425,7 +431,7 @@ cam_ctl(XPLMCameraPosition_t *pos, int losing_control, void *refcon)
 	pos->roll = 0;
 	pos->zoom = 1;
 
-	XPLMGetMouseLocation(&x, &y);
+	XPLMGetMouseLocationGlobal(&x, &y);
 	vp_unproject(x, y, &dx, &dy);
 
 	/*
@@ -733,9 +739,6 @@ draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 	di.heading = 0;
 	di.pitch = 0;
 	di.roll = 0;
-#if 0
-	XPLMDrawObjects(cam_lamp_obj, 1, &di, 1, 1);
-#endif
 	ASSERT(cam_lamp_inst != NULL);
 	XPLMInstanceSetPosition(cam_lamp_inst, &di, NULL);
 

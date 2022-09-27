@@ -13,7 +13,7 @@
  * CDDL HEADER END
 */
 /*
- * Copyright 2020 Saso Kiselkov. All rights reserved.
+ * Copyright 2022 Saso Kiselkov. All rights reserved.
  */
 
 #include <errno.h>
@@ -32,6 +32,7 @@
 #include <acfutils/glew.h>
 #include <acfutils/helpers.h>
 #include <acfutils/math.h>
+#include <acfutils/safe_alloc.h>
 #include <acfutils/time.h>
 
 #include "cfg.h"
@@ -482,7 +483,7 @@ tug_info_liv_select(tug_info_t *ti, const char *icao, const char *airline)
 			    &airline_matched, &airline_optional);
 			if (matched && (!is_airline || !airline_optional ||
 			    !airline_matched || force_pick_this)) {
-				liv_t *liv = calloc(1, sizeof (*liv));
+				liv_t *liv = safe_calloc(1, sizeof (*liv));
 				liv->livname = strdup(de->d_name);
 				liv->sort_rand = crc64_rand();
 				liv->airline_matched = airline_matched;
@@ -558,7 +559,7 @@ tug_info_read(const char *tugdir, const char *tug_name, const char *icao,
 		return (NULL);
 	}
 
-	ti = calloc(1, sizeof (*ti));
+	ti = safe_calloc(1, sizeof (*ti));
 	ti->mass = NAN;
 	ti->tug_name = strdup(tug_name);
 	ti->tugdir = strdup(tugdir);
@@ -1037,7 +1038,7 @@ tug_liv_subst(const tug_info_t *ti, FILE *fp, const char *tex_type,
 	 * If we didn't find the texture file under its original name,
 	 * it can still exist as a DDS variant. Try with .dds instead.
 	 */
-	tex_name_dds = malloc(strlen(tex_name) + 3 + 1); /* +3 for 'dds' */
+	tex_name_dds = safe_malloc(strlen(tex_name) + 3 + 1); /* +3 for 'dds' */
 	strcpy(tex_name_dds, tex_name);
 	dot = strrchr(tex_name_dds, '.');
 	if (dot != NULL) {
@@ -1178,7 +1179,7 @@ tug_alloc_common(tug_info_t *ti, double tirrad)
 
 	VERIFY(inited);
 
-	tug = calloc(1, sizeof (*tug));
+	tug = safe_calloc(1, sizeof (*tug));
 	list_create(&tug->segs, sizeof (seg_t), offsetof(seg_t, node));
 
 	tug->info = ti;

@@ -20,7 +20,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2017 Saso Kiselkov. All rights reserved.
+ * Copyright 2022 Saso Kiselkov. All rights reserved.
  */
 
 #include <stddef.h>
@@ -29,6 +29,7 @@
 
 #include <acfutils/helpers.h>
 #include <acfutils/math.h>
+#include <acfutils/safe_alloc.h>
 
 #include <XPLMGraphics.h>
 #include <XPLMScenery.h>
@@ -203,7 +204,7 @@ compute_segs_impl(const vehicle_t *veh, vect2_t start_pos, double start_hdg,
 
 		end_pos = vect2_add(vect2_set_abs(dir_v, len), start_pos);
 
-		s1 = calloc(1, sizeof (*s1));
+		s1 = safe_calloc(1, sizeof (*s1));
 		s1->type = SEG_TYPE_STRAIGHT;
 		s1->start_pos = start_pos;
 		s1->start_hdg = start_hdg;
@@ -253,7 +254,7 @@ compute_segs_impl(const vehicle_t *veh, vect2_t start_pos, double start_hdg,
 	}
 	if (l1 == 0) {
 		/* No initial straight segment */
-		s2 = calloc(1, sizeof (*s2));
+		s2 = safe_calloc(1, sizeof (*s2));
 		s2->type = SEG_TYPE_STRAIGHT;
 		s2->start_pos = vect2_add(end_pos, vect2_set_abs(s2_v, l2));
 		s2->start_hdg = end_hdg;
@@ -262,7 +263,7 @@ compute_segs_impl(const vehicle_t *veh, vect2_t start_pos, double start_hdg,
 		s2->backward = backward;
 		s2->len = l2;
 
-		s1 = calloc(1, sizeof (*s1));
+		s1 = safe_calloc(1, sizeof (*s1));
 		s1->type = SEG_TYPE_TURN;
 		s1->start_pos = start_pos;
 		s1->start_hdg = start_hdg;
@@ -273,7 +274,7 @@ compute_segs_impl(const vehicle_t *veh, vect2_t start_pos, double start_hdg,
 		s1->turn.right = (rhdg >= 0);
 	} else {
 		/* No final straight segment */
-		s1 = calloc(1, sizeof (*s1));
+		s1 = safe_calloc(1, sizeof (*s1));
 		s1->type = SEG_TYPE_STRAIGHT;
 		s1->start_pos = start_pos;
 		s1->start_hdg = start_hdg;
@@ -282,7 +283,7 @@ compute_segs_impl(const vehicle_t *veh, vect2_t start_pos, double start_hdg,
 		s1->backward = backward;
 		s1->len = l1;
 
-		s2 = calloc(1, sizeof (*s2));
+		s2 = safe_calloc(1, sizeof (*s2));
 		s2->type = SEG_TYPE_TURN;
 		s2->start_pos = s1->end_pos;
 		s2->start_hdg = s1->end_hdg;
@@ -764,7 +765,7 @@ route_free(route_t *r)
 void
 route_seg_append(avl_tree_t *route_table, route_t *r, const seg_t *seg)
 {
-	seg_t *seg2 = calloc(1, sizeof (*seg2));
+	seg_t *seg2 = safe_calloc(1, sizeof (*seg2));
 
 	memcpy(seg2, seg, sizeof (*seg2));
 	seg_local2world(seg2);
@@ -789,7 +790,7 @@ route_seg_append(avl_tree_t *route_table, route_t *r, const seg_t *seg)
 route_t *
 route_alloc(avl_tree_t *route_table, const list_t *segs)
 {
-	route_t *r = calloc(1, sizeof (*r));
+	route_t *r = safe_calloc(1, sizeof (*r));
 
 	r->pos = NULL_GEO_POS2;
 	r->pos_ecef = NULL_VECT3;
@@ -837,7 +838,7 @@ routes_load(void)
 	    NULL);
 	FILE *fp = fopen(filename, "r");
 	route_t *r = NULL;
-	avl_tree_t *t = calloc(1, sizeof (*t));
+	avl_tree_t *t = safe_calloc(1, sizeof (*t));
 
 	route_table_create(t);
 
@@ -1052,7 +1053,7 @@ route_load(geo_pos2_t start_pos, double start_hdg, list_t *segs)
 	if (r != NULL) {
 		for (seg_t *seg = list_head(&r->segs); seg != NULL;
 		    seg = list_next(&r->segs, seg)) {
-			seg_t *seg2 = calloc(1, sizeof (*seg2));
+			seg_t *seg2 = safe_calloc(1, sizeof (*seg2));
 			memcpy(seg2, seg, sizeof (*seg2));
 			seg_world2local(seg2);
 			list_insert_tail(segs, seg2);

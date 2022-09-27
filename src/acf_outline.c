@@ -13,14 +13,16 @@
  * CDDL HEADER END
 */
 /*
- * Copyright 2019 Saso Kiselkov. All rights reserved.
+ * Copyright 2022 Saso Kiselkov. All rights reserved.
  */
 
 #include <stdio.h>
+#include <string.h>
 
 #include <acfutils/assert.h>
 #include <acfutils/acf_file.h>
 #include <acfutils/perf.h>
+#include <acfutils/safe_alloc.h>
 
 #include "acf_outline.h"
 
@@ -61,25 +63,30 @@ typedef enum {
  * B_TRUE if successful, B_FALSE otherwise.
  */
 bool_t
-part_outline_read(const acf_file_t *acf, int part_nbr, vect2_t *pts, int s_dim,
-    float z_ref)
+part_outline_read(const acf_file_t *acf, const char *part_name, vect2_t *pts,
+    int s_dim, float z_ref)
 {
 	int r_dim;
 	double part_z;
 
-	READ_FEET(part_z, 0, "_part/56/_part_z");
+	ASSERT(acf != NULL);
+
+	if (acf_file_get_version(acf) >= 1200)
+		READ_FEET(part_z, 0, "_body/0/_part_z");
+	else
+		READ_FEET(part_z, 0, "_part/56/_part_z");
 	z_ref -= part_z;
-	READ_INT(r_dim, "_part/%d/_r_dim", part_nbr);
+	READ_INT(r_dim, "_%s/_r_dim", part_name);
 
 	for (int s = 0; s < s_dim; s++) {
 		vect2_t p = VECT2(-1e10, 0);
 
 		for (int r = 0; r < r_dim; r++) {
 			vect2_t p2;
-			READ_FEET(p2.x, 0, "_part/%d/_geo_xyz/%d,%d,0",
-			    part_nbr, s, r);
-			READ_FEET(p2.y, z_ref, "_part/%d/_geo_xyz/%d,%d,2",
-			    part_nbr, s, r);
+			READ_FEET(p2.x, 0, "_%s/_geo_xyz/%d,%d,0",
+			    part_name, s, r);
+			READ_FEET(p2.y, z_ref, "_%s/_geo_xyz/%d,%d,2",
+			    part_name, s, r);
 			if (p2.x > p.x && (s > 0 || p2.y < p.y) &&
 			    (s + 1 < s_dim || p2.y > p.y))
 				p = p2;
@@ -115,8 +122,17 @@ wing_seg_outline_read(const acf_file_t *acf, int wing_nbr, vect2_t pts[4],
 	READ_FLOAT(dihed, "_wing/%d/_dihed_design", wing_nbr);
 	READ_FEET(root_chord, 0, "_wing/%d/_Croot", wing_nbr);
 	READ_FEET(tip_chord, 0, "_wing/%d/_Ctip", wing_nbr);
-	READ_FEET(root.x, 0, "_wing/%d/_crib_x_arm/0", wing_nbr);
-	READ_FEET(root.y, z_ref, "_wing/%d/_crib_z_arm/0", wing_nbr);
+	if (acf_file_get_version(acf) >= 1200) {
+		READ_FEET(root.x, 0, "_wing/%d/_part_x", wing_nbr);
+		READ_FEET(root.y, z_ref, "_wing/%d/_part_z", wing_nbr);
+	} else {
+		READ_FEET(root.x, 0, "_wing/%d/_crib_x_arm/0", wing_nbr);
+		READ_FEET(root.y, z_ref, "_wing/%d/_crib_z_arm/0", wing_nbr);
+	}
+
+	printf("wing/%d: xz=%.1fx%.1f  sweep=%.1f  semilen=%.1f  dihed=%.1f  "
+	    "croot=%.1f  ctip=%.1f\n", wing_nbr, root.x, root.y, sweep,
+	    semilen, dihed, root_chord, tip_chord);
 
 	tip = vect2_add(root, vect2_rot(VECT2(semilen, 0), -sweep));
 	tip.x = (tip.x - root.x) * cos(DEG2RAD(dihed)) + root.x;
@@ -187,10 +203,13 @@ static int
 count_wings(const acf_file_t *acf, int *wing_nbrs, int n_wing_nbrs)
 {
 	double prev_x_arm = 0;
-
 	int n = 0;
+
+	ASSERT(acf != NULL);
+	ASSERT(wing_nbrs != NULL || n_wing_nbrs == 0);
+
 	for (n = 0; n < n_wing_nbrs; n++) {
-		double root_chord, x_arm;
+		double root_chord = 0, x_arm = 0;
 
 		/*
 		 * For a wing segment to make sense it must have a non-zero
@@ -198,13 +217,21 @@ count_wings(const acf_file_t *acf, int *wing_nbrs, int n_wing_nbrs)
 		 * offset of the previous segment.
 		 */
 		READ_FEET(root_chord, 0, "_wing/%d/_Croot", wing_nbrs[n]);
-		READ_FEET(x_arm, 0, "_wing/%d/_crib_x_arm/0", wing_nbrs[n]);
+
+		if (acf_file_get_version(acf) >= 1200) {
+			READ_FEET(x_arm, 0, "_wing/%d/_part_x", wing_nbrs[n]);
+		} else {
+			READ_FEET(x_arm, 0, "_wing/%d/_crib_x_arm/0",
+			    wing_nbrs[n]);
+		}
 		if (root_chord == 0 || x_arm < prev_x_arm)
 			goto errout;
 		prev_x_arm = x_arm;
 
 		continue;
 errout:
+		printf("bad wing/%d  croot=%f  x_arm=%f\n", n,
+		    root_chord, x_arm);
 		for (int i = n + 1; i < n_wing_nbrs; i++)
 			wing_nbrs[i - 1] = wing_nbrs[i];
 		n--;
@@ -213,39 +240,66 @@ errout:
 	return (n);
 }
 
+#define	N_MAIN_WING_IDS		4
+#define	MAIN_WING_IDS_XP11	((int[N_MAIN_WING_IDS]){ 9, 11, 13, 15 })
+#define	MAIN_WING_IDS_XP12	((int[N_MAIN_WING_IDS]){ 1, 3, 5, 7 })
+
+#define	N_STAB_WING_IDS		1
+#define	STAB_WING_IDS_XP11	((int[N_STAB_WING_IDS]){ 17 })
+#define	STAB_WING_IDS_XP12	((int[N_STAB_WING_IDS]){ 9 })
+
 acf_outline_t *
 acf_outline_read(const char *filename)
 {
+	ASSERT(filename != NULL);
 	acf_outline_t *outline = NULL;
 	acf_file_t *acf = acf_file_read(filename);
 	vect2_t *pts = NULL;
 	int p, s_dim_fus;
 	double z_ref;
 
+	enum { MAX_WINGS = 4 };
 	/* even wing numbers = left side, +1 is right side */
-	enum { N_MAIN_WINGS = 4 };
-	int main_wings[N_MAIN_WINGS] = { 9, 11, 13, 15 };
-	int n_main_wings;
-	enum { N_STAB_WINGS = 1 };
-	int stab_wings[N_STAB_WINGS] = { 17 };
-	int n_stab_wings;
+	int main_wings[MAX_WINGS], stab_wings[MAX_WINGS];
+	int n_main_wings = N_MAIN_WING_IDS, n_stab_wings = N_STAB_WING_IDS;
 
 	if (acf == NULL)
 		goto errout;
 
-	outline = calloc(1, sizeof (*outline));
+	CTASSERT(ARRAY_NUM_ELEM(main_wings) >= N_MAIN_WING_IDS);
+	CTASSERT(ARRAY_NUM_ELEM(stab_wings) >= N_STAB_WING_IDS);
+	if (acf_file_get_version(acf) >= 1200) {
+		memcpy(main_wings, MAIN_WING_IDS_XP12,
+		    sizeof (MAIN_WING_IDS_XP12));
+		memcpy(stab_wings, STAB_WING_IDS_XP12,
+		    sizeof (STAB_WING_IDS_XP12));
+	} else {
+		memcpy(main_wings, MAIN_WING_IDS_XP11,
+		    sizeof (MAIN_WING_IDS_XP11));
+		memcpy(stab_wings, STAB_WING_IDS_XP11,
+		    sizeof (STAB_WING_IDS_XP12));
+	}
+	outline = safe_calloc(1, sizeof (*outline));
 
-	READ_INT(s_dim_fus, "_part/56/_s_dim");
+	if (acf_file_get_version(acf) >= 1200)
+		READ_INT(s_dim_fus, "_body/0/_s_dim");
+	else
+		READ_INT(s_dim_fus, "_part/56/_s_dim");
 	READ_FEET(z_ref, 0, "acf/_cgZ");
 
-	n_main_wings = count_wings(acf, main_wings, N_MAIN_WINGS);
-	n_stab_wings = count_wings(acf, stab_wings, N_STAB_WINGS);
+	n_main_wings = count_wings(acf, main_wings, n_main_wings);
+	n_stab_wings = count_wings(acf, stab_wings, n_stab_wings);
 
 	outline->num_pts = s_dim_fus + n_main_wings * 4 + n_stab_wings * 4 + 2;
-	outline->pts = calloc(outline->num_pts, sizeof (*pts));
+	outline->pts = safe_calloc(outline->num_pts, sizeof (*pts));
 
-	part_outline_read(acf, 56, outline->pts, s_dim_fus, z_ref);
-
+	if (acf_file_get_version(acf) >= 1200) {
+		part_outline_read(acf, "body/0", outline->pts, s_dim_fus,
+		    z_ref);
+	} else {
+		part_outline_read(acf, "part/56", outline->pts, s_dim_fus,
+		    z_ref);
+	}
 	p = s_dim_fus;
 	outline->pts[p++] = NULL_VECT2;
 	p += wing_outline_read(acf, n_main_wings, main_wings,

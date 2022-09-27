@@ -13,7 +13,7 @@
  * CDDL HEADER END
 */
 /*
- * Copyright 2017 Saso Kiselkov. All rights reserved.
+ * Copyright 2022 Saso Kiselkov. All rights reserved.
  */
 
 #include <stddef.h>
@@ -29,6 +29,8 @@
 
 #include <acfutils/assert.h>
 #include <acfutils/helpers.h>
+#include <acfutils/safe_alloc.h>
+#include <acfutils/stat.h>
 
 #include "driving.h"
 #include "wed2route.h"
@@ -345,7 +347,7 @@ wed2dat(const char *earthwedxml, const char *route_table_filename)
 	}
 
 	/* construct an ID-to-object mapping for faster lookup */
-	objmap = calloc(1, sizeof (*objmap));
+	objmap = safe_calloc(1, sizeof (*objmap));
 	avl_create(objmap, objmap_compar, sizeof (objmap_t),
 	    offsetof(objmap_t, avl_node));
 
@@ -353,7 +355,7 @@ wed2dat(const char *earthwedxml, const char *route_table_filename)
 	if (xpath_obj == NULL || xpath_obj->nodesetval == NULL)
 		goto errout;
 	for (int i = 0; i < xpath_obj->nodesetval->nodeNr; i++) {
-		objmap_t *e = calloc(1, sizeof (*e));
+		objmap_t *e = safe_calloc(1, sizeof (*e));
 		const xmlNode *node = xpath_obj->nodesetval->nodeTab[i];
 		xmlChar *prop = xmlGetProp(node, (xmlChar *)"id");
 		avl_index_t where;

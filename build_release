@@ -13,7 +13,9 @@
 #
 # CDDL HEADER END
 
-# Copyright 2017 Saso Kiselkov. All rights reserved.
+# Copyright 2022 Saso Kiselkov. All rights reserved.
+
+CMAKE_OPTS_COMMON="-DCMAKE_BUILD_TYPE=Release"
 
 DIST_FILES=(
     'COPYING'					''
@@ -113,19 +115,35 @@ function install_po_files() {
 }
 
 rm -rf BetterPushback
+mkdir -p BetterPushback
 
 set -e
 
+# We'll try to build on N+1 CPUs we have available. The extra +1 is to allow
+# for one make instance to be blocking on disk.
+if [[ "$HOST_OS" = "Darwin" ]]; then
+	NCPUS=$(( $(sysctl -n hw.ncpu) + 1 ))
+else
+	NCPUS=$(( $(grep 'processor[[:space:]]\+:' /proc/cpuinfo  | wc -l) + \
+	    1 ))
+fi
+
 case `uname` in
 Linux)
-	( cd qmake && ./build-win-lin $@ )
-	mkdir -p BetterPushback/64
-	cp qmake/output/64/{win,lin}.xpl BetterPushback/64
+	( cd src && rm -f CMakeCache.txt && \
+	    cmake $CMAKE_OPTS_COMMON -DCMAKE_TOOLCHAIN_FILE=XCompile.cmake \
+	    -DHOST=x86_64-w64-mingw32 . && make clean && make -j${NCPUS} &&
+	    rm -f libBetterPushback.xpl.dll.a )
+	( cd src && rm -f CMakeCache.txt && cmake $CMAKE_OPTS_COMMON . \
+	    && make clean && make -j${NCPUS} )
+	strip {win_x64,lin_x64}/BetterPushback.xpl
+	cp -r {win_x64,lin_x64} BetterPushback
 	;;
 Darwin)
-	( cd qmake && ./build-mac $@ )
-	mkdir -p BetterPushback/64
-	cp qmake/output/64/mac.xpl BetterPushback/64
+	( cd src && rm -f CMakeCache.txt && cmake $CMAKE_OPTS_COMMON . \
+	    && make clean && make -j${NCPUS} )
+	strip mac_x64/BetterPushback.xpl
+	cp -r mac_x64 BetterPushback
 	;;
 *)
 	echo "Unsupported platform" >&2

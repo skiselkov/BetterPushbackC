@@ -20,7 +20,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2019 Saso Kiselkov. All rights reserved.
+ * Copyright 2022 Saso Kiselkov. All rights reserved.
  */
 
 #include <string.h>
@@ -45,6 +45,7 @@
 #include <acfutils/math.h>
 #include <acfutils/list.h>
 #include <acfutils/perf.h>
+#include <acfutils/safe_alloc.h>
 #include <acfutils/time.h>
 #include <acfutils/wav.h>
 
@@ -1631,7 +1632,7 @@ pb_step_start(void)
 	} else {
 		for (seg_t *seg = list_head(&bp.segs); seg != NULL;
 		    seg = list_next(&bp.segs, seg)) {
-			seg_t *seg2 = calloc(1, sizeof (*seg2));
+			seg_t *seg2 = safe_calloc(1, sizeof (*seg2));
 			memcpy(seg2, seg, sizeof (*seg2));
 			list_insert_tail(&bp_ls.tug->segs, seg2);
 		}

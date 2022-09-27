@@ -11,21 +11,52 @@
 #
 # CDDL HEADER END
 
-# Copyright 2017 Saso Kiselkov. All rights reserved.
+# Copyright 2022 Saso Kiselkov. All rights reserved.
 
-cmake_minimum_required(VERSION 2.8)
-project(bp C)
+cmake_minimum_required(VERSION 3.0)
 
-SET(SRC acf_outline.c bp.c bp_cam.c cab_view.c cfg.c driving.c ff_a320_intf.c
-    msg.c tug.c wed2route.c xplane.c)
-SET(HDR acf_outline.h bp.h bp_cam.h cab_view.h cfg.h driving.h ff_a320_intf.h
-    msg.h tug.h wed2route.h xplane.h)
+project(bp)
 
-SET(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELEASE} -DDEBUG")
-SET(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DDEBUG -O0")
+# Platform-specific variables
+if(APPLE)
+	set(PLAT_SHORT "mac64")
+	set(PLAT_LONG "mac-64")
+	set(PLAT_ONLY "mac")
+	set(PLUGIN_BIN_OUTDIR "mac_x64")
+elseif(WIN32)
+	set(PLAT_SHORT "win64")
+	set(PLAT_LONG "win-64")
+	set(PLAT_ONLY "win")
+	set(PLUGIN_BIN_OUTDIR "win_x64")
+else()
+	set(PLAT_SHORT "lin64")
+	set(PLAT_LONG "linux-64")
+	set(PLAT_ONLY "linux")
+	set(PLUGIN_BIN_OUTDIR "lin_x64")
+endif()
 
-SET(ALL_SRC ${SRC} ${HDR})
-LIST(SORT ALL_SRC)
+# Build path setup
+file(GLOB LIBACFUTILS "libacfutils")
+file(GLOB GLEW_PREFIX "${LIBACFUTILS}/glew/glew-1.13.0-${PLAT_LONG}/install")
+file(GLOB OPENAL_PREFIX
+    "${LIBACFUTILS}/openal-soft/openal-soft-1.21.0-${PLAT_LONG}/build/install")
+file(GLOB CAIRO_PREFIX "${LIBACFUTILS}/cairo/cairo-${PLAT_LONG}")
+file(GLOB PIXMAN_PREFIX "${LIBACFUTILS}/cairo/pixman-${PLAT_LONG}")
+file(GLOB FREETYPE_PREFIX "${LIBACFUTILS}/freetype/freetype-${PLAT_LONG}")
+file(GLOB PCRE2_PREFIX "${LIBACFUTILS}/pcre2/pcre2-${PLAT_LONG}")
+file(GLOB CGLM_PREFIX "${LIBACFUTILS}/cglm/cglm-0.7.9")
+file(GLOB LIBPNG_PREFIX "${LIBACFUTILS}/libpng/libpng-${PLAT_LONG}")
+file(GLOB LIBXML_PREFIX "${LIBACFUTILS}/libxml2/libxml2-${PLAT_LONG}")
+file(GLOB OPUSFILE_PREFIX "${LIBACFUTILS}/opus/opusfile-${PLAT_LONG}")
+file(GLOB LIBOGG_PREFIX "${LIBACFUTILS}/opus/libogg-${PLAT_LONG}/install")
+file(GLOB OPENSSL_PREFIX "${LIBACFUTILS}/ssl/openssl-${PLAT_LONG}")
+file(GLOB ICONV_PREFIX "${LIBACFUTILS}/libiconv/libiconv-${PLAT_LONG}")
+
+file(GLOB SRC *.c)
+file(GLOB HDR *.h)
+
+set(ALL_SRC ${SRC} ${HDR})
+list(SORT ALL_SRC)
 
 if(APPLE)
 	add_executable(bp ${ALL_SRC})
@@ -33,36 +64,37 @@ else()
 	add_library(bp SHARED ${ALL_SRC})
 endif()
 
-include_directories(bp PUBLIC "${LIBACFUTILS}/src")
+include_directories(bp PUBLIC
+    "${LIBACFUTILS}/src"
+    "${LIBACFUTILS}/acf_apis"
+    "${LIBACFUTILS}/SDK/CHeaders/XPLM"
+    "${LIBACFUTILS}/SDK/CHeaders/Widgets"
+    "${LIBACFUTILS}/SDK/CHeaders/Wrappers"
+    "${LIBPNG_PREFIX}/include"
+    "${LIBXML_PREFIX}/include/libxml2"
+    "${PCRE2_PREFIX}/include"
+    "${CGLM_PREFIX}/include"
+    "${OPENAL_PREFIX}/include/AL"
+    "${CAIRO_PREFIX}/include/cairo"
+    "${FREETYPE_PREFIX}/include/freetype2"
+    "${GLEW_PREFIX}/include"
+    )
 
-#compiler flags
+# Compiler flags
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Werror --std=c99 \
-    -Wno-unused-local-typedefs")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} \
-    -DCHECK_RESULT_USED=\"__attribute__ ((warn_unused_result))\"")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64")
-
-#libraries
-if(UNIX)
-	include_directories(bp PUBLIC "../OpenAL/include")
-	include_directories(bp PUBLIC "${LIBACFUTILS}/SDK/CHeaders/XPLM"
-	    "${LIBACFUTILS}/SDK/CHeaders/Widgets"
-	    "${LIBACFUTILS}/SDK/CHeaders/Wrappers"
-	    "${LIBACFUTILS}/acf_apis")
-endif(UNIX)
+    -Wno-unused-local-typedefs -fvisibility=hidden")
 if(APPLE)
-	include_directories(bp PUBLIC "../libpng/libpng-mac-64/include")
-	include_directories(bp PUBLIC "../pcre2/pcre2-mac-64/include")
-	include_directories(bp PUBLIC
-	    "../libxml2/libxml2-mac-64/include/libxml2")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -arch x86_64 -Wno-deprecated")
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mmacosx-version-min=10.7")
-elseif(UNIX)
-	include_directories(bp PUBLIC "../libpng/libpng-linux-64/include")
-	include_directories(bp PUBLIC "../pcre2/pcre2-linux-64/include")
-	include_directories(bp PUBLIC
-	    "../libxml2/libxml2-linux-64/include/libxml2")
 endif()
+
+# Defines
+add_definitions(-D_GNU_SOURCE)
+add_definitions(-D_FILE_OFFSET_BITS=64)
+add_definitions(-DDEBUG)
+add_definitions(-DGLEW_BUILD=GLEW_STATIC -DGLEW_MX)
+add_definitions(-DPCRE2_CODE_UNIT_WIDTH=8 -DPCRE2_STATIC)
+add_definitions(-DLIBXML_STATIC)
+add_definitions("-DCHECK_RESULT_USED=__attribute__((warn_unused_result))")
 
 # Yes, we need to strip a trailing newline from command output. CMake is
 # "smart" like that...
@@ -70,68 +102,122 @@ execute_process(COMMAND git rev-parse --short HEAD
     OUTPUT_VARIABLE BP_PLUGIN_VERSION)
 string(REGEX REPLACE "\n$" "" BP_PLUGIN_VERSION "${BP_PLUGIN_VERSION}")
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DBP_PLUGIN_VERSION='\"${BP_PLUGIN_VERSION}\"'")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DXPLM200=1 -DXPLM210=1")
+add_definitions(-DBP_PLUGIN_VERSION="${BP_PLUGIN_VERSION}")
+add_definitions(-DXPLM200=1 -DXPLM210=1 -DXPLM300=1 -DXPLM301=1 -DXPLM302=1)
 if(APPLE)
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DAPL=1 -DIBM=0 -DLIN=0")
+	add_definitions(-DAPL=1 -DIBM=0 -DLIN=0)
+elseif(WIN32)
+	add_definitions(-DAPL=0 -DIBM=1 -DLIN=0 -D_WIN32_WINNT=0x0600)
 else()
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DAPL=0 -DIBM=0 -DLIN=1")
+	add_definitions(-DAPL=0 -DIBM=0 -DLIN=1)
 endif()
 
-# linking
+# Linking
 # Careful: order matters in target_link_libraries. Dependencies must be
 # ordered as first symbol callers and then as symbol providers (i.e.
 # libpng16 depends on libz, so linking must be first: libpng, then libz).
 link_libraries(m)
-set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH}
-    ../zlib/zlib-linux-64 ../libpng/libpng-linux-64/.libs
-    ../pcre2/pcre2-linux-64/.libs
-    ${LIBACFUTILS}/qmake/lin64
-    ${LIBACFUTILS}/opus/opusfile-linux-64/lib
-    ${LIBACFUTILS}/opus/opus-linux-64/lib
-    ${LIBACFUTILS}/opus/libogg-linux-64/install/lib
-    ../libxml2/libxml2-linux-64/.libs)
-FIND_LIBRARY(LIBACFUTILS_LIBRARY acfutils)
-FIND_LIBRARY(LIBPNG_LIBRARY png16)
-FIND_LIBRARY(ZLIB_LIBRARY z)
-FIND_LIBRARY(PCRE2_LIBRARY pcre2-8)
-FIND_LIBRARY(OPUSFILE_LIBRARY opusfile)
-FIND_LIBRARY(OPUS_LIBRARY opus)
-FIND_LIBRARY(OGG_LIBRARY ogg)
-FIND_LIBRARY(LIBXML2_LIBRARY xml2)
-FIND_LIBRARY(LIBC_NONSHARED c_nonshared)
+file(GLOB LIBACFUTILS_LIBRARY
+    "${LIBACFUTILS}/qmake/${PLAT_SHORT}/libacfutils.a")
+file(GLOB LIBPNG_LIBRARY "${LIBPNG_PREFIX}/lib/libpng16.a")
+file(GLOB ZLIB_LIBRARY "${LIBACFUTILS}/zlib/zlib-${PLAT_LONG}/lib/libz.a")
+file(GLOB PCRE2_LIBRARY "${PCRE2_PREFIX}/lib/libpcre2-8.a")
+file(GLOB OPUSFILE_LIBRARY  "${OPUSFILE_PREFIX}/lib/libopusfile.a")
+file(GLOB OPUS_LIBRARY "${LIBACFUTILS}/opus/opus-${PLAT_LONG}/lib/libopus.a")
+file(GLOB OGG_LIBRARY "${LIBOGG_PREFIX}/lib/libogg.a")
+file(GLOB LIBXML2_LIBRARY "${LIBXML_PREFIX}/lib/libxml2.a")
+if(WIN32)
+	file(GLOB OPENAL_LIBRARY "${OPENAL_PREFIX}/lib/libOpenAL32.a")
+else()
+	file(GLOB OPENAL_LIBRARY "${OPENAL_PREFIX}/lib/libopenal.a")
+endif()
+file(GLOB FREETYPE_LIBRARY "${FREETYPE_PREFIX}/lib/libfreetype.a")
+file(GLOB CAIRO_LIBRARY "${CAIRO_PREFIX}/lib/libcairo.a")
+file(GLOB PIXMAN_LIBRARY  "${PIXMAN_PREFIX}/lib/libpixman-1.a")
+if(WIN32)
+	file(GLOB GLEW_LIBRARY "${GLEW_PREFIX}/lib/libglew32mx.a")
+elseif(APPLE)
+	file(GLOB GLEW_LIBRARY "${GLEW_PREFIX}/lib/libGLEWmx.a")
+else()
+	file(GLOB GLEW_LIBRARY "${GLEW_PREFIX}/lib64/libGLEWmx.a")
+endif()
+file(GLOB CURL_LIBRARY "${LIBACFUTILS}/curl/libcurl-${PLAT_LONG}/lib/libcurl.a")
+file(GLOB OPENSSL_LIBRARY "${OPENSSL_PREFIX}/lib/libssl.a")
+file(GLOB CRYPTO_LIBRARY "${OPENSSL_PREFIX}/lib/libcrypto.a")
+file(GLOB ICONV_LIBRARY "${ICONV_PREFIX}/lib/libiconv.a")
+file(GLOB LZMA_LIBRARY "${LIBACFUTILS}/lzma/qmake/${PLAT_LONG}/liblzma.a")
+
+if(APPLE)
+	find_library(XPLM_FRAMEWORK XPLM "${LACF}/SDK/Libraries/Mac")
+	find_library(XPWIDGETS_FRAMEWORK XPWidgets "${LACF}/SDK/Libraries/Mac")
+	find_library(OPENGL_FRAMEWORK OpenGL)
+	find_library(IOSURFACE_FRAMEWORK IOSurface)
+	find_library(COCOA_FRAMEWORK Cocoa)
+	set(EXTRA_PLATFORM_LIBS
+	    ${XPLM_FRAMEWORK}
+	    ${XPWIDGETS_FRAMEWORK}
+	    ${OPENGL_FRAMEWORK}
+	    ${IOSURFACE_FRAMEWORK}
+	    ${COCOA_FRAMEWORK})
+elseif(WIN32)
+	find_library(XPLM_LIBRARY XPLM_64 "${LIBACFUTILS}/SDK/Libraries/Win")
+	find_library(XPWIDGETS_LIBRARY XPWidgets_64
+	    "${LIBACFUTILS}/SDK/Libraries/Win")
+	set(EXTRA_PLATFORM_LIBS
+	    ${XPLM_LIBRARY}
+	    ${XPWIDGETS_LIBRARY}
+	    "-lglu32"
+	    "-lopengl32"
+	    "-lws2_32"
+	    "-lwinmm"
+	    "-ldbghelp"
+	    "-lpsapi"
+	    "-lcrypt32")
+else()
+	set(EXTRA_PLATFORM_LIBS "")
+endif()
+
 target_link_libraries(bp
     ${LIBACFUTILS_LIBRARY}
+    ${CAIRO_LIBRARY}
+    ${PIXMAN_LIBRARY}
+    ${FREETYPE_LIBRARY}
     ${LIBPNG_LIBRARY}
-    ${ZLIB_LIBRARY}
-    ${PCRE2_LIBRARY}
+    ${GLEW_LIBRARY}
+    ${OPENAL_LIBRARY}
     ${OPUSFILE_LIBRARY}
     ${OPUS_LIBRARY}
     ${OGG_LIBRARY}
+    ${PCRE2_LIBRARY}
     ${LIBXML2_LIBRARY}
-    ${LIBC_NONSHARED}
-    )
+    ${CURL_LIBRARY}
+    ${OPENSSL_LIBRARY}
+    ${CRYPTO_LIBRARY}
+    ${ICONV_LIBRARY}
+    ${ZLIB_LIBRARY}
+    ${LZMA_LIBRARY}
+    ${EXTRA_PLATFORM_LIBS})
 
-SET_TARGET_PROPERTIES(bp PROPERTIES PREFIX "")
-SET_TARGET_PROPERTIES(bp PROPERTIES SUFFIX "")
+set_target_properties(bp PROPERTIES PREFIX "")
+set_target_properties(bp PROPERTIES SUFFIX "")
 
 if(APPLE)
-	set(OUTPUT_FILENAME "mac.xpl")
-	execute_process(COMMAND ${LIBACFUTILS}/pkg-config-deps mac-64 --libs
-	    OUTPUT_VARIABLE LIBACFUTILS_DEP_LDFLAGS)
-	SET_TARGET_PROPERTIES(bp PROPERTIES LINK_FLAGS
-	    "${CMAKE_SHARED_LINKER_FLAGS} -fPIC -fvisibility=hidden -bundle")
+	set_target_properties(bp PROPERTIES LINK_FLAGS
+	    "${CMAKE_SHARED_LINKER_FLAGS} -fvisibility=hidden -bundle")
+elseif(WIN32)
+	set_target_properties(bp PROPERTIES LINK_FLAGS
+	    "${CMAKE_SHARED_LINKER_FLAGS} -undefined_warning \
+	    -fvisibility=hidden -static-libgcc -static-libstdc++")
 else()
-	set(OUTPUT_FILENAME "lin.xpl")
-	execute_process(COMMAND ${LIBACFUTILS}/pkg-config-deps linux-64 --libs
-	    OUTPUT_VARIABLE LIBACFUTILS_DEP_LDFLAGS)
-	SET_TARGET_PROPERTIES(bp PROPERTIES LINK_FLAGS
+	set_target_properties(bp PROPERTIES LINK_FLAGS
 	    "${CMAKE_SHARED_LINKER_FLAGS} -rdynamic -nodefaultlibs \
-	    -undefined_warnsing -fPIC -fvisibility=hidden")
+	    -undefined_warning -fPIC -fvisibility=hidden \
+	    -static-libgcc -static-libstdc++")
 endif()
+set_target_properties(bp PROPERTIES LINKER_LANGUAGE CXX)
 
 set_target_properties(bp PROPERTIES RUNTIME_OUTPUT_DIRECTORY
-    "${CMAKE_SOURCE_DIR}/bin" )
+    "${CMAKE_SOURCE_DIR}/../${PLUGIN_BIN_OUTDIR}")
 set_target_properties(bp PROPERTIES LIBRARY_OUTPUT_DIRECTORY
-    "${CMAKE_SOURCE_DIR}/bin" )
-set_target_properties(bp PROPERTIES OUTPUT_NAME "${OUTPUT_FILENAME}")
+    "${CMAKE_SOURCE_DIR}/../${PLUGIN_BIN_OUTDIR}")
+set_target_properties(bp PROPERTIES OUTPUT_NAME "BetterPushback.xpl")

@@ -1,0 +1,3 @@
+[submodule "src/libacfutils"]
+	path = src/libacfutils
+	url = https://github.com/skiselkov/libacfutils.git

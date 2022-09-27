@@ -45,3 +45,6 @@ libxml2-linux-32
 libxml2-linux-64
 libxml2-mac-32
 libxml2-mac-64
+win_x64
+lin_x64
+mac_x64

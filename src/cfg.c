@@ -13,7 +13,7 @@
  * CDDL HEADER END
 */
 /*
- * Copyright 2017 Saso Kiselkov. All rights reserved.
+ * Copyright 2022 Saso Kiselkov. All rights reserved.
  */
 
 #include <string.h>
@@ -315,8 +315,8 @@ sound_checkboxes_init(const char *name, char ***devs_p, size_t *num_devs_p,
 	*num_devs_p = num_devs;
 
 	*num_boxes = num_devs + 1;
-	*boxes = calloc(*num_boxes, sizeof (XPWidgetID));
-	cb = calloc((*num_boxes) + 2, sizeof (*cb));
+	*boxes = safe_calloc(*num_boxes, sizeof (XPWidgetID));
+	cb = safe_calloc((*num_boxes) + 2, sizeof (*cb));
 
 	cb[0].string = strdup(name);
 	cb[1].string = strdup(_("Default output device"));
@@ -419,7 +419,7 @@ create_main_window(void)
 
 	l = snprintf(NULL, 0, "%s (%s)",
 	    _("BetterPushback Preferences"), BP_PLUGIN_VERSION);
-	prefs_title = malloc(l + 1);
+	prefs_title = safe_malloc(l + 1);
 	snprintf(prefs_title, l + 1, "%s (%s)",
 	    _("BetterPushback Preferences"), BP_PLUGIN_VERSION);
 	main_win = create_widget_rel(100, 100, B_FALSE, main_window_width,

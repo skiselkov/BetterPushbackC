@@ -13,7 +13,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2017 Saso Kiselkov. All rights reserved.
+ * Copyright 2022 Saso Kiselkov. All rights reserved.
  */
 
 #include <stddef.h>
@@ -33,6 +33,7 @@
 #include <acfutils/helpers.h>
 #include <acfutils/intl.h>
 #include <acfutils/log.h>
+#include <acfutils/safe_alloc.h>
 #include <acfutils/wav.h>
 #include <acfutils/time.h>
 
@@ -64,12 +65,11 @@ static bool_t		inited = B_FALSE;
 
 static XPLMCommandRef	start_pb, stop_pb, start_cam, stop_cam, conn_first;
 static XPLMCommandRef	cab_cam, recreate_routes;
-static XPLMMenuID	root_menu, dev_menu;
-static int		plugins_menu_item, dev_menu_item;
+static XPLMMenuID	root_menu;
+static int		plugins_menu_item;
 static int		start_pb_plan_menu_item, stop_pb_plan_menu_item;
 static int		start_pb_menu_item, stop_pb_menu_item;
 static int		cab_cam_menu_item, prefs_menu_item;
-static int		recreate_routes_menu_item;
 
 static int start_pb_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 static int stop_pb_handler(XPLMCommandRef, XPLMCommandPhase, void *);
@@ -161,7 +161,7 @@ set_xp11_tug_hidden(bool_t flag)
 	static bool_t hidden = B_FALSE;
 	char *filename, *filename_backup;
 
-	if (flag == hidden)
+	if (flag == hidden || bp_xp_ver < 11000 || bp_xp_ver >= 12000)
 		return;
 
 	ASSERT3U(bp_xp_ver, >=, 11000);
@@ -565,8 +565,12 @@ XPluginStart(char *name, char *sig, char *desc)
 		*p = '\0';
 	/* cut off an optional '32' or '64' trailing component */
 	if ((p = strrchr(plugindir, DIRSEP)) != NULL) {
-		if (strcmp(p + 1, "64") == 0 || strcmp(p + 1, "32") == 0)
+		if (strcmp(p + 1, "64") == 0 || strcmp(p + 1, "32") == 0 ||
+		    strcmp(p + 1, "win_x64") == 0 ||
+		    strcmp(p + 1, "mac_x64") == 0 ||
+		    strcmp(p + 1, "lin_x64") == 0) {
 			*p = '\0';
+		}
 	}
 
 	/*
@@ -717,7 +721,7 @@ bp_priv_enable(void)
 
 	init_core_state();
 
-	airportdb = calloc(1, sizeof (*airportdb));
+	airportdb = safe_calloc(1, sizeof (*airportdb));
 	airportdb_create(airportdb, bp_xpdir, cachedir);
 
 	if (!recreate_cache(airportdb) || !tug_glob_init())
@@ -749,12 +753,6 @@ bp_priv_enable(void)
 	    _("Tug cab view"), cab_cam, 1);
 	prefs_menu_item = XPLMAppendMenuItem(root_menu,
 	    _("Preferences..."), &prefs_menu_item, 1);
-	dev_menu_item = XPLMAppendMenuItem(root_menu,
-	    _("Developer menu"), NULL, 1);
-	dev_menu = XPLMCreateMenu(_("Developer menu"), root_menu,
-	    dev_menu_item, menu_cb, NULL);
-	recreate_routes_menu_item = XPLMAppendMenuItem(dev_menu,
-	    _("Recreate routes from WED"), recreate_routes, 1);
 
 	XPLMEnableMenuItem(root_menu, start_pb_menu_item, B_TRUE);
 	XPLMEnableMenuItem(root_menu, stop_pb_menu_item, B_FALSE);
