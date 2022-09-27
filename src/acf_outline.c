@@ -130,10 +130,6 @@ wing_seg_outline_read(const acf_file_t *acf, int wing_nbr, vect2_t pts[4],
 		READ_FEET(root.y, z_ref, "_wing/%d/_crib_z_arm/0", wing_nbr);
 	}
 
-	printf("wing/%d: xz=%.1fx%.1f  sweep=%.1f  semilen=%.1f  dihed=%.1f  "
-	    "croot=%.1f  ctip=%.1f\n", wing_nbr, root.x, root.y, sweep,
-	    semilen, dihed, root_chord, tip_chord);
-
 	tip = vect2_add(root, vect2_rot(VECT2(semilen, 0), -sweep));
 	tip.x = (tip.x - root.x) * cos(DEG2RAD(dihed)) + root.x;
 	if (tip_p != NULL)
@@ -230,8 +226,6 @@ count_wings(const acf_file_t *acf, int *wing_nbrs, int n_wing_nbrs)
 
 		continue;
 errout:
-		printf("bad wing/%d  croot=%f  x_arm=%f\n", n,
-		    root_chord, x_arm);
 		for (int i = n + 1; i < n_wing_nbrs; i++)
 			wing_nbrs[i - 1] = wing_nbrs[i];
 		n--;
