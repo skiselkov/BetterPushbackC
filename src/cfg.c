@@ -48,7 +48,7 @@ static XPWidgetID main_win = NULL;
 #define	CHECKBOX_SIZE		20
 #define	MIN_BOX_HEIGHT		45
 
-#define	MAIN_WINDOW_HEIGHT	(MARGIN + 10 * BUTTON_HEIGHT + MARGIN)
+#define	MAIN_WINDOW_HEIGHT	(MARGIN + 16 * BUTTON_HEIGHT + MARGIN)
 
 static struct {
 	XPWidgetID	chinese;
