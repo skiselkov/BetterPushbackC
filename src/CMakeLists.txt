@@ -98,7 +98,7 @@ add_definitions("-DCHECK_RESULT_USED=__attribute__((warn_unused_result))")
 
 # Yes, we need to strip a trailing newline from command output. CMake is
 # "smart" like that...
-execute_process(COMMAND git rev-parse --short HEAD
+execute_process(COMMAND git describe --abbrev=0 --tags
     OUTPUT_VARIABLE BP_PLUGIN_VERSION)
 string(REGEX REPLACE "\n$" "" BP_PLUGIN_VERSION "${BP_PLUGIN_VERSION}")
 
