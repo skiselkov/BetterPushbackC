@@ -148,17 +148,22 @@ file(GLOB ICONV_LIBRARY "${ICONV_PREFIX}/lib/libiconv.a")
 file(GLOB LZMA_LIBRARY "${LIBACFUTILS}/lzma/qmake/${PLAT_LONG}/liblzma.a")
 
 if(APPLE)
-	find_library(XPLM_FRAMEWORK XPLM "${LACF}/SDK/Libraries/Mac")
-	find_library(XPWIDGETS_FRAMEWORK XPWidgets "${LACF}/SDK/Libraries/Mac")
+	find_library(XPLM_FRAMEWORK XPLM "${LIBACFUTILS}/SDK/Libraries/Mac")
+	find_library(XPWIDGETS_FRAMEWORK XPWidgets
+	    "${LIBACFUTILS}/SDK/Libraries/Mac")
 	find_library(OPENGL_FRAMEWORK OpenGL)
 	find_library(IOSURFACE_FRAMEWORK IOSurface)
+	find_library(AUDIOUNIT_FRAMEWORK AudioUnit)
+	find_library(COREAUDIO_FRAMEWORK CoreAudio)
 	find_library(COCOA_FRAMEWORK Cocoa)
 	set(EXTRA_PLATFORM_LIBS
 	    ${XPLM_FRAMEWORK}
 	    ${XPWIDGETS_FRAMEWORK}
 	    ${OPENGL_FRAMEWORK}
 	    ${IOSURFACE_FRAMEWORK}
-	    ${COCOA_FRAMEWORK})
+	    ${COCOA_FRAMEWORK}
+	    ${AUDIOUNIT_FRAMEWORK}
+	    ${COREAUDIO_FRAMEWORK})
 elseif(WIN32)
 	find_library(XPLM_LIBRARY XPLM_64 "${LIBACFUTILS}/SDK/Libraries/Win")
 	find_library(XPWIDGETS_LIBRARY XPWidgets_64
