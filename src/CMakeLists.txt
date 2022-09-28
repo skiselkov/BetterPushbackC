@@ -84,7 +84,8 @@ include_directories(bp PUBLIC
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Werror --std=c99 \
     -Wno-unused-local-typedefs -fvisibility=hidden")
 if(APPLE)
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -arch x86_64 -Wno-deprecated")
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -arch x86_64 -arch arm64 \
+	    -Wno-deprecated")
 endif()
 
 # Defines
@@ -208,7 +209,8 @@ set_target_properties(bp PROPERTIES SUFFIX "")
 
 if(APPLE)
 	set_target_properties(bp PROPERTIES LINK_FLAGS
-	    "${CMAKE_SHARED_LINKER_FLAGS} -fvisibility=hidden -bundle")
+	    "${CMAKE_SHARED_LINKER_FLAGS} -fvisibility=hidden -bundle \
+	    -arch x86_64 -arch arm64")
 elseif(WIN32)
 	set_target_properties(bp PROPERTIES LINK_FLAGS
 	    "${CMAKE_SHARED_LINKER_FLAGS} -undefined_warning \
