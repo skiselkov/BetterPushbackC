@@ -68,13 +68,15 @@ part_outline_read(const acf_file_t *acf, const char *part_name, vect2_t *pts,
 {
 	int r_dim;
 	double part_z;
+	const char *prop_val;
 
 	ASSERT(acf != NULL);
 
 	if (acf_file_get_version(acf) >= 1200)
-		READ_FEET(part_z, 0, "_body/0/_part_z");
+		prop_val = acf_prop_find(acf, "_body/0/_part_z");
 	else
-		READ_FEET(part_z, 0, "_part/56/_part_z");
+		prop_val = acf_prop_find(acf, "_part/56/_part_z");
+	part_z = (prop_val != NULL ? FEET2MET(atof(prop_val)) : 0);
 	z_ref -= part_z;
 	READ_INT(r_dim, "_%s/_r_dim", part_name);
 
@@ -251,6 +253,7 @@ acf_outline_read(const char *filename)
 	vect2_t *pts = NULL;
 	int p, s_dim_fus;
 	double z_ref;
+	const char *prop_val;
 
 	enum { MAX_WINGS = 4 };
 	/* even wing numbers = left side, +1 is right side */
@@ -274,11 +277,15 @@ acf_outline_read(const char *filename)
 		    sizeof (STAB_WING_IDS_XP12));
 	}
 	outline = safe_calloc(1, sizeof (*outline));
-
+	/*
+	 * Zibo 737 workaround: they ship with no fuselage body and instead
+	 * replace the fuselage by a series of weird criss-crossing wings.
+	 */
 	if (acf_file_get_version(acf) >= 1200)
-		READ_INT(s_dim_fus, "_body/0/_s_dim");
+		prop_val = acf_prop_find(acf, "_body/0/_s_dim");
 	else
-		READ_INT(s_dim_fus, "_part/56/_s_dim");
+		prop_val = acf_prop_find(acf, "_part/56/_s_dim");
+	s_dim_fus = (prop_val != NULL ? atoi(prop_val) : 0);
 	READ_FEET(z_ref, 0, "acf/_cgZ");
 
 	n_main_wings = count_wings(acf, main_wings, n_main_wings);
