@@ -114,6 +114,34 @@ function install_po_files() {
 	done
 }
 
+while getopts "nh" o; do
+	case "${o}" in
+	n)
+		if [[ $(uname) != "Darwin" ]]; then
+			echo "Codesigning and notarization can only be done" \
+			    "on macOS" >&2
+			exit 1
+		fi
+		notarize=1
+		;;
+	h)
+		cat << EOF
+Usage: $0 [-nh]
+    -n : (macOS-only) Codesign & notarize the resulting XPL after build
+         Note: requires that you create a file named user.make in the
+         notarize directory with DEVELOPER_USERNAME and DEVELOPER_PASSWORD
+         set. See notarize/notarize.make for more information.
+    -h : show this help screen and exit.
+EOF
+		exit
+		;;
+	*)
+		echo "Unknown option $o. Try $0 -h for help." >&2
+		exit 1
+		;;
+	esac
+done
+
 rm -rf BetterPushback
 mkdir -p BetterPushback
 
@@ -143,6 +171,9 @@ Linux)
 Darwin)
 	( cd src && rm -f CMakeCache.txt && cmake $CMAKE_OPTS_COMMON . \
 	    && make clean && make -j${NCPUS} )
+	if [ -n "$notarize" ]; then
+		make -f notarize/notarize.make notarize
+	fi
 	cp -r mac_x64 BetterPushback
 	;;
 *)

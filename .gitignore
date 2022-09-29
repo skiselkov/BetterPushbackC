@@ -48,3 +48,9 @@ libxml2-mac-64
 win_x64
 lin_x64
 mac_x64
+notarize/AuditInfo.json
+notarize/ExportOptions.plist
+notarize/RequestInfo.plist
+notarize/UploadInfo.plist
+notarize/user.make
+BetterPushback.zip
