@@ -1067,11 +1067,17 @@ find_drs(void)
 	fdr_find(&drs.mtow, "sim/aircraft/weight/acf_m_max");
 
 	fdr_find(&drs.view_is_ext, "sim/graphics/view/view_is_external");
-	fdr_find(&drs.visibility, "sim/weather/visibility_reported_m");
-	fdr_find(&drs.cloud_types[0], "sim/weather/cloud_type[0]");
-	fdr_find(&drs.cloud_types[1], "sim/weather/cloud_type[1]");
-	fdr_find(&drs.cloud_types[2], "sim/weather/cloud_type[2]");
-	fdr_find(&drs.use_real_wx, "sim/weather/use_real_weather_bool");
+	/*
+	 * These datarefs have been removed in XP12 with no replacements in
+	 * sight. Disabling for now to get rid of errors/crashes with them.
+	 */
+	if (bp_xp_ver < 12000) {
+		fdr_find(&drs.visibility, "sim/weather/visibility_reported_m");
+		fdr_find(&drs.cloud_types[0], "sim/weather/cloud_type[0]");
+		fdr_find(&drs.cloud_types[1], "sim/weather/cloud_type[1]");
+		fdr_find(&drs.cloud_types[2], "sim/weather/cloud_type[2]");
+		fdr_find(&drs.use_real_wx, "sim/weather/use_real_weather_bool");
+	}
 
 	fdr_find(&drs.cam_x, "sim/graphics/view/view_x");
 	fdr_find(&drs.cam_y, "sim/graphics/view/view_y");
@@ -1181,24 +1187,25 @@ bp_cam_start(void)
 		route_load(GEO_POS2(dr_getf(&drs.lat), dr_getf(&drs.lon)),
 		    dr_getf(&drs.hdg), &bp.segs);
 	}
+	if (bp_xp_ver < 12000) {
+		/*
+		 * While the planner is active, we override the current
+		 * visibility and real weather usage, so that the user can
+		 * clearly see the path while planning. After we're done,
+		 * we'll restore the settings.
+		 */
+		saved_visibility = dr_getf(&drs.visibility);
+		saved_cloud_types[0] = dr_geti(&drs.cloud_types[0]);
+		saved_cloud_types[1] = dr_geti(&drs.cloud_types[1]);
+		saved_cloud_types[2] = dr_geti(&drs.cloud_types[2]);
+		saved_real_wx = dr_geti(&drs.use_real_wx);
 
-	/*
-	 * While the planner is active, we override the current visibility
-	 * and real weather usage, so that the user can clearly see the path
-	 * while planning. After we're done, we'll restore the settings.
-	 */
-	saved_visibility = dr_getf(&drs.visibility);
-	saved_cloud_types[0] = dr_geti(&drs.cloud_types[0]);
-	saved_cloud_types[1] = dr_geti(&drs.cloud_types[1]);
-	saved_cloud_types[2] = dr_geti(&drs.cloud_types[2]);
-	saved_real_wx = dr_geti(&drs.use_real_wx);
-
-	dr_setf(&drs.visibility, BP_PLANNER_VISIBILITY);
-	dr_seti(&drs.cloud_types[0], 0);
-	dr_seti(&drs.cloud_types[1], 0);
-	dr_seti(&drs.cloud_types[2], 0);
-	dr_seti(&drs.use_real_wx, 0);
-
+		dr_setf(&drs.visibility, BP_PLANNER_VISIBILITY);
+		dr_seti(&drs.cloud_types[0], 0);
+		dr_seti(&drs.cloud_types[1], 0);
+		dr_seti(&drs.cloud_types[2], 0);
+		dr_seti(&drs.use_real_wx, 0);
+	}
 	cam_inited = B_TRUE;
 
 	return (B_TRUE);
@@ -1237,13 +1244,13 @@ bp_cam_stop(void)
 	cockpit_view_cmd = XPLMFindCommand("sim/view/3d_cockpit_cmnd_look");
 	ASSERT(cockpit_view_cmd != NULL);
 	XPLMCommandOnce(cockpit_view_cmd);
-
-	dr_setf(&drs.visibility, saved_visibility);
-	dr_seti(&drs.cloud_types[0], saved_cloud_types[0]);
-	dr_seti(&drs.cloud_types[1], saved_cloud_types[1]);
-	dr_seti(&drs.cloud_types[2], saved_cloud_types[2]);
-	dr_seti(&drs.use_real_wx, saved_real_wx);
-
+	if (bp_xp_ver < 12000) {
+		dr_setf(&drs.visibility, saved_visibility);
+		dr_seti(&drs.cloud_types[0], saved_cloud_types[0]);
+		dr_seti(&drs.cloud_types[1], saved_cloud_types[1]);
+		dr_seti(&drs.cloud_types[2], saved_cloud_types[2]);
+		dr_seti(&drs.use_real_wx, saved_real_wx);
+	}
 	cam_inited = B_FALSE;
 
 	return (B_TRUE);
