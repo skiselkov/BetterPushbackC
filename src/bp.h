@@ -13,7 +13,7 @@
  * CDDL HEADER END
 */
 /*
- * Copyright 2017 Saso Kiselkov. All rights reserved.
+ * Copyright 2023 Saso Kiselkov. All rights reserved.
  */
 
 #ifndef	_BP_H_
@@ -137,6 +137,10 @@ typedef struct {
 	double		last_hdg;
 
 	bool_t		light_warn;
+
+	struct {
+		float	nosewheel_rot_spd;	/* rad/sec */
+	} anim;
 } bp_state_t;
 
 /*

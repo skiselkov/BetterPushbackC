@@ -29,6 +29,7 @@
 #include <acfutils/assert.h>
 #include <acfutils/core.h>
 #include <acfutils/crc64.h>
+#include <acfutils/dr_cmd_reg.h>
 #include <acfutils/glew.h>
 #include <acfutils/helpers.h>
 #include <acfutils/intl.h>
@@ -588,6 +589,8 @@ XPluginStart(char *name, char *sig, char *desc)
 	strcpy(sig, BP_PLUGIN_SIG);
 	strcpy(desc, BP_PLUGIN_DESCRIPTION);
 
+	dcr_init();
+
 	/* We need the configuration very early to be able to pick the lang */
 	if (!bp_conf_init())
 		return (0);
@@ -646,6 +649,7 @@ XPluginStop(void)
 	dr_delete(&slave_mode_dr);
 	dr_delete(&op_complete_dr);
 	dr_delete(&bp_tug_name_dr);
+	dcr_fini();
 
 	if (reload_floop_ID != NULL) {
 		XPLMDestroyFlightLoop(reload_floop_ID);
@@ -718,7 +722,6 @@ bp_priv_enable(void)
 	bp_conf_fini();
 	if (!bp_conf_init())
 		return (0);
-
 	init_core_state();
 
 	airportdb = safe_calloc(1, sizeof (*airportdb));

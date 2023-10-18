@@ -24,6 +24,7 @@
  */
 
 #include <string.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <errno.h>
 
@@ -39,6 +40,7 @@
 
 #include <acfutils/assert.h>
 #include <acfutils/dr.h>
+#include <acfutils/dr_cmd_reg.h>
 #include <acfutils/geom.h>
 #include <acfutils/glew.h>
 #include <acfutils/intl.h>
@@ -140,7 +142,7 @@ static struct {
 	dr_t	sim_time;
 	dr_t	acf_mass;
 	dr_t	mtow;
-	dr_t	tire_z, tire_x, leg_len, tirrad;
+	dr_t	tire_z, tire_x, leg_len, tirrad, tire_rot_spd;
 	dr_t	nw_steerdeg1, nw_steerdeg2;
 	dr_t	tire_steer_cmd;
 	dr_t	override_steer;
@@ -162,8 +164,8 @@ static struct {
 	dr_t	sim_paused;
 } drs;
 
-bp_state_t bp;
-bp_long_state_t bp_ls;
+bp_state_t bp = {0};
+bp_long_state_t bp_ls = {0};
 
 static bool_t inited = B_FALSE;
 static XPLMFlightLoopID	bp_floop = NULL;
@@ -967,6 +969,9 @@ bp_boot_init(void)
 	    _("Disconnect tow + headset and switch to hand signals."));
 	recon_cmd = XPLMCreateCommand("BetterPushback/reconnect",
 	    _("Reconnect tow and await further instructions."));
+
+	DCR_CREATE_F(NULL, &bp.anim.nosewheel_rot_spd, false,
+	    "bp/anim/nosewheel_rotation_speed_rad_sec");
 }
 
 void
@@ -1106,6 +1111,8 @@ bp_init(void)
 	fdr_find(&drs.acf_mass, "sim/flightmodel/weight/m_total");
 	fdr_find(&drs.tire_z, "sim/flightmodel/parts/tire_z_no_deflection");
 	fdr_find(&drs.tire_x, "sim/flightmodel/parts/tire_x_no_deflection");
+	fdr_find(&drs.tire_rot_spd,
+	    "sim/flightmodel2/gear/tire_rotation_speed_rad_sec");
 	fdr_find(&drs.mtow, "sim/aircraft/weight/acf_m_max");
 	fdr_find(&drs.leg_len, "sim/aircraft/parts/acf_gear_leglen");
 	fdr_find(&drs.tirrad, "sim/aircraft/parts/acf_gear_tirrad");
@@ -1799,8 +1806,20 @@ pb_step_connect_winch(void)
 		tug_set_lift_arm_pos(bp_ls.tug, 1 - x, B_TRUE);
 		tug_set_TE_override(bp_ls.tug, B_TRUE);
 		tug_set_TE_snd(bp_ls.tug, PB_LIFT_TE, bp.d_t);
+		/*
+		 * While winching, we can simply look at the normal nose gear
+		 * animation speed to determine the gear rotation speed,
+		 * since our tug is standing still and it's the aircraft
+		 * which is moving.
+		 */
+		dr_getvf32(&drs.tire_rot_spd, &bp.anim.nosewheel_rot_spd,
+		    bp.acf.nw_i, 1);
 	} else {
 		bp.winching.complete = B_TRUE;
+		/*
+		 * Stop nosewheel animation when we're done winching.
+		 */
+		bp.anim.nosewheel_rot_spd = 0;
 	}
 
 	if (bp.winching.complete) {
@@ -2820,7 +2839,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			    bp_ls.tug->pos.pos);
 			const tug_info_t *ti = bp_ls.tug->info;
 			double plat_len = ti->lift_wall_z - ti->plat_z;
-			double x, lift;
+			double x, lift, tirrad;
 
 			dist -= (-bp.acf.nw_z);
 			dist -= (-ti->lift_wall_z);
@@ -2828,11 +2847,25 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon)
 			x = MIN(MAX(x, 0), 1);
 			lift = ti->plat_h * x + bp.acf.nw_len;
 			dr_setvf(&drs.leg_len, &lift, bp.acf.nw_i, 1);
+			/*
+			 * Roll the nosewheel slowly backwards to symbolize
+			 * that the tug is slipping out from underneath.
+			 */
+			dr_getvf(&drs.tirrad, &tirrad, bp.acf.nw_i, 1);
+			ASSERT(bp_ls.tug != NULL);
+			if (dist / plat_len < 1) {
+				bp.anim.nosewheel_rot_spd =
+				    -bp_ls.tug->veh_slow.max_fwd_spd /
+				    MAX(tirrad, 1e-3);
+			} else {
+				bp.anim.nosewheel_rot_spd = 0;
+			}
 		}
 		if (tug_is_stopped(bp_ls.tug)) {
 			tug_set_cradle_beeper_on(bp_ls.tug, B_TRUE);
 			bp.step++;
 			bp.step_start_t = bp.cur_t;
+			bp.anim.nosewheel_rot_spd = 0;
 		}
 		break;
 	case PB_STEP_CLOSING_CRADLE:
@@ -2878,5 +2911,3 @@ bp_num_segs(void)
 		return (0);
 	return (list_count(&bp.segs));
 }
-
-
