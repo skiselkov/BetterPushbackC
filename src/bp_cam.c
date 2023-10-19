@@ -570,18 +570,11 @@ draw_segment(const seg_t *seg)
 }
 
 static void
-draw_acf_symbol(vect3_t pos, double hdg, double wheelbase, vect3_t color)
+draw_acf_symbol(vect3_t pos, double hdg, vect3_t color)
 {
 	vect2_t v;
 	vect3_t p;
 	double tire_x[10], tire_z[10], tirrad[10];
-
-	/*
-	 * The wheelbase of most airlines is very roughly 1/3 of their
-	 * total length, so multiplying by 1.5 makes this value approx
-	 * half their size and gives a good rough "size ring" radius.
-	 */
-	wheelbase *= 1.5;
 
 	glLineWidth(2);
 	glColor3f(color.x, color.y, color.z);
@@ -711,22 +704,19 @@ draw_prediction(XPLMDrawingPhase phase, int before, void *refcon)
 			glEnd();
 		}
 		draw_acf_symbol(VECT3(seg->end_pos.x, info.locationY,
-		    seg->end_pos.y), seg->end_hdg, bp.veh.wheelbase,
-		    AMBER_TUPLE);
+		    seg->end_pos.y), seg->end_hdg, AMBER_TUPLE);
 	} else {
 		VERIFY3U(XPLMProbeTerrainXYZ(probe, cursor_world_pos.x, 0,
 		    -cursor_world_pos.y, &info), ==, xplm_ProbeHitTerrain);
 		draw_acf_symbol(VECT3(cursor_world_pos.x, info.locationY,
-		    cursor_world_pos.y), cursor_hdg, bp.veh.wheelbase,
-		    RED_TUPLE);
+		    cursor_world_pos.y), cursor_hdg, RED_TUPLE);
 	}
 
 	if ((seg = list_tail(&bp.segs)) != NULL) {
 		VERIFY3U(XPLMProbeTerrainXYZ(probe, seg->end_pos.x, 0,
 		    -seg->end_pos.y, &info), ==, xplm_ProbeHitTerrain);
 		draw_acf_symbol(VECT3(seg->end_pos.x, info.locationY,
-		    seg->end_pos.y), seg->end_hdg, bp.veh.wheelbase,
-		    GREEN_TUPLE);
+		    seg->end_pos.y), seg->end_hdg, GREEN_TUPLE);
 	}
 
 	/* Draw the night-lighting lamp so the user can see under the cursor */

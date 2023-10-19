@@ -157,6 +157,8 @@ if(APPLE)
 	find_library(AUDIOUNIT_FRAMEWORK AudioUnit)
 	find_library(COREAUDIO_FRAMEWORK CoreAudio)
 	find_library(COCOA_FRAMEWORK Cocoa)
+	# Required for IPv6 support in libcurl
+	find_library(SYSTEM_CONFIGURATION_FRAMEWORK SystemConfiguration)
 	set(EXTRA_PLATFORM_LIBS
 	    ${XPLM_FRAMEWORK}
 	    ${XPWIDGETS_FRAMEWORK}
@@ -164,7 +166,8 @@ if(APPLE)
 	    ${IOSURFACE_FRAMEWORK}
 	    ${COCOA_FRAMEWORK}
 	    ${AUDIOUNIT_FRAMEWORK}
-	    ${COREAUDIO_FRAMEWORK})
+	    ${COREAUDIO_FRAMEWORK}
+	    ${SYSTEM_CONFIGURATION_FRAMEWORK})
 elseif(WIN32)
 	find_library(XPLM_LIBRARY XPLM_64 "${LIBACFUTILS}/SDK/Libraries/Win")
 	find_library(XPWIDGETS_LIBRARY XPWidgets_64
