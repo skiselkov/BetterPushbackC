@@ -3,6 +3,19 @@ DO NOT download BetterPushback using the green "Clone or Download" button
 on the main repository page. Use the
 [RELEASES](https://github.com/skiselkov/BetterPushbackC/releases) section, the click on "Assets" and download "BetterPushback.zip".
 
+# !!! XP12 Release Failure Fix!!!
+
+Go to Output/Preferences/betterpushback.cfg , and open this file with any text editor(Notepad, Atom etc.) 
+
+change this document to only containing this two lines:
+`disco_when_done = true`
+`dont_hide_xp11_tug = true`
+
+
+
+
+Step by step guide on the video: https://www.youtube.com/watch?v=FrC8PHk70h4 
+
 # About BetterPushback
 
 This is a pushback plugin for the X-Plane 11 flight simulator.
