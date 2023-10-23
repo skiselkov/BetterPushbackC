@@ -1881,7 +1881,7 @@ pb_step_lift(void)
 	if (d_t >= PB_CONN_LIFT_DURATION + STATE_TRANS_DELAY) {
 		if (late_plan_requested) {
 			/*
-			 * The user requsted a late plan, so this is as
+			 * The user requested a late plan, so this is as
 			 * far as we can go without segments. Also wait
 			 * for the camera to stop.
 			 */
