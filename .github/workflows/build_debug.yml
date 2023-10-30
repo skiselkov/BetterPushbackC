@@ -1,0 +1,32 @@
+name: Build Debug
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-lin-win:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get -y install build-essential gcc-multilib g++-multilib mingw-w64 libgl1-mesa-dev libglu1-mesa-dev libx11-dev qtbase5-dev qtchooser qt5-qmake qtbase5-dev-tools qt5-qmake libasound2-dev libportaudio2 libpulse-dev ffmpeg libxcursor-dev
+      - name: configure libacfutils
+        run: 'cd src/libacfutils && chmod +x build_deps &&./build_deps'
+      - name: Build libacfutils redist
+        run: 'cd src/libacfutils && chmod +x build_redist && ./build_redist'
+      - name: Build
+        run: 'chmod +x build_release && ./build_release'
+      - name: Archive files
+        run: zip -r BetterPushBack_lin_win.zip BetterPushback
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: BetterPushBack_lin_win.zip
+          path: BetterPushBack_lin_win.zip
