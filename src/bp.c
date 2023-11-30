@@ -1134,8 +1134,11 @@ bp_init(void)
 	fdr_find(&drs.num_engns, "sim/aircraft/engine/acf_num_engines");
 	fdr_find(&drs.engn_running, "sim/flightmodel/engine/ENGN_running");
 	fdr_find(&drs.acf_livery_path, "sim/aircraft/view/acf_livery_path");
-	fdr_find(&drs.rwy_friction, "sim/weather/runway_friction");
-
+    if(bp_xp_ver >= 12000){
+        fdr_find(&drs.rwy_friction, "sim/weather/region/runway_friction");
+    } else{
+        fdr_find(&drs.rwy_friction, "sim/weather/runway_friction");
+    }
 	fdr_find(&drs.landing_lights_on,
 	    "sim/cockpit/electrical/landing_lights_on");
 	fdr_find(&drs.taxi_light_on, "sim/cockpit/electrical/taxi_light_on");
