@@ -514,9 +514,9 @@ bp_conf_save(void)
 
 	if ((!file_exists(path, &isdir) || !isdir) &&
 	    !create_directory_recursive(path)) {
-		free(path);
 		logMsg("Error writing configuration: "
 		    "can't create parent directory %s", path);
+		free(path);
 		return (B_FALSE);
 	}
 	free(path);
