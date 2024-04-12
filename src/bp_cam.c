@@ -362,12 +362,15 @@ get_vp(vec4 vp)
 	vp[2] = vp_xp[2] - vp_xp[0];
 	vp[3] = vp_xp[3] - vp_xp[1];
 	if (vp[2] == 0 || vp[3] == 0) {
-		int scr_w, scr_h;
+		int scr_w, scr_h, left, top, right, bottom;
 		/*
 		 * Due to an outstanding X-Plane 11.50 beta bug, the viewport
 		 * dataref might not be properly updated in OpenGL mode.
 		 */
-		XPLMGetScreenSize(&scr_w, &scr_h);
+		XPLMGetScreenBoundsGlobal(&left, &top, &right, &bottom);
+		scr_w = right;
+		scr_h = top;
+
 		vp[2] = scr_w;
 		vp[3] = scr_h;
 	}
@@ -794,11 +797,14 @@ static void
 fake_win_draw(XPLMWindowID inWindowID, void *inRefcon)
 {
 	double scale;
-	int w, h, h_buttons, h_off;
+	int w, h, h_buttons, h_off, left, top, right, bottom;
 	UNUSED(inWindowID);
 	UNUSED(inRefcon);
 
-	XPLMGetScreenSize(&w, &h);
+	XPLMGetScreenBoundsGlobal(&left, &top, &right, &bottom);
+	w = right;
+	h = top;
+
 	XPLMSetWindowGeometry(fake_win, 0, h, w, 0);
 
 	if (!XPLMIsWindowInFront(fake_win))
@@ -835,9 +841,11 @@ static int
 button_hit_check(int x, int y)
 {
 	double scale;
-	int w, h, h_buttons, h_off;
+	int w, h, h_buttons, h_off, left, top, right, bottom;
 
-	XPLMGetScreenSize(&w, &h);
+	XPLMGetScreenBoundsGlobal(&left, &top, &right, &bottom);
+	w = right;
+	h = top;
 
 	h_buttons = 0;
 	for (int i = 0; buttons[i].filename != NULL; i++)
@@ -1139,7 +1147,10 @@ bp_cam_start(void)
 	}
 #endif	/* !PB_DEBUG_INTF */
 
-	XPLMGetScreenSize(&fake_win_ops.right, &fake_win_ops.top);
+	int left, top, right, bottom;
+	XPLMGetScreenBoundsGlobal(&left, &top, &right, &bottom);
+	fake_win_ops.right = right;
+	fake_win_ops.top = top;
 
 	circle_view_cmd = XPLMFindCommand("sim/view/circle");
 	ASSERT(circle_view_cmd != NULL);

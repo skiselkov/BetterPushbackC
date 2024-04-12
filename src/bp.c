@@ -2218,11 +2218,14 @@ pb_step_closing_cradle(void)
 static void
 disco_win_draw(XPLMWindowID inWindowID, void *inRefcon)
 {
-	int w, h, mx, my;
+	int w, h, mx, my, left, top, right, bottom;
 
 	UNUSED(inRefcon);
-	XPLMGetScreenSize(&w, &h);
-	XPLMGetMouseLocation(&mx, &my);
+	XPLMGetScreenBoundsGlobal(&left, &top, &right, &bottom);
+	XPLMGetMouseLocationGlobal(&mx, &my);
+
+	w = right;
+	h = top;
 
 	XPLMSetGraphicsState(0, 1, 0, 0, 1, 0, 0);
 	if (inWindowID == bp_ls.disco_win) {
@@ -2337,9 +2340,12 @@ disco_intf_show(void)
 	    .handleMouseWheelFunc = nil_win_wheel,
 	    .refcon = NULL
 	};
-	int w, h;
+	int w, h, left, top, right, bottom;
 
-	XPLMGetScreenSize(&w, &h);
+	XPLMGetScreenBoundsGlobal(&left, &top, &right, &bottom);
+
+	w = right;
+	h = top;
 
 	disco_ops.left = w / 2 - 1.5 * disco_buttons[0].w;
 	disco_ops.right = w / 2 - 0.5 * disco_buttons[0].w;
